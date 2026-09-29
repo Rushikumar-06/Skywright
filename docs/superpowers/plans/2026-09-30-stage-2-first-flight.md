@@ -2904,3 +2904,23 @@ These need a person, because they're about how it feels (spec §5: "A stage is f
 9. **Overboard:** walk off the bow. Do you come back aboard at the helm with a message?
 10. **Two copies:** host one and join with the other on this machine. Both worlds load, and each flies its own ship (sharing a ship is stage 3).
 11. **Frame rate:** 60 fps at 1080p on the Radeon 680M (`--gpu-index 0`)?
+
+---
+
+## Changes during execution and after the final review
+
+A fresh reviewer read the whole branch and gave the verdict "with fixes". Every fix below has a test that failed first:
+
+| Problem | Fix | Test |
+|---|---|---|
+| Task 4's ship used `Tuning.TRIM_MAX` before Task 6 added it. | The trim limits moved into Task 2's flight constants (fixed in this plan before Task 1). | Tasks 2–4 compiling |
+| A network test failed once. Its random port (30000–49999) overlapped Linux's ephemeral range (32768 and up), where other programs' UDP sockets sit. | Test ports are 20000–29999. | Three suite runs green |
+| `ShipMesh` wound its quads anti-clockwise, so Godot drew the ship inside out. | Quads wind clockwise seen from outside, like Godot's own meshes. | `test_ship_faces_wind_the_way_godot_draws_them` |
+| The physics guard couldn't recover from NaN. After `_integrate_forces`, the engine pushes the node's transform to the server whenever it differs from the state's, and NaN never equals itself. | The guard moves the node (`global_transform`) and resets interpolation. | `test_a_ship_gone_non_finite_is_put_back` |
+| Taking the helm from the top of a ladder kept you climbing. | Nobody climbs while at a station. | `test_taking_a_station_from_a_ladder_stops_the_climb` |
+| Nothing tested that the pause menu switches the controls off. | Test added (it fails with the wiring removed). | `test_the_pause_menu_takes_the_controls_and_gives_them_back` |
+
+**Deferred:**
+- The island-ramming test has no upper bound on how far the ship gets.
+- `Ship.crew_spawn()` assumes the ship has a helm. Stage 4's blueprint checks will require one.
+- The HUD's overboard message and the autopilot readout are untested.

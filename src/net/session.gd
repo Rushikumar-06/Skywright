@@ -1,9 +1,13 @@
 extends Node
 ## This game's network role: in the menus, solo, hosting, or connected to a host.
 ## Every game runs a server. Solo is a server with no network, so solo and online
-## play share one code path. The host owns the roster and checks each joiner's
-## version before accepting them. Game RPCs added later must ignore senders that
-## aren't in players.
+## play share one code path.
+##
+## Joining uses SceneMultiplayer's authentication step. The joiner sends its
+## protocol version and name as plain bytes, a format no later RPC can shift, and
+## the host accepts or refuses it before it counts as connected. Only accepted
+## peers receive RPCs, and a peer that never introduces itself is dropped after
+## AUTH_TIMEOUT seconds.
 
 signal started                  ## Solo began, hosting began, or the host accepted us.
 signal ended(reason: String)    ## The session stopped. reason is "" when the player chose to leave.
@@ -14,18 +18,20 @@ enum Mode { NONE, SOLO, HOST, CLIENT }
 const PROTOCOL_VERSION := 1
 const DEFAULT_PORT := 24650
 const MAX_PLAYERS := 8
+const AUTH_TIMEOUT := 5.0  ## Seconds a joiner has to introduce itself.
 const SettingsScript := preload("res://src/core/settings.gd")
 
 var mode := Mode.NONE
 var players: Dictionary = {}              ## peer id (int) -> {"name": String}
 var port := DEFAULT_PORT                  ## The port being hosted on or joined.
 var max_players := MAX_PLAYERS            ## Host included. Tests lower it to fill a game.
-var protocol_version := PROTOCOL_VERSION  ## Tests change it to act as an out-of-date client.
+var protocol_version := PROTOCOL_VERSION  ## The version this game speaks. Tests change it.
 var connect_timeout := 8.0                ## Seconds a client waits to be accepted.
 var log_enabled := true                   ## Prints "[session] ..." lines; tests turn it off.
 
 var _accepted := false
 var _pending_name := ""
+var _joining: Dictionary = {}             ## Host: accepted peer id -> name, until connected.
 var _timeout: Timer
 
 
@@ -34,10 +40,15 @@ func _ready() -> void:
 	_timeout.one_shot = true
 	_timeout.timeout.connect(_on_timeout)
 	add_child(_timeout)
-	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
-	multiplayer.connected_to_server.connect(_on_connected_to_server)
-	multiplayer.connection_failed.connect(_on_connection_failed)
-	multiplayer.server_disconnected.connect(_on_server_disconnected)
+	var api := multiplayer as SceneMultiplayer
+	api.auth_callback = _on_auth
+	api.auth_timeout = AUTH_TIMEOUT
+	api.peer_authenticating.connect(_on_peer_authenticating)
+	api.peer_authentication_failed.connect(_on_peer_authentication_failed)
+	api.peer_connected.connect(_on_peer_connected)
+	api.peer_disconnected.connect(_on_peer_disconnected)
+	api.connection_failed.connect(_on_connection_failed)
+	api.server_disconnected.connect(_on_server_disconnected)
 
 
 func is_server() -> bool:
@@ -154,10 +165,68 @@ static func lan_addresses(addresses: PackedStringArray) -> PackedStringArray:
 	return lan
 
 
-func _on_connected_to_server() -> void:
-	if mode == Mode.CLIENT:
-		_hello.rpc_id(1, protocol_version, _pending_name)
+# --- joining (SceneMultiplayer authentication) ---
 
+func _on_peer_authenticating(id: int) -> void:
+	if mode == Mode.CLIENT and id == 1:
+		(multiplayer as SceneMultiplayer).send_auth(1, var_to_bytes({"version": protocol_version, "name": _pending_name}))
+
+
+func _on_auth(id: int, data: PackedByteArray) -> void:
+	var message: Variant = bytes_to_var(data)
+	if not message is Dictionary:
+		return
+	if mode == Mode.HOST:
+		_on_hello(id, message)
+	elif mode == Mode.CLIENT and id == 1:
+		if message.get("accepted") == true:
+			(multiplayer as SceneMultiplayer).complete_auth(1)
+		elif message.get("refused") is String:
+			_end(message["refused"])
+
+
+## Host: accept or refuse a joiner from what it sent.
+func _on_hello(id: int, hello: Dictionary) -> void:
+	if players.has(id) or _joining.has(id):
+		return
+	var api := multiplayer as SceneMultiplayer
+	var version: Variant = hello.get("version")
+	var refusal := ""
+	if not version is int or version != protocol_version:
+		refusal = "The host is on version %d and you're on version %s. Both need the same version." % [protocol_version, str(version)]
+	elif players.size() + _joining.size() >= max_players:
+		refusal = "The game is full."
+	if not refusal.is_empty():
+		api.send_auth(id, var_to_bytes({"refused": refusal}))
+		# Disconnect once the refusal has gone out; a plain disconnect would drop it.
+		(api.multiplayer_peer as ENetMultiplayerPeer).get_peer(id).peer_disconnect_later()
+		_log("refused peer %d: %s" % [id, refusal])
+		return
+	var raw_name: Variant = hello.get("name", "")
+	_joining[id] = SettingsScript.clean_name(raw_name if raw_name is String else "")
+	api.send_auth(id, var_to_bytes({"accepted": true}))
+	api.complete_auth(id)
+
+
+func _on_peer_authentication_failed(id: int) -> void:
+	_joining.erase(id)
+	if mode == Mode.CLIENT and id == 1:
+		_end("The host didn't answer.")
+
+
+func _on_peer_connected(id: int) -> void:
+	if mode != Mode.HOST or not _joining.has(id):
+		return
+	var roster := players.duplicate(true)
+	roster[id] = {"name": _joining[id]}
+	_joining.erase(id)
+	_set_players(roster)
+	_welcome.rpc_id(id, players)
+	_roster.rpc(players)
+	_log("peer %d joined as %s" % [id, roster[id]["name"]])
+
+
+# --- connection events ---
 
 func _on_connection_failed() -> void:
 	if mode == Mode.CLIENT:
@@ -170,6 +239,7 @@ func _on_server_disconnected() -> void:
 
 
 func _on_peer_disconnected(id: int) -> void:
+	_joining.erase(id)
 	if mode == Mode.HOST and players.has(id):
 		var roster := players.duplicate(true)
 		roster.erase(id)
@@ -183,29 +253,7 @@ func _on_timeout() -> void:
 		_end("The host didn't answer.")
 
 
-@rpc("any_peer", "call_remote", "reliable")
-func _hello(version: int, player_name: String) -> void:
-	if mode != Mode.HOST:
-		return
-	var id := multiplayer.get_remote_sender_id()
-	var refusal := ""
-	if version != PROTOCOL_VERSION:
-		refusal = "The host is on version %d and you're on version %d. Both need the same version." % [PROTOCOL_VERSION, version]
-	elif players.size() >= max_players:
-		refusal = "The game is full."
-	if not refusal.is_empty():
-		_refused.rpc_id(id, refusal)
-		# Disconnect once the refusal has gone out; a plain disconnect would drop it.
-		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(id).peer_disconnect_later()
-		_log("refused peer %d: %s" % [id, refusal])
-		return
-	var roster := players.duplicate(true)
-	roster[id] = {"name": SettingsScript.clean_name(player_name)}
-	_set_players(roster)
-	_welcome.rpc_id(id, players)
-	_roster.rpc(players)
-	_log("peer %d joined as %s" % [id, roster[id]["name"]])
-
+# --- RPCs (accepted peers only) ---
 
 @rpc("authority", "call_remote", "reliable")
 func _welcome(roster: Dictionary) -> void:
@@ -216,12 +264,6 @@ func _welcome(roster: Dictionary) -> void:
 	_set_players(roster)
 	_log("joined; crew: %s" % ", ".join(_names()))
 	started.emit()
-
-
-@rpc("authority", "call_remote", "reliable")
-func _refused(reason: String) -> void:
-	if mode == Mode.CLIENT:
-		_end(reason)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -250,6 +292,7 @@ func _reset(linger := false) -> void:
 	_timeout.stop()
 	mode = Mode.NONE
 	_accepted = false
+	_joining.clear()
 	var old_peer := multiplayer.multiplayer_peer
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	if old_peer != null and not old_peer is OfflineMultiplayerPeer:

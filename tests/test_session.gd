@@ -8,22 +8,31 @@ var _branches: Array[Node] = []
 
 func after_each() -> void:
 	for branch in _branches:
-		(branch.get_node("Session") as SessionScript).leave()
+		var session := branch.get_node_or_null("Session") as SessionScript
+		if session:
+			session.leave()
+		else:
+			branch.multiplayer.multiplayer_peer.close()
 		get_tree().set_multiplayer(null, branch.get_path())
 
 
-## A Session under its own branch with its own MultiplayerAPI, so a host and a
-## client can run in one process.
-func make_session(branch_name: String) -> SessionScript:
+## A branch with its own MultiplayerAPI, so several peers can run in one process.
+func make_branch(branch_name: String) -> Node:
 	var branch := Node.new()
 	branch.name = branch_name
 	add_child(branch)
 	get_tree().set_multiplayer(SceneMultiplayer.new(), branch.get_path())
-	var session := SessionScript.new()
+	_branches.append(branch)
+	return branch
+
+
+## A Session under its own branch. script lets a test use a changed Session.
+func make_session(branch_name: String, script: GDScript = SessionScript) -> SessionScript:
+	var branch := make_branch(branch_name)
+	var session: SessionScript = script.new()
 	session.name = "Session"
 	session.log_enabled = false
 	branch.add_child(session)
-	_branches.append(branch)
 	return session
 
 
@@ -68,8 +77,45 @@ func test_client_joins_and_both_sides_share_the_roster() -> void:
 func test_host_cleans_joiner_names() -> void:
 	var host := make_session("Host")
 	var client := make_session("Client")
-	assert_true(await host_and_join(host, client, "  \n  "), "joined")
-	assert_eq(host.players.get(client.multiplayer.get_unique_id()), {"name": "Captain"})
+	var port := free_port()
+	host.host("Host", port)
+	client.join("Guest", "127.0.0.1", port)
+	client._pending_name = "  Ann\nBob" + "x".repeat(5000)  # raw, as a modified client could send it
+	assert_true(await wait_until(func() -> bool: return host.players.size() == 2, 5.0), "joined")
+	assert_eq(host.players.get(client.multiplayer.get_unique_id()), {"name": "Ann Bob" + "x".repeat(17)})
+
+
+func test_version_check_survives_new_rpcs() -> void:
+	# A later version adds RPCs to Session; an old client must still get the
+	# version message, not silence.
+	var newer := GDScript.new()
+	newer.source_code = "extends \"res://src/net/session.gd\"\n\n\n@rpc(\"any_peer\")\nfunc _aaa_added_later() -> void:\n\tpass\n"
+	newer.reload()
+	var host := make_session("Host", newer)
+	host.protocol_version = SessionScript.PROTOCOL_VERSION + 1
+	var client := make_session("Client")
+	var port := free_port()
+	host.host("Host", port)
+	var reason := [""]
+	client.ended.connect(func(why: String) -> void: reason[0] = why)
+	client.join("Guest", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return reason[0] != "", 5.0), "client is told why")
+	assert_true(reason[0].contains("version 2") and reason[0].contains("version 1"), reason[0])
+
+
+func test_a_peer_that_never_introduces_itself_is_dropped() -> void:
+	var host := make_session("Host")
+	var port := free_port()
+	host.host("Host", port)
+	(host.multiplayer as SceneMultiplayer).auth_timeout = 0.5
+	var silent := make_branch("Silent")  # connects over ENet but never says who it is
+	var peer := ENetMultiplayerPeer.new()
+	peer.create_client("127.0.0.1", port)
+	silent.multiplayer.multiplayer_peer = peer
+	var dropped := [false]
+	silent.multiplayer.server_disconnected.connect(func() -> void: dropped[0] = true)
+	assert_true(await wait_until(func() -> bool: return dropped[0], 3.0), "the host drops it")
+	assert_eq(host.players.size(), 1)
 
 
 func test_host_refuses_a_different_version() -> void:

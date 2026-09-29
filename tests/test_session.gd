@@ -36,8 +36,10 @@ func make_session(branch_name: String, script: GDScript = SessionScript) -> Sess
 	return session
 
 
+## A random port below the ephemeral range (32768 and up on Linux, 49152 on
+## Windows), where other programs' UDP sockets could already hold it.
 func free_port() -> int:
-	return 30000 + randi() % 20000
+	return 20000 + randi() % 10000
 
 
 ## Hosts on a fresh port, joins it, and waits until both sides have the full roster.

@@ -16,7 +16,7 @@ func test_esc_while_connecting_returns_to_a_fresh_menu() -> void:
 	get_tree().root.add_child(menu)
 	get_tree().current_scene = menu
 	await get_tree().process_frame
-	Session.join("Tester", "127.0.0.1", 30000 + randi() % 20000)
+	Session.join("Tester", "127.0.0.1", 20000 + randi() % 10000)  # nobody listens there
 	menu.call("_open_join")
 	var esc := InputEventAction.new()
 	esc.action = "ui_cancel"

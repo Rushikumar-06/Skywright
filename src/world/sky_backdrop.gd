@@ -1,7 +1,6 @@
 class_name SkyBackdrop
 extends Node3D
-## A slow drift through golden-hour sky above the storm. It sits behind the menus
-## and the stage 1 world until the world stage builds the real sky.
+## A slow drift through golden-hour sky above the storm, behind the menus.
 
 const DRIFT := 0.02  ## Camera yaw in radians per second.
 
@@ -43,7 +42,7 @@ func _ready() -> void:
 	for spec: Array in [[Vector3(-220, 760, -900), 70.0], [Vector3(340, 820, -1400), 110.0],
 			[Vector3(-640, 690, -1800), 90.0], [Vector3(130, 745, -520), 34.0],
 			[Vector3(900, 700, 300), 80.0], [Vector3(-1100, 780, 700), 120.0]]:
-		add_child(_island(spec[0], spec[1]))
+		add_child(Island.create(spec[0], spec[1]))
 
 	_camera = Camera3D.new()
 	_camera.position = Vector3(0, 800, 0)
@@ -56,37 +55,3 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_yaw += DRIFT * delta
 	_camera.rotation = Vector3(deg_to_rad(-4.0), _yaw, 0.0)
-
-
-## A placeholder floating island: a grassy cap on a tapering rock.
-static func _island(at: Vector3, radius: float) -> Node3D:
-	var island := Node3D.new()
-	island.position = at
-	var rock_mesh := CylinderMesh.new()
-	rock_mesh.top_radius = radius
-	rock_mesh.bottom_radius = radius * 0.12
-	rock_mesh.height = radius * 1.5
-	rock_mesh.radial_segments = 9
-	rock_mesh.rings = 1
-	var rock := MeshInstance3D.new()
-	rock.mesh = rock_mesh
-	rock.position.y = -radius * 0.75
-	rock.material_override = _flat(Color("5d4d47"))
-	island.add_child(rock)
-	var cap_mesh := CylinderMesh.new()
-	cap_mesh.top_radius = radius * 1.02
-	cap_mesh.bottom_radius = radius
-	cap_mesh.height = radius * 0.12
-	cap_mesh.radial_segments = 9
-	var cap := MeshInstance3D.new()
-	cap.mesh = cap_mesh
-	cap.material_override = _flat(Color("6e8d4c"))
-	island.add_child(cap)
-	return island
-
-
-static func _flat(color: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.roughness = 0.95
-	return material

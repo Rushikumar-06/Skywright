@@ -1,5 +1,6 @@
 class_name LaunchOptions
 ## Reads the options passed after "--" on the command line:
+##   --solo            start a solo game straight away
 ##   --host            start hosting straight away
 ##   --join=ADDRESS    join ADDRESS (host, host:port or [ipv6]:port) straight away
 ##   --name=NAME       play as NAME instead of the saved name
@@ -10,7 +11,9 @@ class_name LaunchOptions
 static func parse(args: PackedStringArray) -> Dictionary:
 	var options := {}
 	for arg in args:
-		if arg == "--host":
+		if arg == "--solo":
+			options["solo"] = true
+		elif arg == "--host":
 			options["host"] = true
 		elif arg.begins_with("--join="):
 			options["join"] = arg.trim_prefix("--join=")

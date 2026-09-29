@@ -18,7 +18,9 @@ func _ready() -> void:
 
 func _apply_launch_options(options: Dictionary) -> void:
 	var player_name: String = options.get("name", Settings.player_name)
-	if options.has("host"):
+	if options.has("solo"):
+		Session.start_solo(player_name)
+	elif options.has("host"):
 		var host_port: int = options.get("port", Session.DEFAULT_PORT)
 		var err := Session.host(player_name, host_port)
 		if err != OK:

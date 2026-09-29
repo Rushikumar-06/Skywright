@@ -114,3 +114,43 @@ func test_a_physics_blow_up_puts_the_ship_back() -> void:
 	await simulate(0.1)
 	assert_true(ship.global_position.distance_to(good.origin) < 1.0, "back where it was")
 	assert_true(ship.linear_velocity.length() < 1.0, "and stopped")
+
+
+func test_a_ship_gone_non_finite_is_put_back() -> void:
+	var ship := launch(StarterShip.build())
+	await simulate(0.5)
+	var good := ship.global_transform
+	ship.linear_velocity = Vector3(NAN, 0, 0)
+	await simulate(0.2)
+	assert_true(ship.global_transform.is_finite(), "no NaN left in its transform")
+	assert_true(ship.global_position.distance_to(good.origin) < 1.0, "back where it was")
+	assert_true(ship.linear_velocity.length() < 1.0, "and stopped")
+
+
+func test_ship_faces_wind_the_way_godot_draws_them() -> void:
+	# Godot culls faces that wind the other way, which would draw the ship inside out.
+	var grid := ShipGrid.new()
+	grid.set_block(Vector3i.ZERO, "frame")
+	grid.set_block(Vector3i(0, 1, 0), "ladder")
+	var box := winding(BoxMesh.new())
+	assert_true(box != 0, "a box winds one way")
+	var drawn := ShipMesh.build(grid)
+	assert_eq(winding(drawn.mesh), box)
+	drawn.free()
+
+
+## +1 or -1: which way every triangle of mesh turns about its normal, or 0 when they disagree.
+func winding(mesh: Mesh) -> int:
+	var arrays := mesh.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var order: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	if order.is_empty():
+		order = PackedInt32Array(range(points.size()))
+	var turns := {}
+	for i in range(0, order.size(), 3):
+		var a := points[order[i]]
+		var turn := (points[order[i + 1]] - a).cross(points[order[i + 2]] - a).dot(normals[order[i]])
+		turns[signi(roundi(signf(turn)))] = true
+	return turns.keys()[0] if turns.size() == 1 else 0
+

@@ -99,3 +99,16 @@ func test_nobody_walks_while_at_a_station() -> void:
 	crew.jump = true
 	await simulate(1.0)
 	assert_true(crew.position.distance_to(start) < 0.01, "stayed put")
+
+
+func test_taking_a_station_from_a_ladder_stops_the_climb() -> void:
+	board(Vector3(1, 2.5, 3))  # holding on to the starboard ladder
+	crew.climb = 1.0  # still held when E is pressed
+	await simulate(0.2)
+	var station := Node.new()
+	add_child(station)
+	crew.station = station
+	var height := crew.position.y
+	await simulate(1.0)
+	assert_near(crew.position.y, height, 0.05, "stays where they took it")
+

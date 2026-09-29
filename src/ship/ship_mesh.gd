@@ -58,10 +58,11 @@ static func build(grid: ShipGrid) -> MeshInstance3D:
 	return mesh_instance
 
 
-## A quad from corner along edges u and v (a right-handed pair around normal).
+## A quad from corner along edges u and v (a right-handed pair around normal). Its
+## triangles run clockwise seen from outside, the side Godot draws.
 static func _add_quad(st: SurfaceTool, corner: Vector3, u: Vector3, v: Vector3, normal: Vector3) -> void:
 	st.set_normal(normal)
-	for point in [corner, corner + u, corner + u + v, corner, corner + u + v, corner + v]:
+	for point in [corner, corner + u + v, corner + u, corner, corner + v, corner + u + v]:
 		st.add_vertex(point)
 
 

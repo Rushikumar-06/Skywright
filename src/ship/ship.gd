@@ -96,9 +96,13 @@ func heading() -> float:
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if not _sane(state):
 		push_warning("Ship %s blew up (speed %.0f m/s, spin %.1f rad/s); restoring its last good position." % [name, state.linear_velocity.length(), state.angular_velocity.length()])
-		state.transform = _last_good
 		state.linear_velocity = Vector3.ZERO
 		state.angular_velocity = Vector3.ZERO
+		# Move the node, not the state: after this call the engine pushes the node's
+		# transform to the physics server whenever it differs from the state's, and a
+		# NaN never equals itself. Anything that teleports a ship should do the same.
+		global_transform = _last_good
+		reset_physics_interpolation()
 		return
 	_last_good = state.transform
 	var basis := state.transform.basis

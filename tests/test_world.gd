@@ -17,6 +17,21 @@ func test_you_start_aboard_the_starter_ship_by_the_helm() -> void:
 	await get_tree().process_frame
 
 
+func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:
+	var world: Node3D = (load("res://src/world/world.tscn") as PackedScene).instantiate()
+	add_child(world)
+	await get_tree().process_frame
+	var pause := InputEventAction.new()
+	pause.action = "pause"
+	pause.pressed = true
+	world._unhandled_input(pause)
+	assert_false(world.player.enabled, "keys and mouse stop while the menu is open")
+	world._unhandled_input(pause)
+	assert_true(world.player.enabled, "and work again after resuming")
+	world.queue_free()
+	await get_tree().process_frame
+
+
 func test_islands_are_solid() -> void:
 	var island := Island.create(Vector3(0, 800, 0), 50.0)
 	add_child(island)

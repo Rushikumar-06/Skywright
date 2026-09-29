@@ -47,13 +47,15 @@ func _physics_process(delta: float) -> void:
 	var gravity := ship.global_basis.transposed() * Vector3(0.0, -float(ProjectSettings.get_setting("physics/3d/default_gravity")), 0.0)
 	up_direction = -gravity.normalized()
 	var wish := Basis(Vector3.UP, look_yaw) * Vector3(move.x, 0.0, move.y).limit_length(1.0) * (SPRINT_SPEED if sprint else WALK_SPEED)
+	var rise := climb * CLIMB_SPEED
 	if station != null:
 		wish = Vector3.ZERO
+		rise = 0.0
 	var holding_on := on_ladder()
 	var jumping := false
 	if holding_on:
 		# Hold on: no gravity, and climb along the ship's up.
-		velocity = wish + Vector3.UP * climb * CLIMB_SPEED
+		velocity = wish + Vector3.UP * rise
 	elif is_on_floor():
 		var floor_normal := get_floor_normal()
 		velocity = wish - floor_normal * wish.dot(floor_normal)

@@ -145,13 +145,13 @@ A dedicated server (stage 3) is `HOST` mode with no local player, started with `
 
 The server is authoritative for ships, blocks, damage, projectiles, AI, the world and the economy. Clients send inputs: station commands, plus their own character's movement (see §4.5).
 
-**Handshake:**
+**Handshake:** joining uses SceneMultiplayer's authentication step. A joiner isn't connected, and receives no RPCs, until the host accepts it.
 
-1. The client connects and sends `hello(protocol_version, name)`.
-2. The server replies in one of two ways:
-   - `welcome` followed by the full roster, broadcast to everyone.
-   - `rejected(reason)`, for a version mismatch or a full game. The server then disconnects that client once the message has been sent.
-3. If the handshake hasn't finished after 8 s, the client gives up with the message "The host didn't answer."
+1. The client sends its protocol version and name as plain bytes. That format stays readable whatever RPCs later versions add.
+2. The host replies in one of two ways:
+   - Accepted: both sides complete authentication. The host then sends `welcome` with the roster and broadcasts the new roster to everyone.
+   - Refused, with the reason, for a version mismatch or a full game. Peers still joining count toward the limit. The host disconnects that client once the reason has been sent.
+3. A joiner that never introduces itself is dropped after 5 s. If the whole join hasn't finished after 8 s, the client gives up with the message "The host didn't answer."
 
 Player names are trimmed and capped at 24 characters. An empty name becomes "Captain".
 

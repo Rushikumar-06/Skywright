@@ -2110,3 +2110,27 @@ Expected:
 git add README.md
 git commit -m "Add README for stage 1"
 ```
+
+---
+
+## Changes after the final review
+
+The whole-branch review found six problems worth fixing now. Each fix has a test that failed first:
+
+| Problem | Fix | Test |
+|---|---|---|
+| A huge name in the join message froze the host: cleaning was quadratic in the name's length. | `clean_name` looks at no more than 24 characters. | `test_clean_name_is_fast_on_huge_input` |
+| The host's name cleaning was never tested, because the client cleaned the name first. | The test sends a raw name. | `test_host_cleans_joiner_names` |
+| Hosting showed the Docker address first on this laptop. | Addresses come from `IP.get_local_interfaces()`, with local-only bridges (Docker, libvirt, VirtualBox) last, and every candidate is listed. | `test_lan_addresses_by_interface_put_real_networks_first` |
+| Leaving Settings with Esc lost the changes. | Each change is saved as it's made. `Settings.path` lets tests avoid the real file. | `test_changes_are_saved_straight_away` |
+| Any new Session RPC would shift the RPC-based hello and turn a version mismatch into silence. | Joining uses SceneMultiplayer authentication. Silent peers are dropped after 5 s, and peers still joining count toward the limit. | `test_version_check_survives_new_rpcs`, `test_a_peer_that_never_introduces_itself_is_dropped` |
+| Pressing Esc while connecting logged a script error. | The input is marked as handled before the menu can be swapped out. | `test_esc_while_connecting_returns_to_a_fresh_menu` |
+
+**Deferred to later stages:**
+- runner error counting around `_ready` and `_exit_tree`;
+- Unicode line breaks in names;
+- re-hosting within 0.25 s of leaving;
+- §7 message wording;
+- gravity 9.81 (stage 2);
+- the message for an unknown host name;
+- the test port range.

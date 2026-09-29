@@ -11,4 +11,4 @@ if ! "$godot" --headless --import >/dev/null 2>&1; then
 	echo "Import failed. Run '$godot --headless --import' to see why." >&2
 	exit 1
 fi
-exec timeout 600 "$godot" --headless --script res://tests/run_tests.gd -- "$@"
+exec timeout 600 "$godot" --headless --fixed-fps 60 --script res://tests/run_tests.gd -- "$@"

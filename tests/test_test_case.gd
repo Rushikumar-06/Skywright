@@ -30,3 +30,9 @@ func test_wait_until_waits_frame_by_frame() -> void:
 
 func test_wait_until_gives_up_after_the_timeout() -> void:
 	assert_false(await wait_until(func() -> bool: return false, 0.1))
+
+
+func test_simulate_runs_that_many_physics_ticks() -> void:
+	var start := Engine.get_physics_frames()
+	await simulate(0.5)
+	assert_eq(Engine.get_physics_frames() - start, 30)

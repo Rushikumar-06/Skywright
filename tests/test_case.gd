@@ -47,5 +47,18 @@ func wait_until(condition: Callable, timeout: float) -> bool:
 	return true
 
 
+## Runs the physics for seconds of simulated time, calling before_tick(tick) ahead
+## of each tick when given. Under ./run_tests.sh (--fixed-fps 60) this goes as fast
+## as the machine can manage. Use it as: await simulate(...)
+func simulate(seconds: float, before_tick := Callable()) -> void:
+	var cap := Engine.max_fps
+	Engine.max_fps = 0
+	for tick in roundi(seconds * Engine.physics_ticks_per_second):
+		if before_tick.is_valid():
+			before_tick.call(tick)
+		await get_tree().physics_frame
+	Engine.max_fps = cap
+
+
 func _fail(what: String, message: String) -> void:
 	failures.append(what if message.is_empty() else "%s: %s" % [message, what])

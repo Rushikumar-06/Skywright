@@ -4,6 +4,7 @@ extends TestCase
 
 func test_physics_is_jolt_at_60_ticks_with_interpolation() -> void:
 	assert_eq(ProjectSettings.get_setting("physics/3d/physics_engine"), "Jolt Physics")
+	assert_eq(ProjectSettings.get_setting("physics/3d/default_gravity"), 9.81)
 	assert_eq(ProjectSettings.get_setting("physics/common/physics_ticks_per_second"), 60)
 	assert_eq(ProjectSettings.get_setting("physics/common/physics_interpolation"), true)
 

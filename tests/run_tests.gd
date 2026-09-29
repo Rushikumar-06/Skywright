@@ -29,6 +29,7 @@ var _errors := ErrorCounter.new()
 
 func _initialize() -> void:
 	OS.add_logger(_errors)
+	Engine.max_fps = 60
 	_run.call_deferred()
 
 
@@ -69,16 +70,17 @@ func _run_one(script: GDScript, test_name: String) -> PackedStringArray:
 	if not instance is TestCase:
 		return PackedStringArray(["does not extend TestCase"])
 	var test := instance as TestCase
+	var errors_before := _errors.count  # before add_child, so errors in _ready count
 	root.add_child(test)
-	var errors_before := _errors.count
 	await test.call(test_name)
 	await test.after_each()
 	var problems := test.failures.duplicate()
-	var new_errors := _errors.count - errors_before
-	if new_errors > test.allowed_engine_errors:
-		problems.append("engine logged %d error(s), last: %s" % [new_errors, _errors.last])
+	var allowed := test.allowed_engine_errors
 	test.queue_free()
-	await process_frame
+	await process_frame  # _exit_tree runs, and its errors count too
+	var new_errors := _errors.count - errors_before
+	if new_errors > allowed:
+		problems.append("engine logged %d error(s), last: %s" % [new_errors, _errors.last])
 	return problems
 
 

@@ -529,6 +529,8 @@ const DRAG_COEFFICIENT := 0.45    ## Cd of every exposed face.
 const HULL_LIFT := 8.0            ## How hard the hull resists slipping sideways at speed, as a keel does. Without it ships skid instead of turning.
 const RUDDER_FORCE := 8.0         ## Side force per rudder, in N per (m/s)² of airspeed, at full deflection and density.
 const ANGULAR_DAMPING := 0.5      ## 1/s. Air damping of the ship's spin, on top of face drag.
+const TRIM_MIN := 0.8             ## Balloon trim limits: lift is 900 N × density × trim per balloon.
+const TRIM_MAX := 1.1
 ```
 
 `src/ship/ship_grid.gd`:
@@ -1665,8 +1667,6 @@ Append to `src/ship/tuning.gd`:
 ```gdscript
 const THROTTLE_MIN := -0.5        ## Full astern.
 const THROTTLE_RATE := 0.5        ## Throttle change per second while W or S is held.
-const TRIM_MIN := 0.8
-const TRIM_MAX := 1.1
 const TRIM_RATE := 0.05           ## Trim change per second while climbing or descending.
 
 const AUTOPILOT_TURN_RATE := 0.25       ## rad/s the autopilot's heading turns while A or D is held.

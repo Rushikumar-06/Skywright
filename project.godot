@@ -9,6 +9,7 @@ config_version=5
 config/name="Skywright"
 config/description="An airship game: build ships block by block, and physics decides if they fly."
 config/version="0.1.0"
+run/main_scene="res://src/ui/main_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]

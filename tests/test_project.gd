@@ -35,3 +35,19 @@ func test_input_actions_have_their_default_keys() -> void:
 				keys.append((event as InputEventKey).physical_keycode)
 		for key: int in expected[action]:
 			assert_true(keys.has(key), "%s is bound to %s" % [action, OS.get_keycode_string(key)])
+
+
+func test_every_script_compiles() -> void:
+	for path in _scripts_under("res://src"):
+		var script := load(path) as Script
+		assert_true(script != null and script.can_instantiate(), "%s compiles" % path)
+
+
+func _scripts_under(dir: String) -> PackedStringArray:
+	var found: PackedStringArray = []
+	for file in DirAccess.get_files_at(dir):
+		if file.ends_with(".gd"):
+			found.append(dir.path_join(file))
+	for sub in DirAccess.get_directories_at(dir):
+		found.append_array(_scripts_under(dir.path_join(sub)))
+	return found

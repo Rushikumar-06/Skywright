@@ -14,17 +14,18 @@ var vsync := true
 var master_volume := 0.8        ## 0 to 1
 var mouse_sensitivity := 1.0    ## 0.1 to 3
 var last_address := DEFAULT_ADDRESS
+var path := PATH                ## Where save() writes. Tests point it at a temp file.
 
 
 func _ready() -> void:
-	load_from(PATH)
+	load_from(path)
 	apply()
 
 
-## Reads settings from path. A missing or unreadable file leaves the current values.
-func load_from(path: String) -> void:
+## Reads settings from file_path. A missing or unreadable file leaves the current values.
+func load_from(file_path: String) -> void:
 	var file := ConfigFile.new()
-	if file.load(path) != OK:
+	if file.load(file_path) != OK:
 		return
 	player_name = clean_name(str(file.get_value("player", "name", player_name)))
 	last_address = _clean_address(str(file.get_value("player", "last_address", last_address)))
@@ -34,7 +35,7 @@ func load_from(path: String) -> void:
 	mouse_sensitivity = _as_number(file.get_value("controls", "mouse_sensitivity", mouse_sensitivity), mouse_sensitivity, 0.1, 3.0)
 
 
-func save_to(path: String) -> Error:
+func save_to(file_path: String) -> Error:
 	var file := ConfigFile.new()
 	file.set_value("player", "name", player_name)
 	file.set_value("player", "last_address", last_address)
@@ -42,12 +43,12 @@ func save_to(path: String) -> Error:
 	file.set_value("display", "vsync", vsync)
 	file.set_value("audio", "master_volume", master_volume)
 	file.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
-	return file.save(path)
+	return file.save(file_path)
 
 
-## Saves to user://settings.cfg, warning rather than failing if the disk refuses.
+## Saves to path, warning rather than failing if the disk refuses.
 func save() -> void:
-	var err := save_to(PATH)
+	var err := save_to(path)
 	if err != OK:
 		push_warning("Couldn't save settings: %s" % error_string(err))
 

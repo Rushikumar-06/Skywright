@@ -82,6 +82,16 @@ func test_unreadable_file_keeps_defaults() -> void:
 	assert_eq(settings.master_volume, 0.8)
 
 
+func test_clean_name_is_fast_on_huge_input() -> void:
+	# A modified client can send any name; cleaning it must not stall the host.
+	var huge := "x".repeat(200000)
+	var started := Time.get_ticks_usec()
+	var cleaned := SettingsScript.clean_name(huge)
+	var elapsed_ms := (Time.get_ticks_usec() - started) / 1000.0
+	assert_eq(cleaned.length(), 24)
+	assert_true(elapsed_ms < 50.0, "took %.0f ms" % elapsed_ms)
+
+
 func test_names_are_cleaned() -> void:
 	assert_eq(SettingsScript.clean_name("  Ann  "), "Ann")
 	assert_eq(SettingsScript.clean_name("   "), "Captain")

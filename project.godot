@@ -11,6 +11,10 @@ config/description="An airship game: build ships block by block, and physics dec
 config/version="0.1.0"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
+[autoload]
+
+Settings="*res://src/core/settings.gd"
+
 [display]
 
 window/size/viewport_width=1600

@@ -9,6 +9,7 @@ const MAX_SPEED := 400.0  ## m/s. Anything faster is a physics blow-up.
 const MAX_SPIN := 20.0    ## rad/s. Likewise.
 
 var grid: ShipGrid
+var interior: ShipInterior  ## Where the crew walk.
 var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
 var trim := 1.0      ## Balloon trim, Tuning.TRIM_MIN to Tuning.TRIM_MAX.
@@ -58,6 +59,8 @@ func _ready() -> void:
 	_zones = grid.drag_zones()
 	_last_good = global_transform
 	add_child(ShipMesh.build(grid))
+	interior = ShipInterior.new(boxes)
+	add_child(interior)
 
 
 ## Full-throttle thrust in N.

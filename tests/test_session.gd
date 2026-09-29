@@ -225,6 +225,19 @@ func test_parse_address_refuses_junk() -> void:
 		assert_eq(SessionScript.parse_address(junk), {}, "'%s' is refused" % junk)
 
 
+func test_lan_addresses_by_interface_put_real_networks_first() -> void:
+	# The shape IP.get_local_interfaces() returns. Docker and libvirt bridges are
+	# only reachable from this machine, so they go last.
+	var interfaces: Array = [
+		{"name": "lo", "addresses": ["127.0.0.1", "::1"]},
+		{"name": "docker0", "addresses": ["172.17.0.1"]},
+		{"name": "wlp2s0", "addresses": ["192.168.29.20", "fe80::1"]},
+		{"name": "virbr0", "addresses": ["192.168.122.1"]},
+	]
+	assert_eq(SessionScript.lan_addresses_by_interface(interfaces), PackedStringArray(["192.168.29.20", "172.17.0.1", "192.168.122.1"]))
+	assert_eq(SessionScript.lan_addresses_by_interface([]), PackedStringArray())
+
+
 func test_lan_addresses() -> void:
 	var all := PackedStringArray(["127.0.0.1", "192.168.0.102", "::1", "fe80::1", "10.1.2.3", "172.20.0.5", "172.40.0.1", "8.8.8.8"])
 	assert_eq(SessionScript.lan_addresses(all), PackedStringArray(["192.168.0.102", "10.1.2.3", "172.20.0.5"]))

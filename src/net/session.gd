@@ -165,6 +165,29 @@ static func lan_addresses(addresses: PackedStringArray) -> PackedStringArray:
 	return lan
 
 
+## LAN addresses from IP.get_local_interfaces(), with bridges that only this
+## machine can reach (Docker, libvirt, VirtualBox and similar) listed last, so
+## the first address is the likeliest one for friends on the same Wi-Fi.
+static func lan_addresses_by_interface(interfaces: Array) -> PackedStringArray:
+	var reachable: PackedStringArray = []
+	var local_only: PackedStringArray = []
+	for interface: Dictionary in interfaces:
+		var found := lan_addresses(PackedStringArray(interface.get("addresses", [])))
+		if _is_local_bridge(str(interface.get("name", ""))):
+			local_only.append_array(found)
+		else:
+			reachable.append_array(found)
+	reachable.append_array(local_only)
+	return reachable
+
+
+static func _is_local_bridge(interface_name: String) -> bool:
+	for prefix in ["docker", "br-", "virbr", "veth", "vmnet", "vboxnet", "podman", "cni", "lxc", "lxd"]:
+		if interface_name.begins_with(prefix):
+			return true
+	return false
+
+
 # --- joining (SceneMultiplayer authentication) ---
 
 func _on_peer_authenticating(id: int) -> void:

@@ -69,10 +69,15 @@ func _status_text() -> String:
 	if Session.mode == Session.Mode.SOLO:
 		return "Solo game"
 	if Session.mode == Session.Mode.HOST:
-		var lan := Session.lan_addresses(IP.get_local_addresses())
-		if lan.is_empty():
+		var targets: PackedStringArray = []
+		for address in Session.lan_addresses_by_interface(IP.get_local_interfaces()):
+			targets.append("%s:%d" % [address, Session.port])
+		if targets.is_empty():
 			return "Hosting on port %d" % Session.port
-		return "Hosting. Friends on your network join at %s:%d" % [lan[0], Session.port]
+		var text := "Hosting. Friends on your network join at " + targets[0]
+		if targets.size() > 1:
+			text += " (or " + ", ".join(targets.slice(1)) + ")"
+		return text
 	if Session.mode == Session.Mode.CLIENT:
 		return "Connected to the host"
 	return ""

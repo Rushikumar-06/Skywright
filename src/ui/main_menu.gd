@@ -55,8 +55,8 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") and not _menu.visible:
+		get_viewport().set_input_as_handled()  # first: _back() can swap this scene out
 		_back()
-		get_viewport().set_input_as_handled()
 
 
 func _build_join_panel() -> VBoxContainer:

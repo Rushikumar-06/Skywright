@@ -10,6 +10,7 @@ const MAX_SPIN := 20.0    ## rad/s. Likewise.
 
 var grid: ShipGrid
 var interior: ShipInterior  ## Where the crew walk.
+var helm: Helm              ## The ship's first helm, or null.
 var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
 var trim := 1.0      ## Balloon trim, Tuning.TRIM_MIN to Tuning.TRIM_MAX.
@@ -61,6 +62,15 @@ func _ready() -> void:
 	add_child(ShipMesh.build(grid))
 	interior = ShipInterior.new(boxes)
 	add_child(interior)
+	var helms := grid.cells_of("helm")
+	if not helms.is_empty():
+		helm = Helm.new(self, helms[0])
+		add_child(helm)
+
+
+## Where crew come aboard, in ship space: standing just aft of the helm.
+func crew_spawn() -> Vector3:
+	return Vector3(helm.cell) + Vector3(0.0, 0.45, 1.0)
 
 
 ## Full-throttle thrust in N.

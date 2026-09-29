@@ -36,3 +36,14 @@ const RUDDER_FORCE := 8.0         ## Side force per rudder, in N per (m/s)² of 
 const ANGULAR_DAMPING := 0.5      ## 1/s. Air damping of the ship's spin, on top of face drag.
 const TRIM_MIN := 0.8             ## Balloon trim limits: lift is 900 N × density × trim per balloon.
 const TRIM_MAX := 1.1
+
+const THROTTLE_MIN := -0.5        ## Full astern.
+const THROTTLE_RATE := 0.5        ## Throttle change per second while W or S is held.
+const TRIM_RATE := 0.05           ## Trim change per second while climbing or descending.
+
+const AUTOPILOT_TURN_RATE := 0.25       ## rad/s the autopilot's heading turns while A or D is held.
+const AUTOPILOT_CLIMB_RATE := 10.0      ## m/s its altitude changes while climbing or descending.
+const AUTOPILOT_HEADING_GAIN := 3.0     ## Rudder per radian off course.
+const AUTOPILOT_YAW_DAMPING := 6.0      ## Rudder per rad/s of turning.
+const AUTOPILOT_ALTITUDE_GAIN := 0.002  ## Trim per metre off altitude.
+const AUTOPILOT_CLIMB_DAMPING := 0.03   ## Trim per m/s of climb.

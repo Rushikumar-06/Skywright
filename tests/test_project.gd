@@ -24,6 +24,7 @@ func test_input_actions_have_their_default_keys() -> void:
 		"sprint": [KEY_SHIFT],
 		"interact": [KEY_E],
 		"toggle_camera": [KEY_V],
+		"autopilot": [KEY_H],
 		"pause": [KEY_ESCAPE],
 	}
 	for action: String in expected:

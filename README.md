@@ -2,25 +2,42 @@
 
 An airship game: design ships block by block, and real physics decides whether they fly. Crew them with friends, explore a generated sky of floating islands above an endless storm, and push toward the Eye.
 
-Built with Godot 4.7.2. The design is in [`docs/superpowers/specs/2026-09-29-skywright-design.md`](docs/superpowers/specs/2026-09-29-skywright-design.md), and the current stage's plan is in `docs/superpowers/plans/`.
+Built with Godot 4.7.2. The design is in [`docs/superpowers/specs/2026-09-29-skywright-design.md`](docs/superpowers/specs/2026-09-29-skywright-design.md), and each stage's plan is in `docs/superpowers/plans/`.
 
 ## Status
 
-**Stage 1 of 10 (Foundations).** You can:
-- open the main menu;
-- play solo;
-- host a game or join one on your network;
-- change settings.
+**Stage 2 of 10 (First flight).** You can:
+- walk the deck of the starter ship while it rolls in the wind, and climb its ladders;
+- take the helm and fly between floating islands, with an autopilot and a chase view;
+- watch day turn to night over the Roil, the storm below 200 m;
+- play solo, or host a game and join one on your network.
 
-Flying arrives in stage 2.
+In this stage each player flies their own ship. Crewing one ship together arrives in stage 3.
+
+## Controls
+
+| Key | On deck | At the helm |
+|---|---|---|
+| W A S D | Walk | W/S throttle, A/D rudder |
+| Space | Jump, or climb a ladder | Climb |
+| Ctrl or C | Climb down a ladder | Descend |
+| Shift | Sprint | |
+| E | Take the helm | Leave the helm |
+| H | | Autopilot on or off |
+| V | | Chase view |
+| Mouse | Look | Look, or orbit in the chase view |
+| Esc | Menu | Menu |
+
+On a ladder, W climbs too. Throttle and trim stay where you leave them. The autopilot holds the heading and height it was switched on at, and A, D, Space and Ctrl adjust those.
 
 ## Run it
 
 Install Godot 4.7.2 (the standard build, not .NET), put it on your PATH as `godot`, then:
 
 ```bash
-godot --path .            # play
-godot --path . --editor   # open in the editor
+godot --path .                # play
+godot --path . -- --solo      # straight into a solo game
+godot --path . --editor       # open in the editor
 ```
 
 ## Play with friends
@@ -37,7 +54,7 @@ godot --path . -- --host --name=Ann
 godot --path . -- --join=127.0.0.1 --name=Bob
 ```
 
-Launch options (after `--`): `--host`, `--join=ADDRESS`, `--name=NAME`, `--port=PORT`.
+Launch options (after `--`): `--solo`, `--host`, `--join=ADDRESS`, `--name=NAME`, `--port=PORT`.
 
 ## Test
 
@@ -46,18 +63,22 @@ Launch options (after `--`): `--host`, `--join=ADDRESS`, `--name=NAME`, `--port=
 ./run_tests.sh session   # only test files whose name contains "session"
 ```
 
-A test fails when an assert fails, or when the engine logs an error the test didn't expect.
+A test fails when an assert fails, or when the engine logs an error the test didn't expect. The runner uses `--fixed-fps 60`, so each frame is exactly one physics tick, and flight tests simulate minutes of flying in seconds.
 
 ## Layout
 
 ```
 src/core/     Settings and Game autoloads, launch options
 src/net/      Session autoload: solo, host, join, handshake
-src/ui/       menus and the shared UI theme
-src/world/    the world scene and the sky backdrop
+src/ship/     blocks and the tuning file, the ship grid, the starter ship, flight forces, the ship body and mesh
+src/crew/     each ship's interior world, crew members, the helm, the player's controls and camera
+src/ui/       menus, the HUD and the shared UI theme
+src/world/    the world scene, sky, the Roil, islands, wind, the menu backdrop
 tests/        test runner and tests
 docs/         design spec and implementation plans
 ```
+
+Every number that shapes how ships fly and handle is in `src/ship/tuning.gd`.
 
 ## Graphics on hybrid laptops
 

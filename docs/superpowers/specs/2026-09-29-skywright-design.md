@@ -1,7 +1,7 @@
 # Skywright: design spec
 
 - **Date:** 2026-09-29
-- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them.
+- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stage 2 settled.
 - **Tracker:** [Skywright Build Log](https://claude.ai/artifact/N8W3J8xUU77JcdYdhcSZCx)
 
 ## 1. Summary
@@ -183,6 +183,8 @@ Player names are trimmed and capped at 24 characters. An empty name becomes "Cap
 
 Sanity check: a starter ship with a 12 × 4 hull and about 5 t of blocks needs about 70 balloon cells to float at 800 m. That's an envelope about the size of the hull, which reads as an airship. Two propellers giving 5 kN reach about 27 m/s.
 
+The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 balloon cells. Iron in the middle of its keel puts its weight right under its lift, so it floats level at 877 m. Its two propellers reach 20 m/s.
+
 **Mass properties:**
 - Total mass is the sum of the blocks.
 - Centre of mass is the mass-weighted average of cell centres.
@@ -191,12 +193,13 @@ Sanity check: a starter ship with a 12 × 4 hull and about 5 t of blocks needs a
 
 > ponytail: only the diagonal of the inertia tensor is kept (Godot takes principal moments). Fine for mirror-symmetric ships. Rotate into principal axes if asymmetric ships feel wrong.
 
-**Forces each physics tick** (at world position `p`, air density factor `ρ(h) = exp(−(h − 200) / 2500)` for h ≥ 200, and 1 below):
-- **Balloon lift:** `900 N × ρ × trim` per cell. The pilot sets trim between 0.8 and 1.1, and trim above 1.0 burns fuel. Lift stones give a fixed 6,000 N.
-- **Thrust:** `throttle × engine power share × 2,500 N` per propeller, along its axis.
-- **Drag:** cells are grouped into 4 × 4 × 4 zones. Each zone stores its exposed face area per local axis and its centre. Zone drag is `−½ × 1.2 × ρ × Cd × A_axis × |v_axis| × v_axis`, per local axis. It uses the air-relative velocity at the zone centre: body velocity at that point minus the wind. Rotational damping falls out of this.
-- **Control surfaces:** side force `k × ρ × |v_air|² × deflection`.
-- **Gravity** is applied by the engine.
+**Forces each physics tick** (at world position `p`, air density factor `ρ(h) = exp(−(h − 200) / 2500)` for h ≥ 200, and 1 below). Every constant is in `src/ship/tuning.gd`:
+- **Balloon lift:** `900 N × ρ × trim` per cell. The pilot sets trim between 0.8 and 1.1, and trim above 1.0 burns fuel once fuel exists (stage 7). Lift stones give a fixed 6,000 N.
+- **Thrust:** `throttle × engine power share × 2,500 N` per propeller, along its axis. One engine drives up to two propellers at full power. Until the shipyard can turn blocks (stage 4), propellers push toward the bow.
+- **Drag:** cells are grouped into 4 × 4 × 4 zones. Each zone stores its exposed face area per local axis and its centre. Zone drag is `−½ × 1.2 × ρ × Cd × A_axis × |v_axis| × v_axis`, per local axis, with Cd 0.45. It uses the air-relative velocity at the zone centre: body velocity at that point minus the wind. Rotational damping falls out of this, and the body adds spin damping of 0.5 per second.
+- **Keel:** each zone also pushes back against slipping sideways while it moves forward: `−½ × 1.2 × ρ × 8 × A_x × |v_forward| × v_side`, along the ship's x axis. It works the way a keel does in water. Without it a ship skids instead of turning. With it the starter ship turns at about 6°/s and keeps about two-thirds of its speed through a hard turn. It needs forward speed, so a hovering ship still drifts with the wind.
+- **Control surfaces:** side force `k × ρ × v_forward × |v_forward| × deflection`, where `v_forward` is the airflow along the ship, so a rudder works backwards going astern.
+- **Gravity** is applied by the engine, at 9.81 m/s².
 
 **Collision:** cells are merged into boxes with greedy meshing and added as box shapes on the body. A hit's shape index plus its local hit point identify the cell.
 
@@ -214,7 +217,8 @@ Sanity check: a starter ship with a 12 × 4 hull and about 5 t of blocks needs a
 - **Interior world:** each ship owns an interior `SubViewport` with `own_world_3d = true`. That gives it a separate physics space; it's never rendered. The interior holds a static copy of the ship's collision boxes in ship-local coordinates, plus the `CharacterBody3D` of everyone aboard.
 - **Gravity aboard:** crew gravity is `ship_basis⁻¹ × (0, −9.81, 0)`, and `up_direction` is its opposite. A tilted ship therefore feels like a sloped deck. Look yaw is relative to the ship, so you turn with it.
 - **Drawing crew:** a crew member is drawn in the main world at the ship's interpolated transform multiplied by their local transform.
-- **Leaving and boarding:** when no ship floor has been under your feet for 0.2 s and a downward ray in the main world doesn't hit this ship, you move to a main-world character. Your velocity is the ship's point velocity plus your own. Landing on any ship moves you into that ship's interior.
+- **Leaving and boarding:** when no ship floor has been under your feet for 0.2 s and a downward ray in the main world doesn't hit this ship, you move to a main-world character. Your velocity is the ship's point velocity plus your own. Landing on any ship moves you into that ship's interior. This arrives with going ashore in stage 5. Until then, crew who fall 30 m below their ship are put back aboard where they started, and told so.
+- **Walking in a tilted gravity:** walking "uphill" against gravity that isn't square to the deck makes Godot skip its floor snap, so crew apply the snap themselves (except when jumping or on a ladder). Ladders are open cells: while your body is in a ladder's column you hold on, gravity stops, and you climb along the ship's up.
 - **Being hit:** each crew member also has a main-world hitbox (`Area3D`) so projectiles can hit them.
 - **Fallback:** if this approach fails its stage 2 check, crew become main-world characters that inherit platform velocity and yaw from the deck.
 
@@ -251,7 +255,7 @@ Sanity check: a starter ship with a 12 × 4 hull and about 5 t of blocks needs a
 ### 4.8 Rendering
 
 - **Sky:** `ProceduralSkyMaterial` at first, replaced by a custom sky shader (sun, stars, cloud layer) when the world stage needs it.
-- **Fog:** volumetric fog for the Roil and cloud banks.
+- **Fog:** depth fog hazes the distance from 1.5 km. Volumetric fog for the Roil and cloud banks comes with the world stage, if the Radeon 680M can afford it.
 - **Lighting:** a sun (`DirectionalLight3D`) with 4-split shadows, driven by the day–night cycle.
 - **Detail and instancing:** `visibility_range` and mesh LODs for detail levels, and MultiMesh for vegetation.
 - **Performance target:** 60 fps at 1080p on medium settings on the Radeon 680M. This laptop's integrated GPU is the baseline, and the RTX 3050 does better.
@@ -314,7 +318,8 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 - **Runner:** `./run_tests.sh` imports the project, then runs `tests/run_tests.gd` headless.
   - It finds every `tests/**/test_*.gd`, and runs each `test_*` method on a fresh instance. Async tests can `await`.
   - It exits 0 when everything passes and 1 otherwise.
-  - Engine or script errors logged during a test count as failures, so a crash can't pass silently.
+  - Engine or script errors logged during a test count as failures, from the moment the test enters the tree until it has left it, so a crash can't pass silently.
+  - It runs Godot with `--fixed-fps 60`, so every frame is exactly one physics tick. Frames are capped at 60 per second, so timers match real time. `TestCase.simulate(seconds)` lifts the cap, so flight tests run minutes of flying in seconds.
 - **Unit tests:** settings, session roles and handshake, input map, mass properties, lift and drag, greedy box merging, break-apart detection, blueprint validation, world determinism (same seed, same world), wind continuity, saves and prices.
 - **Flight tests:** real physics runs headless for a few simulated minutes, with the assertions listed for stage 2. These protect the promise that physics decides whether a ship flies.
 - **Network tests:** stage 1 runs an in-process loopback. Host and client each get their own `SceneMultiplayer` branch, joined over ENet on localhost. Stage 3 adds a two-process test with a headless server and a headless client that compares ship states.
@@ -356,3 +361,6 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-29 | Engine: Godot 4.7.2, GDScript, Jolt, Forward+; desktop Linux and Windows |
 | 2026-09-29 | Every game runs a server. Solo means a local server with no network. |
 | 2026-09-29 | Online co-op is built at stage 3, before content |
+| 2026-09-30 | Ships get a keel term in their drag, so they carve turns instead of skidding (about 6°/s for the starter ship) |
+| 2026-09-30 | The starter ship is balanced by iron ballast in its keel, and floats level at 877 m |
+| 2026-09-30 | Until stage 5, crew who fall overboard are put back aboard where they started |

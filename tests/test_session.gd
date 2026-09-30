@@ -196,6 +196,24 @@ func test_host_drops_a_player_who_leaves() -> void:
 	assert_true(await wait_until(func() -> bool: return host.players.size() == 1, 5.0), "host drops the guest")
 
 
+func test_guests_leaving_together_are_both_dropped_cleanly() -> void:
+	# Both goodbyes arrive in one poll. Telling the others about the first must not
+	# send to the second, whose connection is already gone.
+	var host := make_session("Host")
+	var ann := make_session("Ann")
+	var bob := make_session("Bob")
+	var port := free_port()
+	host.host("Host", port)
+	ann.join("Ann", "127.0.0.1", port)
+	bob.join("Bob", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return host.players.size() == 3, 5.0), "all aboard")
+	await wait_until(func() -> bool: return false, 0.2)
+	ann.leave()
+	bob.leave()
+	assert_true(await wait_until(func() -> bool: return host.players.size() == 1, 5.0), "both are dropped")
+	await wait_until(func() -> bool: return false, 0.2)
+
+
 func test_client_is_told_when_the_host_quits() -> void:
 	var host := make_session("Host")
 	var client := make_session("Client")

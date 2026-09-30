@@ -14,13 +14,6 @@ func after_each() -> void:
 	super.after_each()
 
 
-func press(player: PlayerController, action: String) -> void:
-	var event := InputEventAction.new()
-	event.action = action
-	event.pressed = true
-	player._unhandled_input(event)
-
-
 ## Host and Guest meet in the lobby, set sail, and each loads a world. True once
 ## the guest's ship has arrived.
 func sail_together() -> bool:
@@ -405,3 +398,20 @@ func test_a_dedicated_world_has_a_ship_and_nobody_aboard() -> void:
 	assert_true(await wait_until(func() -> bool: return ship.freeze, 3.0), "anchored again when they leave")
 	assert_eq(ship.throttle, 0.0)
 	assert_false(ship.helm.autopilot)
+
+
+func test_a_pilot_and_a_guest_leaving_together_are_dropped_cleanly() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var late := make_session("Late")
+	late.join("Cy", "127.0.0.1", host.port)
+	assert_true(await wait_until(func() -> bool: return late.sailing, 5.0), "Cy joins")
+	var late_world := add_world(late)
+	assert_true(await wait_until(func() -> bool: return late_world.ship != null, 5.0), "and boards")
+	await play(0.2)
+	var client_id := client.multiplayer.get_unique_id()
+	press(client_world.player, "interact")
+	assert_true(await wait_until(func() -> bool: return host_world.ship.helm.pilot == client_id, 2.0), "the guest takes the helm")
+	client.leave()  # the pilot first, so freeing the helm has Cy to tell
+	late.leave()
+	assert_true(await wait_until(func() -> bool: return host_world.ship.helm.pilot == 0 and host.players.size() == 1, 3.0), "both gone, the helm freed")
+	await play(0.2)

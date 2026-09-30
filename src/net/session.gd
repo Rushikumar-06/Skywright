@@ -57,6 +57,9 @@ func _ready() -> void:
 	var api := multiplayer as SceneMultiplayer
 	api.auth_callback = _on_auth
 	api.auth_timeout = AUTH_TIMEOUT
+	# Guests only ever talk to the host, so they needn't hear of each other. The
+	# relay would also tell guests leaving in the same poll about each other.
+	api.server_relay = false
 	api.peer_authenticating.connect(_on_peer_authenticating)
 	api.peer_authentication_failed.connect(_on_peer_authentication_failed)
 	api.peer_connected.connect(_on_peer_connected)
@@ -283,11 +286,9 @@ func _on_peer_authentication_failed(id: int) -> void:
 
 func _on_peer_connected(id: int) -> void:
 	# A host that crashes or is killed sends no goodbye, so notice silence sooner
-	# than ENet's default 30 s. Hosts drop silent guests the same way. Guests hear
-	# of each other too, but through the host: their only connection is to it.
-	if mode == Mode.HOST or id == 1:
-		var ms := int(drop_after * 1000.0)
-		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(id).set_timeout(32, ms, ms)
+	# than ENet's default 30 s. Hosts drop silent guests the same way.
+	var ms := int(drop_after * 1000.0)
+	(multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(id).set_timeout(32, ms, ms)
 	if mode != Mode.HOST or not _joining.has(id):
 		return
 	var roster := players.duplicate(true)
@@ -317,7 +318,9 @@ func _on_peer_disconnected(id: int) -> void:
 		var roster := players.duplicate(true)
 		roster.erase(id)
 		_set_players(roster)
-		_roster.rpc(players)
+		# Not now: others may have left in this same poll, and their connections
+		# are already gone. By the end of the frame they're off the peer list.
+		_send_roster.call_deferred()
 		_log("peer %d left" % id)
 
 
@@ -347,6 +350,11 @@ func _sail() -> void:
 	if mode == Mode.CLIENT and _accepted and not sailing:
 		sailing = true
 		sailed.emit()
+
+
+func _send_roster() -> void:
+	if mode == Mode.HOST:
+		_roster.rpc(players)
 
 
 @rpc("authority", "call_remote", "reliable")

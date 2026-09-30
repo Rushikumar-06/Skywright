@@ -104,11 +104,19 @@ func _on_roster_changed() -> void:
 			if _avatars.has(peer):
 				(_avatars[peer] as CrewAvatar).queue_free()
 				_avatars.erase(peer)
-	if session.is_server():
-		for ship: Ship in ships.values():
-			if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
-				ship.helm.leave(ship.helm.pilot)
+	# Freeing stations tells everyone, so wait for the end of the frame: others may
+	# have left in the same poll, and their connections are already gone.
+	_free_stations.call_deferred()
 	_anchor_if_empty()
+
+
+## Server: frees the stations of anyone no longer on the roster.
+func _free_stations() -> void:
+	if not session.is_server():
+		return
+	for ship: Ship in ships.values():
+		if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
+			ship.helm.leave(ship.helm.pilot)
 
 
 ## Server: holds every ship still, engines stopped, while nobody is aboard.

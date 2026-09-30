@@ -63,18 +63,18 @@ func apply() -> void:
 
 
 ## Trims a name, turns control characters and line breaks (C0, delete, C1, U+2028
-## and U+2029) into spaces, caps it at MAX_NAME_LENGTH, and falls back to
-## DEFAULT_NAME when nothing is left.
-static func clean_name(raw: String) -> String:
+## and U+2029) into spaces, caps it at max_length, and falls back to fallback
+## when nothing is left.
+static func clean_name(raw: String, max_length := MAX_NAME_LENGTH, fallback := DEFAULT_NAME) -> String:
 	var printable := ""
-	# Only the first MAX_NAME_LENGTH characters can survive, so look at no more:
+	# Only the first max_length characters can survive, so look at no more:
 	# a modified client can send a name megabytes long.
-	for character in raw.strip_edges().left(MAX_NAME_LENGTH):
+	for character in raw.strip_edges().left(max_length):
 		var code := character.unicode_at(0)
 		var control := code < 0x20 or (code >= 0x7F and code <= 0x9F) or code == 0x2028 or code == 0x2029
 		printable += " " if control else character
-	var cleaned := printable.strip_edges().left(MAX_NAME_LENGTH).strip_edges()
-	return cleaned if not cleaned.is_empty() else DEFAULT_NAME
+	var cleaned := printable.strip_edges().left(max_length).strip_edges()
+	return cleaned if not cleaned.is_empty() else fallback
 
 
 static func _clean_address(raw: String) -> String:

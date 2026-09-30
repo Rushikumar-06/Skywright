@@ -7,9 +7,12 @@ const ZONE_SIZE := 4       ## Drag zones are ZONE_SIZE cells on a side.
 const MAX_BLOCKS := 4000   ## Spec §3.3.
 const MIN_CELL := -64      ## Every coordinate is in MIN_CELL…MAX_CELL (spec §4.10).
 const MAX_CELL := 63
+const BYTES_PER_BLOCK := 7  ## In to_bytes' body.
 
 ## Vector3i -> {"type": String, "rotation": int (0–23), "hp": int}
 var blocks: Dictionary = {}
+## Block type -> Color: every block of that type is drawn in it.
+var paint: Dictionary = {}
 
 
 ## Places a block, replacing any already there, at full hit points.
@@ -122,29 +125,136 @@ func to_blocks() -> Array:
 	return data
 
 
-## A grid from to_blocks() data, or null if the data isn't a valid ship: 1 to
-## MAX_BLOCKS blocks, whole coordinates in range, known types, rotations 0–23, hit
-## points from 1 to the block's full, no cell used twice, and at least one helm.
-## The data may come from another machine, so nothing about it is assumed.
+## A grid from to_blocks() data, or null if it isn't a valid ship; see read_blocks.
 static func from_blocks(data: Variant) -> ShipGrid:
-	if not data is Array or data.is_empty() or data.size() > MAX_BLOCKS:
-		return null
+	return read_blocks(data).get("grid")
+
+
+## Checks block data that may come from another machine or a shared file, and
+## returns {"grid": ShipGrid} or {"problem": String} naming the first thing wrong.
+## Entries are [x, y, z, type, rotation] at full hit points, or with hit points as a
+## sixth item. Numbers may be ints or whole floats (JSON has only floats).
+static func read_blocks(data: Variant) -> Dictionary:
+	if not data is Array or data.is_empty():
+		return {"problem": "The ship has no blocks."}
+	if data.size() > MAX_BLOCKS:
+		return {"problem": "The ship has %d blocks; the most a ship can have is %d." % [data.size(), MAX_BLOCKS]}
 	var grid := ShipGrid.new()
+	var n := 0
 	for block: Variant in data:
-		if not block is Array or block.size() != 6:
-			return null
+		n += 1
+		if not block is Array or block.size() < 5 or block.size() > 6 or not block[3] is String:
+			return {"problem": "Block %d isn't written as [x, y, z, type, rotation]." % n}
+		var numbers: Array[int] = []
 		for i in [0, 1, 2, 4, 5]:
-			if not block[i] is int:
-				return null
-		var cell := Vector3i(block[0], block[1], block[2])
-		if cell.clamp(Vector3i.ONE * MIN_CELL, Vector3i.ONE * MAX_CELL) != cell or grid.blocks.has(cell):
+			if i >= block.size():
+				continue
+			var value: Variant = block[i]
+			if value is float and is_finite(value) and value == floorf(value) and absf(value) < 1e9:
+				value = int(value)
+			if not value is int:
+				return {"problem": "Block %d has a number that isn't a whole number." % n}
+			numbers.append(value)
+		var cell := Vector3i(numbers[0], numbers[1], numbers[2])
+		if cell.clamp(Vector3i.ONE * MIN_CELL, Vector3i.ONE * MAX_CELL) != cell:
+			return {"problem": "Block %d is outside the build area (%d to %d)." % [n, MIN_CELL, MAX_CELL]}
+		var type: String = block[3]
+		if not Tuning.BLOCKS.has(type):
+			return {"problem": "Block %d is an unknown type, \"%s\"." % [n, type.left(24)]}
+		if numbers[3] < 0 or numbers[3] > 23:
+			return {"problem": "Block %d has rotation %d; rotations go from 0 to 23." % [n, numbers[3]]}
+		var full: int = Tuning.BLOCKS[type]["hp"]
+		var hp: int = numbers[4] if numbers.size() > 4 else full
+		if hp < 1 or hp > full:
+			return {"problem": "Block %d has %d hit points; a %s has 1 to %d." % [n, hp, type, full]}
+		if grid.blocks.has(cell):
+			return {"problem": "Block %d is in the same place as another block." % n}
+		grid.blocks[cell] = {"type": type, "rotation": numbers[3], "hp": hp}
+	if grid.cells_of("helm").is_empty():
+		return {"problem": "Every ship needs a helm."}
+	return {"grid": grid}
+
+
+## Whether cell is inside the build area.
+static func in_area(cell: Vector3i) -> bool:
+	return cell.clamp(Vector3i.ONE * MIN_CELL, Vector3i.ONE * MAX_CELL) == cell
+
+
+## The blocks packed for the network: bytes 0-1 are the block count (u16), the rest
+## is the zstd-compressed body of BYTES_PER_BLOCK bytes a block: x + 64, y + 64,
+## z + 64, the type's index in Tuning.BLOCKS' key order, the rotation, and the hit
+## points (u16). Reordering Tuning.BLOCKS changes this format.
+func to_bytes() -> PackedByteArray:
+	var types := Tuning.BLOCKS.keys()
+	var body := PackedByteArray()
+	body.resize(blocks.size() * BYTES_PER_BLOCK)
+	var at := 0
+	for cell: Vector3i in blocks:
+		var block: Dictionary = blocks[cell]
+		body[at] = cell.x - MIN_CELL
+		body[at + 1] = cell.y - MIN_CELL
+		body[at + 2] = cell.z - MIN_CELL
+		body[at + 3] = types.find(block["type"])
+		body[at + 4] = block["rotation"]
+		body.encode_u16(at + 5, block["hp"])
+		at += BYTES_PER_BLOCK
+	var data := PackedByteArray([0, 0])
+	data.encode_u16(0, blocks.size())
+	data.append_array(body.compress(FileAccess.COMPRESSION_ZSTD))
+	return data
+
+
+## A grid from to_bytes() data, or null if it isn't valid. Nothing is assumed: the
+## bytes may come from another machine.
+static func from_bytes(data: Variant) -> ShipGrid:
+	if not data is PackedByteArray or data.size() < 3:
+		return null
+	var count: int = data.decode_u16(0)
+	if count < 1 or count > MAX_BLOCKS:
+		return null
+	var size := count * BYTES_PER_BLOCK
+	# Junk or a wrong size decompresses to nothing, so check the length.
+	var body: PackedByteArray = data.slice(2).decompress(size, FileAccess.COMPRESSION_ZSTD)
+	if body.size() != size:
+		return null
+	var types := Tuning.BLOCKS.keys()
+	var list := []
+	for at in range(0, size, BYTES_PER_BLOCK):
+		if body[at + 3] >= types.size():
 			return null
-		if not block[3] is String or not Tuning.BLOCKS.has(block[3]):
+		list.append([body[at] + MIN_CELL, body[at + 1] + MIN_CELL, body[at + 2] + MIN_CELL, types[body[at + 3]], body[at + 4], body.decode_u16(at + 5)])
+	return from_blocks(list)
+
+
+## Paint as plain text for sending or saving: type -> "rrggbb".
+func paint_names() -> Dictionary:
+	var names := {}
+	for type: String in paint:
+		names[type] = (paint[type] as Color).to_html(false)
+	return names
+
+
+## Paint from paint_names() data (or a blueprint's "paint"): a Dictionary of type ->
+## Color, or null when it isn't valid.
+static func read_paint(data: Variant) -> Variant:
+	if not data is Dictionary or data.size() > Tuning.BLOCKS.size():
+		return null
+	var colours := {}
+	for type: Variant in data:
+		var value: Variant = data[type]
+		if not type is String or not Tuning.BLOCKS.has(type) or not value is String or not Color.html_is_valid(value):
 			return null
-		if block[4] < 0 or block[4] > 23 or block[5] < 1 or block[5] > Tuning.BLOCKS[block[3]]["hp"]:
-			return null
-		grid.blocks[cell] = {"type": block[3], "rotation": block[4], "hp": block[5]}
-	return grid if not grid.cells_of("helm").is_empty() else null
+		colours[type] = Color(value)
+	return colours
+
+
+## An independent copy, with hit points and paint.
+func copy() -> ShipGrid:
+	var other := ShipGrid.new()
+	for cell: Vector3i in blocks:
+		other.blocks[cell] = (blocks[cell] as Dictionary).duplicate()
+	other.paint = paint.duplicate()
+	return other
 
 
 func _mass(cell: Vector3i) -> float:

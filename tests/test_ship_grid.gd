@@ -130,12 +130,12 @@ func test_from_blocks_refuses_bad_ships() -> void:
 		"empty": [],
 		"too many": too_many,
 		"a block that isn't an array": good + ["frame"],
-		"a short block": good + [[0, 20, 0, "frame", 0]],
+		"a short block": good + [[0, 20, 0, "frame"]],
 		"an unknown type": good + [[0, 20, 0, "gold", 0, 100]],
 		"a type that isn't text": good + [[0, 20, 0, 3, 0, 100]],
 		"x past 63": good + [[64, 20, 0, "frame", 0, 100]],
 		"y below -64": good + [[0, -65, 0, "frame", 0, 100]],
-		"a float coordinate": good + [[0.5, 20, 0, "frame", 0, 100]],
+		"a fractional coordinate": good + [[0.5, 20, 0, "frame", 0, 100]],
 		"rotation 24": good + [[0, 20, 0, "frame", 24, 100]],
 		"rotation -1": good + [[0, 20, 0, "frame", -1, 100]],
 		"hp 0": good + [[0, 20, 0, "frame", 0, 0]],
@@ -145,6 +145,125 @@ func test_from_blocks_refuses_bad_ships() -> void:
 	}
 	for problem: String in cases:
 		assert_eq(ShipGrid.from_blocks(cases[problem]), null, problem)
+
+
+func test_copy_is_independent() -> void:
+	var grid := grid_of({Vector3i(0, 0, 0): "helm", Vector3i(1, 0, 0): "frame"})
+	grid.blocks[Vector3i(1, 0, 0)]["hp"] = 7
+	grid.paint = {"frame": Color.RED}
+	var copy := grid.copy()
+	assert_eq(copy.blocks, grid.blocks)
+	assert_eq(copy.paint, grid.paint)
+	copy.set_block(Vector3i(0, 0, 0), "iron")
+	copy.blocks[Vector3i(1, 0, 0)]["hp"] = 1
+	copy.paint["frame"] = Color.BLUE
+	assert_eq(grid.type_at(Vector3i(0, 0, 0)), "helm")
+	assert_eq(grid.blocks[Vector3i(1, 0, 0)]["hp"], 7)
+	assert_eq(grid.paint["frame"], Color.RED)
+
+
+## Header (count) plus the zstd body of the given raw bytes.
+func packed(count: int, body: PackedByteArray) -> PackedByteArray:
+	var data := PackedByteArray([0, 0])
+	data.encode_u16(0, count)
+	data.append_array(body.compress(FileAccess.COMPRESSION_ZSTD))
+	return data
+
+
+## Raw 7-byte block records: [x+64, y+64, z+64, type index, rotation, hp lo, hp hi].
+func record(x: int, y: int, z: int, type: int, hp := 100) -> PackedByteArray:
+	return PackedByteArray([x + 64, y + 64, z + 64, type, 0, hp & 255, hp >> 8])
+
+
+func test_to_bytes_and_back() -> void:
+	var grid := StarterShip.build()
+	grid.set_block(Vector3i(0, 20, 0), "frame", 13)
+	grid.blocks[Vector3i(0, 20, 0)]["hp"] = 5
+	var bytes := grid.to_bytes()
+	assert_true(bytes.size() < 2000, "the starter is %d bytes" % bytes.size())
+	var copy := ShipGrid.from_bytes(bytes)
+	assert_true(copy != null, "it reads back")
+	if copy != null:
+		assert_eq(copy.blocks, grid.blocks)
+	var big := ShipGrid.new()
+	for x in 20:
+		for y in 10:
+			for z in 20:
+				big.set_block(Vector3i(x, y, z), "frame")
+	big.set_block(Vector3i(0, 0, 0), "helm")
+	assert_eq(big.blocks.size(), 4000)
+	assert_true(big.to_bytes().size() < 40000, "4,000 blocks are %d bytes" % big.to_bytes().size())
+	assert_eq(ShipGrid.from_bytes(big.to_bytes()).blocks, big.blocks)
+
+
+func test_from_bytes_refuses_junk() -> void:
+	var helm := record(0, 0, 0, Tuning.BLOCKS.keys().find("helm"))
+	var frame := Tuning.BLOCKS.keys().find("frame")
+	var cut := packed(2, helm + record(1, 0, 0, frame))
+	var bad_y := helm + record(1, 0, 0, frame)
+	bad_y[8] = 200
+	var junk_after := packed(1, helm)
+	junk_after.append_array(PackedByteArray([1, 2, 3, 4, 5]))
+	var cases := {
+		"a string": "ship",
+		"no bytes": [],
+		"two bytes": PackedByteArray([1, 0]),
+		"count 0": packed(0, PackedByteArray()),
+		"count 4001": packed(4001, PackedByteArray()),
+		"junk after a count": PackedByteArray([1, 0, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]),
+		"junk after a valid body": junk_after,
+		"a body cut short": packed(2, helm),
+		"a compressed body cut short": cut.slice(0, cut.size() - 3),
+		"a type index of 200": packed(1, record(0, 0, 0, 200)),
+		"a coordinate byte of 200": packed(2, bad_y),
+		"two blocks in one cell": packed(2, helm + record(0, 0, 0, frame)),
+		"no helm": packed(1, record(0, 0, 0, frame)),
+	}
+	for problem: String in cases:
+		assert_eq(ShipGrid.from_bytes(cases[problem]), null, problem)
+	assert_true(ShipGrid.from_bytes(packed(1, helm)) != null, "the test's own bytes are fine")
+
+
+func test_read_blocks_names_the_first_problem() -> void:
+	var helm := [0, 0, 0, "helm", 0]
+	var cases := [
+		["a ship", "The ship has no blocks."],
+		[[], "The ship has no blocks."],
+		[[helm] + range(4000).map(func(i: int) -> Array: return [i % 100 - 50, i / 100 - 30, 1, "frame", 0]), "The ship has 4001 blocks; the most a ship can have is 4000."],
+		[[helm, "frame"], "Block 2 isn't written as [x, y, z, type, rotation]."],
+		[[helm, [1, 0, 0, "frame"]], "Block 2 isn't written as [x, y, z, type, rotation]."],
+		[[helm, [1, 0, 0, 3, 0]], "Block 2 isn't written as [x, y, z, type, rotation]."],
+		[[[0.5, 0, 0, "helm", 0]], "Block 1 has a number that isn't a whole number."],
+		[[[INF, 0, 0, "helm", 0]], "Block 1 has a number that isn't a whole number."],
+		[[[0, 0, 0, "helm", "a"]], "Block 1 has a number that isn't a whole number."],
+		[[helm, [64, 0, 0, "frame", 0]], "Block 2 is outside the build area (-64 to 63)."],
+		[[helm, [0, -65, 0, "frame", 0]], "Block 2 is outside the build area (-64 to 63)."],
+		[[helm, [1, 0, 0, "x".repeat(40), 0]], "Block 2 is an unknown type, \"%s\"." % "x".repeat(24)],
+		[[helm, [1, 0, 0, "frame", 24]], "Block 2 has rotation 24; rotations go from 0 to 23."],
+		[[helm, [1, 0, 0, "frame", 0, 0]], "Block 2 has 0 hit points; a frame has 1 to 100."],
+		[[helm, [1, 0, 0, "frame", 0, 101]], "Block 2 has 101 hit points; a frame has 1 to 100."],
+		[[helm, [0, 0, 0, "frame", 0]], "Block 2 is in the same place as another block."],
+		[[[1, 0, 0, "frame", 0]], "Every ship needs a helm."],
+	]
+	for item: Array in cases:
+		assert_eq(ShipGrid.read_blocks(item[0]).get("problem"), item[1])
+	assert_true(ShipGrid.read_blocks([[0, 0, 0, "helm", 0.0]]).has("grid"), "a whole float is accepted")
+	assert_true(ShipGrid.read_blocks([[0.5, 0, 0, "helm", 0]]).has("problem"), "a half isn't")
+	assert_eq(ShipGrid.read_blocks([[0, 0, 0, "helm", 3, 20]])["grid"].blocks[Vector3i.ZERO], {"type": "helm", "rotation": 3, "hp": 20})
+	assert_eq(ShipGrid.read_blocks([helm])["grid"].blocks[Vector3i.ZERO]["hp"], 150, "five items mean full hit points")
+
+
+func test_paint_is_checked() -> void:
+	assert_eq(ShipGrid.read_paint({"balloon": "c0392b"}), {"balloon": Color("c0392b")})
+	assert_eq(ShipGrid.read_paint({}), {})
+	var too_many := {}
+	for i in Tuning.BLOCKS.size() + 1:
+		too_many["t%d" % i] = "ffffff"
+	for bad: Variant in ["c0392b", {"gold": "c0392b"}, {"balloon": "zzz"}, {"balloon": 5}, too_many]:
+		assert_eq(ShipGrid.read_paint(bad), null, var_to_str(bad))
+	var grid := ShipGrid.new()
+	grid.paint = {"balloon": Color("c0392b")}
+	assert_eq(grid.paint_names(), {"balloon": "c0392b"})
 
 
 func test_bounds_hold_every_block() -> void:

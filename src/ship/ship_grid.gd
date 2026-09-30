@@ -184,6 +184,14 @@ static func in_area(cell: Vector3i) -> bool:
 ## Vector3i}, the normal being the face it came through, or {} when nothing is hit
 ## within max_distance. A voxel walk, so no physics is needed.
 func raycast(from: Vector3, direction: Vector3, max_distance := 200.0) -> Dictionary:
+	var hits := cells_along(from, direction, max_distance, 1)
+	return hits[0] if not hits.is_empty() else {}
+
+
+## The first count blocks a ray enters (ladders included), in order, each as
+## {"cell": Vector3i, "normal": Vector3i}, the normal being the face it came through.
+func cells_along(from: Vector3, direction: Vector3, max_distance := 200.0, count := 1) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
 	var dir := direction.normalized()
 	var p := from + Vector3(0.5, 0.5, 0.5)  # cell c now spans [c, c + 1)
 	var cell := Vector3i(floori(p.x), floori(p.y), floori(p.z))
@@ -201,16 +209,16 @@ func raycast(from: Vector3, direction: Vector3, max_distance := 200.0) -> Dictio
 			t_delta[axis] = -1.0 / dir[axis]
 	var normal := Vector3i.ZERO
 	var t := 0.0
-	while t <= max_distance:
+	while t <= max_distance and found.size() < count:
 		if blocks.has(cell):
-			return {"cell": cell, "normal": normal}
+			found.append({"cell": cell, "normal": normal})
 		var axis := t_max.min_axis_index()
 		t = t_max[axis]
 		cell[axis] += step[axis]
 		t_max[axis] += t_delta[axis]
 		normal = Vector3i.ZERO
 		normal[axis] = -step[axis]
-	return {}
+	return found
 
 
 ## The blocks packed for the network: bytes 0-1 are the block count (u16), the rest
@@ -287,6 +295,14 @@ func copy() -> ShipGrid:
 	for cell: Vector3i in blocks:
 		other.blocks[cell] = (blocks[cell] as Dictionary).duplicate()
 	other.paint = paint.duplicate()
+	return other
+
+
+## An independent copy with every block at full hit points, and paint.
+func whole() -> ShipGrid:
+	var other := copy()
+	for cell: Vector3i in other.blocks:
+		other.blocks[cell]["hp"] = Tuning.BLOCKS[other.blocks[cell]["type"]]["hp"]
 	return other
 
 

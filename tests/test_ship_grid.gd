@@ -286,3 +286,26 @@ func test_raycast_misses_and_stops_at_its_range() -> void:
 	assert_eq(grid.raycast(Vector3(0, 10, 0), Vector3.UP), {})
 	assert_eq(grid.raycast(Vector3(0, 100, 0), Vector3.DOWN, 50.0), {})
 	assert_true(grid.raycast(Vector3(0, 100, 0), Vector3.DOWN, 150.0).has("cell"))
+
+
+func test_cells_along_lists_blocks_in_order_with_their_faces() -> void:
+	var grid := grid_of({Vector3i(1, 0, 0): "frame", Vector3i(2, 0, 0): "ladder", Vector3i(4, 0, 0): "deck"})
+	var hits := grid.cells_along(Vector3(-3, 0, 0), Vector3.RIGHT, 200.0, 3)
+	assert_eq(hits.size(), 3)
+	assert_eq(hits[0], {"cell": Vector3i(1, 0, 0), "normal": Vector3i(-1, 0, 0)})
+	assert_eq(hits[1]["cell"], Vector3i(2, 0, 0))
+	assert_eq(hits[2]["cell"], Vector3i(4, 0, 0))
+	assert_eq(grid.cells_along(Vector3(-3, 0, 0), Vector3.RIGHT, 200.0, 2).size(), 2)
+	assert_eq(grid.cells_along(Vector3(-3, 0, 0), Vector3.RIGHT, 200.0, 9).size(), 3)
+	assert_eq(grid.raycast(Vector3(-3, 0, 0), Vector3.RIGHT), hits[0])
+	assert_eq(grid.raycast(Vector3(-3, 5, 0), Vector3.RIGHT), {})
+
+
+func test_whole_restores_hit_points_and_keeps_paint() -> void:
+	var grid := grid_of({Vector3i(0, 0, 0): "iron"})
+	grid.blocks[Vector3i(0, 0, 0)]["hp"] = 7
+	grid.paint["iron"] = Color.RED
+	var fresh := grid.whole()
+	assert_eq(fresh.blocks[Vector3i(0, 0, 0)]["hp"], 300)
+	assert_eq(fresh.paint["iron"], Color.RED)
+	assert_eq(grid.blocks[Vector3i(0, 0, 0)]["hp"], 7, "the original is untouched")

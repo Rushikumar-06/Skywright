@@ -1,7 +1,7 @@
 # Skywright: design spec
 
 - **Date:** 2026-09-29
-- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stage 2 settled.
+- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stages 2 and 3 settled.
 - **Tracker:** [Skywright Build Log](https://claude.ai/artifact/N8W3J8xUU77JcdYdhcSZCx)
 
 ## 1. Summary
@@ -83,7 +83,8 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 
 ### 3.8 Multiplayer
 
-- **Co-op:** friends join the host's world and either crew the host's ship or fly their own alongside it. The world is saved on the host's machine.
+- **Co-op:** friends join the host's world and either crew the host's ship or fly their own alongside it (from stage 4, which brings ships of your own; in stage 3 everyone crews the host's ship). The world is saved on the host's machine.
+- **Lobby:** the host's crew gather in a lobby until the host sets sail. Anyone who joins after that goes straight aboard.
 - **Skirmish:** team ship battles on arena maps using your own blueprints, and sky-river races with checkpoints. Players can board enemy ships with grapple lines and fight with cutlass and pistol.
 - **Size:** up to 8 players.
 
@@ -141,7 +142,7 @@ Every game runs a server. `Session` (an autoload) has four modes:
 | `HOST` | ENet server on UDP port 24650. You play as peer 1, and others join. |
 | `CLIENT` | Connected to a host |
 
-A dedicated server (stage 3) is `HOST` mode with no local player, started with `-- --server` and run with `--headless`.
+A dedicated server (stage 3) is `HOST` mode with no local player, started with `-- --server` and run with `--headless`. Its world starts at once, with no lobby, and it caps its frame rate at the physics rate. While nobody is aboard, it anchors its ships: held still, with the throttle at 0 and the autopilot off.
 
 The server is authoritative for ships, blocks, damage, projectiles, AI, the world and the economy. Clients send inputs: station commands, plus their own character's movement (see §4.5).
 
@@ -220,19 +221,24 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 - **Leaving and boarding:** when no ship floor has been under your feet for 0.2 s and a downward ray in the main world doesn't hit this ship, you move to a main-world character. Your velocity is the ship's point velocity plus your own. Landing on any ship moves you into that ship's interior. This arrives with going ashore in stage 5. Until then, crew who fall 30 m below their ship are put back aboard where they started, and told so.
 - **Walking in a tilted gravity:** walking "uphill" against gravity that isn't square to the deck makes Godot skip its floor snap, so crew apply the snap themselves (except when jumping or on a ladder). Ladders are open cells: while your body is in a ladder's column you hold on, gravity stops, and you climb along the ship's up.
 - **Being hit:** each crew member also has a main-world hitbox (`Area3D`) so projectiles can hit them.
+- **Other players:** each machine walks only its own crew member, in its own copy of the interior, and reports where it is (§4.6). Everyone else is drawn as an avatar with a name tag. Crew don't collide with each other until combat needs server-side crew bodies (stage 6).
 - **Fallback:** if this approach fails its stage 2 check, crew become main-world characters that inherit platform velocity and yaw from the deck.
 
 ### 4.6 Networking
 
-- **Transport:** ENet over UDP on port 24650. LAN discovery uses UDP broadcast on port 24651: the host announces its name, player count, protocol and port once a second. Up to 8 players.
+- **Transport:** ENet over UDP on port 24650. Up to 8 players. Guests only ever talk to the host (SceneMultiplayer's server relay is off). A connection silent for 8 s counts as lost (ENet's own default is 30 s), so a host that crashes or is killed is noticed quickly.
+- **LAN discovery (UDP 24651):** query and answer. Once a second, a browser broadcasts a query (`SKYWRIGHT?` padded with zeros to 256 bytes) to port 24651, and to this machine. Each host answers the asker directly with `SKYWRIGHT!` and `var_to_bytes({id, name, players, max, version, port})`. An answer is never bigger than its query, so a host can't be used to multiply traffic, and every answer is checked. It's query and answer rather than announcements because only one program per machine can listen on 24651: a second game hosted on the same machine can be joined by address but isn't listed.
 - **Channels:**
   - Channel 0 is reliable, for events.
   - Channel 1 is unreliable-ordered, for ship snapshots.
-  - Channel 2 is unreliable-ordered, for crew movement.
-- **Ship snapshots (30 Hz):** each carries `{ship id, server tick, position, rotation, linear velocity, angular velocity}`. Clients render ships 100 ms in the past with Hermite interpolation between snapshots, and extrapolate up to 250 ms when packets are late.
-- **Crew (30 Hz):** each client sends `{ship id or −1, local position, yaw, pitch, movement state}` to the server, which relays it to everyone else.
-- **Events (reliable):** ship spawned (with compressed blueprint and damage), ship removed, blocks destroyed, ship split, projectile fired (`origin`, `velocity`, `type`, `server time`), projectile hit, station claimed or released, and economy changes. Every machine simulates a projectile's arc from its launch data, and only the server decides hits.
-- **Joining mid-game:** the joining client receives the world seed, the list of changes to the world, every ship (blueprint, damage and transform), and the crew roster.
+  - Channel 2 is unreliable-ordered, for crew movement and the pilot's helm keys.
+- **The world clock:** seconds of physics since the server's world began. Snapshots carry it, and each client eases its own clock toward it. The day–night cycle and client interpolation both run on it, so everyone sees the same sky. Wind is still computed only on the server, so it needs no clock sync.
+- **Who flies:** only the server simulates ships. On clients a ship is a frozen, kinematic copy that follows the snapshots, and no forces act on it.
+- **Ship snapshots (30 Hz):** each carries `{ship id, position, rotation, linear velocity, angular velocity, throttle, rudder, trim, autopilot, target heading, target altitude}` at a server time. Clients render ships 100 ms in the past with Hermite interpolation between snapshots, and extrapolate up to 250 ms when packets are late.
+- **Crew (30 Hz):** each client sends `{ship id, local position, velocity, yaw, pitch}` to the server. The server checks it (finite, at most 50 m/s, within 35 m of the ship's blocks), stamps it with its own clock and relays it to everyone else. Clients draw other crew 100 ms in the past, on their ship as it's drawn.
+- **Stations:** a client asks the server for the helm. The server grants it only if the asker last reported standing aboard that ship within reach (1.8 m, plus 0.5 m of slack), and tells everyone who holds it. Only the pilot's helm keys are applied (clamped to −1…1), and only the pilot can switch the autopilot.
+- **Events (reliable):** ship spawned (with compressed blueprint and damage), ship removed, blocks destroyed, ship split, projectile fired (`origin`, `velocity`, `type`, `server time`), projectile hit, station claimed or released, and economy changes. Every machine simulates a projectile's arc from its launch data, and only the server decides hits. In stage 3 a ship's blocks are sent uncompressed, as `[x, y, z, type, rotation, hp]` (18 KB for the starter ship). Compression comes when stage 4 allows 4,000-block ships.
+- **Joining mid-game:** only peers whose world has loaded get world traffic. A client's world asks to enter when it's ready, and receives the world clock and every ship (blocks, damage, transform and pilot). Later stages add the world seed and the list of changes to the world. The crew roster comes with the handshake.
 - **Budget:** at most 64 KB/s down per client. Twelve ships at 30 Hz is about 22 KB/s.
 
 ### 4.7 World generation
@@ -319,10 +325,10 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
   - It finds every `tests/**/test_*.gd`, and runs each `test_*` method on a fresh instance. Async tests can `await`.
   - It exits 0 when everything passes and 1 otherwise.
   - Engine or script errors logged during a test count as failures, from the moment the test enters the tree until it has left it, so a crash can't pass silently.
-  - It runs Godot with `--fixed-fps 60`, so every frame is exactly one physics tick. Frames are capped at 60 per second, so timers match real time. `TestCase.simulate(seconds)` lifts the cap, so flight tests run minutes of flying in seconds.
+  - It runs Godot with `--fixed-fps 60`, so every frame is exactly one physics tick of 1/60 s. A fixed frame rate turns off Godot's frame cap, so frames run as fast as the machine allows. Game time, timers included, follows frames, so flight tests (`TestCase.simulate(seconds)`) run minutes of flying in seconds. Network tests that must keep pace with the wall clock tick in real time with `NetCase.play()`: ENet's timeouts do, and so does a server in another process.
 - **Unit tests:** settings, session roles and handshake, input map, mass properties, lift and drag, greedy box merging, break-apart detection, blueprint validation, world determinism (same seed, same world), wind continuity, saves and prices.
 - **Flight tests:** real physics runs headless for a few simulated minutes, with the assertions listed for stage 2. These protect the promise that physics decides whether a ship flies.
-- **Network tests:** stage 1 runs an in-process loopback. Host and client each get their own `SceneMultiplayer` branch, joined over ENet on localhost. Stage 3 adds a two-process test with a headless server and a headless client that compares ship states.
+- **Network tests:** several players run in one process. Each gets a branch (a `SubViewport` with its own `SceneMultiplayer` and its own 3D world), joined over ENet on localhost. `test_two_games` also starts a headless dedicated server in a second process: two players join it, hand the helm over, and check they see the ship in the same place.
 - **Playtest checklist:** each stage ends with one, covering what only a person can judge, such as whether flying feels good or whether combat is fun.
 
 ## 7. Error handling
@@ -331,7 +337,8 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 |---|---|
 | Host quits | Clients return to the menu with "The host ended the game." |
 | Connection lost | The client returns to the menu with "Lost the connection to the host." |
-| A player drops | Their stations are freed and their ship anchors in place. |
+| Connection goes silent | After 8 s it counts as lost, on both sides. |
+| A player drops | Their stations are freed and the rudder centres. A dedicated server anchors its ships once nobody is aboard. |
 | Can't reach the host | After 8 s: "The host didn't answer." |
 | Version mismatch | Refused with "This game is version A; you have version B." |
 | Game full | Refused with "The game is full (8 players)." |
@@ -364,3 +371,8 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-30 | Ships get a keel term in their drag, so they carve turns instead of skidding (about 6°/s for the starter ship) |
 | 2026-09-30 | The starter ship is balanced by iron ballast in its keel, and floats level at 877 m |
 | 2026-09-30 | Until stage 5, crew who fall overboard are put back aboard where they started |
+| 2026-09-30 | LAN discovery is query and answer, not announcements, because only one program per machine can listen on 24651 |
+| 2026-09-30 | Online games gather in a lobby until the host sets sail; late joiners go straight aboard |
+| 2026-09-30 | A connection silent for 8 s counts as lost (ENet's default is 30 s) |
+| 2026-09-30 | One world clock, seconds since the server's world began, drives the sky and client interpolation |
+| 2026-09-30 | In stage 3 everyone crews the host's one ship; each machine walks only its own crew member, and crew don't collide |

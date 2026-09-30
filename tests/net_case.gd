@@ -79,11 +79,36 @@ func solo_world() -> Node3D:
 ## Use it as: await play(...)
 func play(seconds: float, each_tick := Callable()) -> void:
 	var start := Time.get_ticks_usec()
-	var tick_usec := 1000000.0 / Engine.physics_ticks_per_second
 	for tick in roundi(seconds * Engine.physics_ticks_per_second):
 		if each_tick.is_valid():
 			each_tick.call(tick)
 		await get_tree().physics_frame
-		var ahead := int(start + (tick + 1) * tick_usec) - Time.get_ticks_usec()
-		if ahead > 0:
-			OS.delay_usec(ahead)
+		_keep_pace(start, tick + 1)
+
+
+## Like wait_until, but ticking in real time as play() does. Use it as: await play_until(...)
+func play_until(condition: Callable, timeout: float) -> bool:
+	var start := Time.get_ticks_usec()
+	var tick := 0
+	while not condition.call():
+		if Time.get_ticks_usec() - start > timeout * 1000000.0:
+			return false
+		await get_tree().physics_frame
+		tick += 1
+		_keep_pace(start, tick)
+	return true
+
+
+## Presses action for player, as a key press would.
+func press(player: PlayerController, action: String) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = true
+	player._unhandled_input(event)
+
+
+## Waits until ticks physics ticks' worth of real time has passed since start.
+func _keep_pace(start: int, ticks: int) -> void:
+	var ahead := start + int(ticks * 1000000.0 / Engine.physics_ticks_per_second) - Time.get_ticks_usec()
+	if ahead > 0:
+		OS.delay_usec(ahead)

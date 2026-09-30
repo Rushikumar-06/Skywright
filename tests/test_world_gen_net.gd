@@ -17,12 +17,21 @@ func test_host_and_guest_generate_the_same_chunks() -> void:
 	for chunk in WorldGen.chunks_near(WorldGen.START, 800.0):
 		assert_eq(host_gen.islands_in(chunk), client_gen.islands_in(chunk))
 	assert_eq(var_to_str(host_gen.towns), var_to_str(client_gen.towns))
-	# The chunk under the guest's ship, once each world has loaded it, collides alike.
-	var under_ship := WorldGen.chunk_of(client_world.ship.global_position)
+	# The chunk of the island nearest the start (the dock's own chunk has none), once
+	# each world has loaded it, collides alike.
+	var nearest := {}
+	for chunk in WorldGen.chunks_near(WorldGen.START, 1000.0):
+		for island in host_gen.islands_in(chunk):
+			if nearest.is_empty() or (island["at"] as Vector3).distance_to(WorldGen.START) < (nearest["at"] as Vector3).distance_to(WorldGen.START):
+				nearest = island
+	assert_false(nearest.is_empty(), "an island near the start")
+	var chunk := WorldGen.chunk_of(nearest["at"])
 	var loaded := func() -> bool:
-		return host_world.streamer.chunks.has(under_ship) and client_world.streamer.chunks.has(under_ship)
+		return host_world.streamer.chunks.has(chunk) and client_world.streamer.chunks.has(chunk)
 	assert_true(await wait_until(loaded, 20.0), "both worlds load it")
-	assert_eq(_faces(host_world, under_ship), _faces(client_world, under_ship))
+	var faces := _faces(host_world, chunk)
+	assert_false(faces.is_empty(), "the chunk has collision")
+	assert_eq(_faces(client_world, chunk), faces)
 
 
 func test_a_junk_seed_is_refused() -> void:

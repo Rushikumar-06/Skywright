@@ -75,6 +75,30 @@ shipyard={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":66)]
 }
+turn_block={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":82)]
+}
+tip_block={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":84)]
+}
+mirror={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":77)]
+}
+undo={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"ctrl_pressed":true,"physical_keycode":90)]
+}
+redo={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"ctrl_pressed":true,"physical_keycode":89), Object(InputEventKey,"device":-1,"ctrl_pressed":true,"shift_pressed":true,"physical_keycode":90)]
+}
+test_flight={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":70)]
+}
 
 [physics]
 

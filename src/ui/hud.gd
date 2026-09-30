@@ -1,7 +1,7 @@
 class_name Hud
 extends CanvasLayer
 ## Everything drawn over the world: the session and crew, a dot to aim with, what
-## E does, the helm's instruments while you steer, a banner on a test flight, and
+## E or B does, the helm's instruments while you steer, a banner on a test flight, and
 ## short messages.
 
 const MESSAGE_TIME := 4.0  ## Seconds a message stays up.
@@ -10,6 +10,7 @@ const SessionScript := preload("res://src/net/session.gd")
 var player: PlayerController
 var session: Node
 var test_flight := false  ## You're on a test flight. Set by the World each frame.
+var at_dock := false      ## You're at the dock. Set by the World each frame.
 
 var _status: Label
 var _crew: Label
@@ -84,7 +85,7 @@ func _ready() -> void:
 	var helm_column := VBoxContainer.new()
 	_helm.add_child(helm_column)
 	_readout = Label.new()
-	_readout.add_theme_font_override("font", _monospace())
+	_readout.add_theme_font_override("font", monospace())
 	helm_column.add_child(_readout)
 	helm_column.add_child(UiTheme.caption("W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · V view · E leave"))
 
@@ -105,6 +106,8 @@ func _process(delta: float) -> void:
 		_prompt.text = "E   " + action
 	elif holder != 0 and holder != player.peer and player.helm_in_reach():
 		_prompt.text = "%s is at the helm" % name_of(holder)
+	elif at_dock and player.crew.station == null and not test_flight:
+		_prompt.text = "B   Shipyard"
 	else:
 		_prompt.text = ""
 	_banner.visible = test_flight
@@ -179,7 +182,7 @@ static func invite_text(port: int) -> String:
 	return text + "."
 
 
-static func _monospace() -> SystemFont:
+static func monospace() -> SystemFont:
 	var font := SystemFont.new()
 	font.font_names = PackedStringArray(["DejaVu Sans Mono", "Consolas", "Menlo", "monospace"])
 	return font

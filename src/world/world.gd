@@ -23,6 +23,8 @@ var ship: Ship                 ## The ship you're aboard.
 var player: PlayerController   ## You, once the ship has arrived.
 var hud: Hud
 var dock: StaticBody3D
+var shipyard: Shipyard         ## Null while closed.
+var design: ShipDesign         ## Your design, kept for the whole game.
 
 var _came_from: Ship           ## The ship you were on before this one, while it's still here.
 
@@ -59,6 +61,7 @@ func _process(_delta: float) -> void:
 	_sky.hour = WorldSky.hour_at(sync.now())
 	if hud != null:
 		hud.test_flight = on_test_flight()
+		hud.at_dock = at_dock()
 
 
 ## Your place in the roster, which is where you stand when you board: crew board
@@ -109,11 +112,45 @@ func board(target: Ship, spot := -1) -> void:
 	ship = target
 
 
+## Opens the shipyard on your design, when you're at the dock or dock_only is off.
+func open_shipyard(dock_only := true) -> void:
+	if shipyard != null or player == null:
+		return
+	if dock_only and not at_dock():
+		hud.show_message("The shipyard is at the dock.")
+		return
+	if design == null:
+		design = ShipDesign.new(ship.grid)
+	shipyard = Shipyard.new(design, START.y)
+	shipyard.layer = 3
+	shipyard.test_flight_requested.connect(test_flight)
+	shipyard.launch_requested.connect(launch)
+	shipyard.close_requested.connect(close_shipyard)
+	add_child(shipyard)
+	player.enabled = false
+	hud.visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_viewport().disable_3d = true
+
+
+## Closes the shipyard, keeping the design, and gives you back the controls.
+func close_shipyard() -> void:
+	if shipyard == null:
+		return
+	shipyard.queue_free()
+	shipyard = null
+	player.enabled = true
+	hud.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	get_viewport().disable_3d = false
+
+
 func _on_ship_added(added: Ship) -> void:
 	if session.dedicated:
 		return
 	if added.captain == multiplayer.get_unique_id():
 		board(added, 0)
+		close_shipyard()  # your test flight or new ship is ready
 	elif player == null and added == sync.home_ship():
 		board(added)
 
@@ -126,19 +163,32 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 	for next: Ship in [successor, _came_from, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
 		if next != null:
 			board(next)
+			if removed.test and removed.captain == multiplayer.get_unique_id():
+				open_shipyard(false)  # back from a test flight
 			return
 
 
 func _exit_tree() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_viewport().disable_3d = false  # the session can end with the shipyard open
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause") and _pause != null:
-		_toggle_pause()
+	if _pause == null:
+		return
+	if event.is_action_pressed("pause"):
+		if shipyard != null:
+			close_shipyard()
+		else:
+			_toggle_pause()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("shipyard") and on_test_flight() and not _pause.visible:
-		sync.end_test()
+	elif event.is_action_pressed("shipyard") and not _pause.visible:
+		if shipyard != null:
+			close_shipyard()
+		elif on_test_flight():
+			sync.end_test()
+		else:
+			open_shipyard()
 		get_viewport().set_input_as_handled()
 
 

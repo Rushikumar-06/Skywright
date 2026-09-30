@@ -66,19 +66,40 @@ func at(p: Vector3, t: float) -> Vector3:
 	return wind
 
 
-## The push of the strongest sky river at p: along the river, full in its core and
-## fading to nothing at twice its width and at its two ends.
+## The push of the sky rivers at p. Every segment within twice its river's width pulls
+## with a weight that is full in the core and fades to nothing at twice the width and
+## at the river's two ends; the wind blows the way the weighted segments point, as
+## hard as the strongest weight, so it stays smooth at bends and where rivers cross.
 func river_at(p: Vector3) -> Vector3:
-	var best := Vector3.ZERO
 	if _gen == null:
-		return best
+		return Vector3.ZERO
+	var sum := Vector3.ZERO
+	var strongest := 0.0
 	for river in _gen.rivers:
 		if not (river["box"] as AABB).has_point(p):
 			continue
-		var push := _river_push(river, p)
-		if push.length_squared() > best.length_squared():
-			best = push
-	return best
+		var points: PackedVector3Array = river["points"]
+		var width: float = river["width"]
+		var last := points.size() - 2
+		for i in points.size() - 1:
+			var segment := points[i + 1] - points[i]
+			var length_squared := segment.length_squared()
+			if length_squared < 0.0001:
+				continue  # a river doubling back on the same spot has no direction there
+			var u := clampf((p - points[i]).dot(segment) / length_squared, 0.0, 1.0)
+			var distance := p.distance_to(points[i] + segment * u)
+			if distance >= 2.0 * width:
+				continue
+			var weight: float = river["speed"] * (1.0 - smoothstep(width, 2.0 * width, distance))
+			if i == 0:
+				weight *= smoothstep(0.0, 1.0, u)
+			if i == last:
+				weight *= smoothstep(0.0, 1.0, 1.0 - u)
+			sum += segment / sqrt(length_squared) * weight
+			strongest = maxf(strongest, weight)
+	if strongest <= 0.0 or sum.length() < 0.001:
+		return Vector3.ZERO
+	return sum.normalized() * strongest
 
 
 ## How much of a storm's strength p is in, 0 to 1: full in the core, fading out
@@ -93,36 +114,6 @@ func storm_strength(p: Vector3, t: float) -> float:
 		var distance := Vector2(p.x - centre.x, p.z - centre.z).length()
 		strongest = maxf(strongest, 1.0 - smoothstep(0.6 * radius, radius, distance))
 	return strongest
-
-
-## river's push at p, from its nearest segment.
-func _river_push(river: Dictionary, p: Vector3) -> Vector3:
-	var points: PackedVector3Array = river["points"]
-	var nearest := INF
-	var direction := Vector3.ZERO
-	var along := 0.0  # how far along the nearest segment, 0 to 1
-	var index := 0
-	for i in points.size() - 1:
-		var segment := points[i + 1] - points[i]
-		var length_squared := segment.length_squared()
-		if length_squared < 0.0001:
-			continue  # a river doubling back on the same spot has no direction there
-		var u := clampf((p - points[i]).dot(segment) / length_squared, 0.0, 1.0)
-		var distance := p.distance_to(points[i] + segment * u)
-		if distance < nearest:
-			nearest = distance
-			direction = segment / sqrt(length_squared)
-			along = u
-			index = i
-	var width: float = river["width"]
-	if nearest >= 2.0 * width:
-		return Vector3.ZERO
-	var strength: float = river["speed"] * (1.0 - smoothstep(width, 2.0 * width, nearest))
-	if index == 0:
-		strength *= smoothstep(0.0, 1.0, along)
-	if index == points.size() - 2:
-		strength *= smoothstep(0.0, 1.0, 1.0 - along)
-	return direction * strength
 
 
 ## The gusts' shape at p and t, each axis roughly -1.5 to 1.5; rate says how many

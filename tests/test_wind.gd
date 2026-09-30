@@ -67,7 +67,7 @@ func test_the_wind_is_finite_and_continuous_everywhere() -> void:
 		for t in [0.0, 123.4]:
 			assert_true(wind.at(spot, t).is_finite(), "finite at %s" % spot)
 	# One-metre steps through the middle of a river, the edge of a storm and the Stormwall.
-	var storm_at := gen.storm_center(0, 0.0) + Vector3(0, 800, 0)
+	var storm_at := gen.storm_center(0, 50.0) + Vector3(0, 800, 0)  # where it is when we sample
 	var radius: float = gen.storms[0]["radius"]
 	var walks := {
 		"river": [_middle_of(river) - _across(river) * 100.0, _across(river)],
@@ -78,10 +78,29 @@ func test_the_wind_is_finite_and_continuous_everywhere() -> void:
 		var start: Vector3 = walks[what][0]
 		var step: Vector3 = walks[what][1]
 		var last := wind.at(start, 50.0)
+		var crossed := what != "storm"
 		for i in range(1, 201):
 			var here := wind.at(start + step * float(i), 50.0)
+			var strength := wind.storm_strength(start + step * float(i), 50.0)
+			crossed = crossed or (strength > 0.05 and strength < 0.95)
 			assert_true((here - last).length() <= 3.0, "%s: jumped %.2f m/s at step %d" % [what, (here - last).length(), i])
 			last = here
+		assert_true(crossed, "%s: the walk really crossed the storm's fade" % what)
+
+
+func test_the_wind_is_continuous_through_a_rivers_bend() -> void:
+	var gen := WorldGen.new(7)
+	var wind := Wind.new(gen)
+	for river in gen.rivers:
+		var points: PackedVector3Array = river["points"]
+		for joint in [3, 10, 16]:
+			var bend := points[joint]
+			var across := (points[joint + 1] - points[joint - 1]).cross(Vector3.UP).normalized()
+			var last := wind.river_at(bend - across * 100.0)
+			for i in range(-99, 101):
+				var here := wind.river_at(bend + across * float(i))
+				assert_true((here - last).length() <= 3.0, "jumped %.2f m/s at %d m from joint %d" % [(here - last).length(), i, joint])
+				last = here
 
 
 func test_a_river_is_strong_in_its_core() -> void:

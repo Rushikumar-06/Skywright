@@ -89,10 +89,9 @@ func _ready() -> void:
 	_readout = Label.new()
 	_readout.add_theme_font_override("font", monospace())
 	helm_column.add_child(_readout)
-	helm_column.add_child(UiTheme.caption("W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · V view · E leave"))
+	helm_column.add_child(UiTheme.caption("W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · G anchor · V view · E leave"))
 
 	session.players_changed.connect(_refresh_session)
-	player.fell_overboard.connect(func() -> void: show_message("You fell overboard. Back aboard!"))
 	_refresh_session()
 
 
@@ -103,11 +102,13 @@ func show_message(text: String) -> void:
 
 func _process(delta: float) -> void:
 	var action := player.prompt()
-	var holder: int = player.ship.helm.pilot if player.ship.helm != null else 0
+	var holder: int = player.ship.helm.pilot if player.helm_in_reach() else 0
 	if not action.is_empty():
 		_prompt.text = "E   " + action
-	elif holder != 0 and holder != player.peer and player.helm_in_reach():
+	elif holder != 0 and holder != player.peer:
 		_prompt.text = "%s is at the helm" % name_of(holder)
+	elif player.ship == null and not player.crew.is_on_floor() and not player.crew.gliding:
+		_prompt.text = "Hold Space   Glide"
 	elif at_dock and player.crew.station == null and not test_flight:
 		_prompt.text = "B   Shipyard"
 	else:
@@ -145,6 +146,8 @@ static func readout(ship: Ship, wind := Vector3.ZERO) -> String:
 		lines.append("Autopilot %03d° at %d m" % [posmod(roundi(-rad_to_deg(ship.helm.target_heading)), 360), roundi(ship.helm.target_altitude)])
 	else:
 		lines.append("Autopilot off")
+	if ship.anchored:
+		lines.append("Anchored")
 	return "\n".join(lines)
 
 

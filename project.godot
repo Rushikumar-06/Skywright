@@ -67,6 +67,10 @@ autopilot={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":72)]
 }
+anchor={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":71)]
+}
 pause={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":4194305)]

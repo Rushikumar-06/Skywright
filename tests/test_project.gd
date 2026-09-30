@@ -25,6 +25,7 @@ func test_input_actions_have_their_default_keys() -> void:
 		"interact": [KEY_E],
 		"toggle_camera": [KEY_V],
 		"autopilot": [KEY_H],
+		"anchor": [KEY_G],
 		"pause": [KEY_ESCAPE],
 		"shipyard": [KEY_B],
 		"turn_block": [KEY_R],

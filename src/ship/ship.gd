@@ -24,6 +24,17 @@ var test := false    ## A test flight from the dock.
 ## False on clients: the ship is then a frozen, kinematic copy that follows the
 ## server's snapshots (spec §4.6), and no forces act on it. Set before adding it.
 var simulated := true
+## Held still, whatever the wind: a simulated ship stops dead and freezes. On clients
+## it's only a flag, since their copies are frozen anyway. WorldSync's dedicated
+## anchoring also freezes a ship while nobody is aboard.
+var anchored := false:
+	set(value):
+		anchored = value
+		if simulated:
+			if value:
+				linear_velocity = Vector3.ZERO
+				angular_velocity = Vector3.ZERO
+			freeze = value
 
 var _balloons: Array[Vector3] = []
 var _lift_stones: Array[Vector3] = []
@@ -116,6 +127,18 @@ func crew_spawn(slot := 0) -> Vector3:
 			free.append(cell)
 	var spot := free[slot % free.size()] if not free.is_empty() else aft
 	return Vector3(spot) + Vector3(0.0, 0.45, 0.0)
+
+
+## Whether this ship is the first thing straight below world_point, within its own
+## size and 2 m. Only valid during physics processing.
+func is_over(world_point: Vector3) -> bool:
+	var ray := PhysicsRayQueryParameters3D.create(world_point, world_point + Vector3.DOWN * (bounds.size.length() + 2.0))
+	return get_world_3d().direct_space_state.intersect_ray(ray).get("collider") == self
+
+
+## The velocity of the ship's body at world_point.
+func point_velocity(world_point: Vector3) -> Vector3:
+	return linear_velocity + angular_velocity.cross(world_point - global_transform * center_of_mass)
 
 
 ## Full-throttle thrust in N.

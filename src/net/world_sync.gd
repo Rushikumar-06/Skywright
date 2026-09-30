@@ -13,9 +13,9 @@ extends Node
 ## World moves its player off a ship before it goes.
 ##
 ## Each player walks their own crew member and reports where it is in ship space
-## at 30 Hz (spec §4.5). The server checks each report, stamps it with its own
-## clock and passes it on. Everyone draws everyone else as a CrewAvatar, DELAY
-## behind, on their ship as it's drawn.
+## at 30 Hz (spec §4.5), or in world space with ship id 0 while ashore. The server
+## checks each report, stamps it with its own clock and passes it on. Everyone draws
+## everyone else as a CrewAvatar, DELAY behind, on their ship as it's drawn.
 ##
 ## Stations belong to the server. A client's helm passes asks on here; the server
 ## takes the helm for the asker only if they last said they were aboard and in
@@ -30,7 +30,8 @@ extends Node
 ## When someone leaves the roster, everyone forgets their crew member, and the
 ## server takes their ships away and frees their stations. A dedicated server
 ## anchors its ships while nobody is aboard, so they don't drift off in the wind
-## for hours.
+## for hours. A pilot can anchor a ship too, which holds it still until they weigh
+## anchor.
 
 signal ship_added(ship: Ship)
 ## ship has left ships and is about to be freed. Its crew board successor, if not null.
@@ -42,6 +43,8 @@ const DELAY := 0.1     ## Seconds in the past that clients draw what the server 
 const CLOCK_EASE := 0.1  ## How far a client's clock moves toward each snapshot's time.
 const CREW_REACH := 35.0     ## m. Crew reported further than this from their ship's blocks are refused.
 const CREW_MAX_SPEED := 50.0 ## m/s. Likewise for crew reported moving faster.
+const ASHORE_REACH := 11000.0  ## m. Crew ashore reported further than this from the centre are refused.
+const ASHORE_CEILING := 5000.0 ## m. Likewise above this, or below 0.
 const REACH_SLACK := 0.5     ## m. Allowance on the helm's reach for where a client last said it was.
 const KEYS_GO_STALE := 0.25  ## s. A remote pilot's keys count as let go when none come for this long.
 const LAUNCH_COOLDOWN := 1.0 ## s. The least time between one player's launches.
@@ -85,15 +88,19 @@ func now() -> float:
 	return _time + _offset
 
 
-## Where the world must be loaded around: on the server every ship and this
-## machine's player, on a client this machine's player (nowhere until it's here).
+## Where the world must be loaded around: on the server every ship, everyone
+## ashore and this machine's player, on a client this machine's player (nowhere
+## until it's here).
 func focus_points() -> Array[Vector3]:
 	var points: Array[Vector3] = []
 	if session.is_server():
 		for ship: Ship in ships.values():
 			points.append(ship.global_position)
+		for heard: Dictionary in _crew.values():
+			if heard["ship"] == 0:
+				points.append(heard["at"])
 	if player != null:
-		points.append(player.crew.ship.global_transform * player.crew.position)
+		points.append(player.world_position())
 	return points
 
 
@@ -296,20 +303,22 @@ func _let_leavers_go() -> void:
 			ship.helm.leave(ship.helm.pilot)
 
 
-## Server: holds every ship still, engines stopped, while nobody is aboard.
+## Server: holds every ship still, engines stopped, while nobody is aboard, and
+## never lets go of an anchored one.
 func _anchor_if_empty() -> void:
 	if not session.is_server():
 		return
 	var anchor: bool = session.players.is_empty()
 	for ship: Ship in ships.values():
 		if anchor and not ship.freeze:
+			ship.linear_velocity = Vector3.ZERO
+			ship.angular_velocity = Vector3.ZERO
+		if anchor:
 			ship.throttle = 0.0
 			ship.rudder = 0.0
 			if ship.helm != null:
 				ship.helm.autopilot = false
-			ship.linear_velocity = Vector3.ZERO
-			ship.angular_velocity = Vector3.ZERO
-		ship.freeze = anchor
+		ship.freeze = anchor or ship.anchored
 
 
 ## Client: a helm here was asked for something; the server decides.
@@ -346,7 +355,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if not mine.is_empty():
 		_crew_report.rpc_id(1, mine[0], mine[1], mine[2], mine[3], mine[4])
-		var helm := player.ship.helm
+		var helm := player.ship.helm if player.ship != null else null
 		if helm != null and helm.pilot == multiplayer.get_unique_id():
 			_helm_keys.rpc_id(1, mine[0], helm.throttle_input, helm.rudder_input, helm.climb_input)
 	_time += delta
@@ -370,23 +379,27 @@ func _let_go_of_stale_keys() -> void:
 			helm.climb_input = 0.0
 
 
-## Places the other players' avatars on their ships, as those are drawn.
+## Places the other players' avatars on their ships, as those are drawn, or in the
+## world while they're ashore.
 func _process(_delta: float) -> void:
 	var shown_at := now() + Engine.get_physics_interpolation_fraction() / Engine.physics_ticks_per_second - DELAY
 	for peer: int in _avatars:
 		var heard: Dictionary = _crew[peer]
 		var at := (heard["buffer"] as SnapshotBuffer).sample(shown_at)
-		var ship: Ship = ships[heard["ship"]]
+		var place := Transform3D.IDENTITY if heard["ship"] == 0 else (ships[heard["ship"]] as Ship).get_global_transform_interpolated()
 		var avatar: CrewAvatar = _avatars[peer]
-		avatar.global_transform = ship.get_global_transform_interpolated() * Transform3D(Basis(at["rotation"] as Quaternion), at["position"])
+		avatar.global_transform = place * Transform3D(Basis(at["rotation"] as Quaternion), at["position"])
 		avatar.look(heard["pitch"])
 
 
-## This machine's crew member as [ship id, position, velocity, yaw, pitch], or [].
+## This machine's crew member as [ship id, position, velocity, yaw, pitch] (ship id
+## 0 and world space ashore), or [].
 func _my_crew() -> Array:
 	if player == null:
 		return []
 	var crew := player.crew
+	if crew.ship == null:
+		return [0, crew.position, crew.velocity, crew.look_yaw, player.look_pitch]
 	var id := id_of(crew.ship)
 	if id == 0:
 		return []
@@ -412,7 +425,7 @@ func _hear_crew(peer: int, ship_id: int, time: float, position: Vector3, velocit
 
 
 ## Each ship as [id, position, rotation, velocity, spin, throttle, rudder, trim,
-## autopilot, target_heading, target_altitude].
+## autopilot, target_heading, target_altitude, anchored].
 func _ship_states() -> Array:
 	var states := []
 	for id: int in ships:
@@ -420,7 +433,7 @@ func _ship_states() -> Array:
 		var helm := ship.helm
 		states.append([id, ship.global_position, ship.global_basis.get_rotation_quaternion(), ship.linear_velocity,
 				ship.angular_velocity, ship.throttle, ship.rudder, ship.trim, helm != null and helm.autopilot,
-				helm.target_heading if helm else 0.0, helm.target_altitude if helm else 0.0])
+				helm.target_heading if helm else 0.0, helm.target_altitude if helm else 0.0, ship.anchored])
 	return states
 
 
@@ -517,20 +530,27 @@ func _ships(time: Variant, states: Variant) -> void:
 		ship.throttle = state[5]
 		ship.rudder = state[6]
 		ship.trim = state[7]
+		ship.anchored = state[11]
 		if ship.helm != null:
 			ship.helm.autopilot = state[8]
 			ship.helm.target_heading = state[9]
 			ship.helm.target_altitude = state[10]
 
 
-## Client -> server: where my crew member is, in ship ship_id's space.
+## Client -> server: where my crew member is, in ship ship_id's space, or in the
+## world when ship_id is 0 (ashore).
 @rpc("any_peer", "call_remote", "unreliable_ordered", 2)
 func _crew_report(ship_id: Variant, position: Variant, velocity: Variant, yaw: Variant, pitch: Variant) -> void:
 	var peer := multiplayer.get_remote_sender_id()
 	if not session.is_server() or not _in_world.has(peer) or not _is_crew_state(ship_id, position, velocity, yaw, pitch):
 		return
-	var ship: Ship = ships[ship_id]
-	if (velocity as Vector3).length() > CREW_MAX_SPEED or not ship.bounds.grow(CREW_REACH).has_point(position):
+	if (velocity as Vector3).length() > CREW_MAX_SPEED:
+		return
+	var p: Vector3 = position
+	if ship_id == 0:
+		if Vector2(p.x, p.z).length() > ASHORE_REACH or p.y < 0.0 or p.y > ASHORE_CEILING:
+			return
+	elif not (ships[ship_id] as Ship).bounds.grow(CREW_REACH).has_point(p):
 		return
 	_hear_crew(peer, ship_id, _time, position, velocity, yaw, pitch)
 	for other: int in _in_world:
@@ -538,7 +558,8 @@ func _crew_report(ship_id: Variant, position: Variant, velocity: Variant, yaw: V
 			_crew_moved.rpc_id(other, peer, ship_id, _time, position, velocity, yaw, pitch)
 
 
-## Server -> clients: where peer's crew member was at time, in ship ship_id's space.
+## Server -> clients: where peer's crew member was at time, in ship ship_id's space
+## (the world's for 0).
 @rpc("authority", "call_remote", "unreliable_ordered", 2)
 func _crew_moved(peer: Variant, ship_id: Variant, time: Variant, position: Variant, velocity: Variant, yaw: Variant, pitch: Variant) -> void:
 	if session.is_server() or not peer is int or peer == multiplayer.get_unique_id() or not session.players.has(peer):
@@ -548,7 +569,8 @@ func _crew_moved(peer: Variant, ship_id: Variant, time: Variant, position: Varia
 	_hear_crew(peer, ship_id, time, position, velocity, yaw, pitch)
 
 
-## Client -> server: peer asks for "helm" or "autopilot" on ship ship_id, on or off.
+## Client -> server: peer asks for "helm", "autopilot" or "anchor" on ship ship_id,
+## on or off.
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _request(ship_id: Variant, what: Variant, on: Variant) -> void:
 	var peer := multiplayer.get_remote_sender_id()
@@ -564,6 +586,8 @@ func _request(ship_id: Variant, what: Variant, on: Variant) -> void:
 			helm.take(peer)
 	elif what is String and what == "autopilot":
 		helm.ask_autopilot(peer, on)
+	elif what is String and what == "anchor":
+		helm.ask_anchor(peer, on)
 
 
 ## Client -> server: launch these blocks with this paint, as a test flight or not,
@@ -621,7 +645,7 @@ func _pilot(ship_id: Variant, peer: Variant) -> void:
 
 
 func _is_crew_state(ship_id: Variant, position: Variant, velocity: Variant, yaw: Variant, pitch: Variant) -> bool:
-	return ship_id is int and ships.has(ship_id) and position is Vector3 and (position as Vector3).is_finite() \
+	return ship_id is int and (ship_id == 0 or ships.has(ship_id)) and position is Vector3 and (position as Vector3).is_finite() \
 			and velocity is Vector3 and (velocity as Vector3).is_finite() \
 			and yaw is float and is_finite(yaw) and pitch is float and is_finite(pitch)
 
@@ -631,7 +655,7 @@ static func _is_time(value: Variant) -> bool:
 
 
 static func _is_ship_state(state: Variant) -> bool:
-	if not state is Array or state.size() != 11 or not state[0] is int or not state[8] is bool:
+	if not state is Array or state.size() != 12 or not state[0] is int or not state[8] is bool or not state[11] is bool:
 		return false
 	for i in [1, 3, 4]:
 		if not state[i] is Vector3 or not (state[i] as Vector3).is_finite():

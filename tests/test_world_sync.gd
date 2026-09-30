@@ -372,6 +372,11 @@ func test_a_dedicated_world_has_a_ship_and_nobody_aboard() -> void:
 	assert_true(await wait_until(func() -> bool: return client_world.ship != null, 5.0), "and gets the ship")
 	assert_eq(client_world.player.crew.home, client_world.ship.crew_spawn(0), "the first spot is theirs")
 	assert_false(ship.freeze, "under way with someone aboard")
+	ship.anchored = true
+	host_world.sync._anchor_if_empty()
+	assert_true(ship.freeze, "but an anchored ship stays held")
+	ship.anchored = false
+	assert_false(ship.freeze, "until she weighs anchor")
 	ship.throttle = 1.0
 	ship.helm.set_autopilot(true)
 	await play(0.3)

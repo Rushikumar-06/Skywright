@@ -11,7 +11,7 @@ extends Node
 ## from the server's answer.
 
 signal pilot_changed                   ## pilot changed.
-signal asked(what: String, on: bool)   ## A client's copy: "helm" or "autopilot" was asked for, for the server.
+signal asked(what: String, on: bool)   ## A client's copy: "helm", "autopilot" or "anchor" was asked for, for the server.
 
 const REACH := 1.8  ## Metres from the helm's block that it can be used from.
 
@@ -73,6 +73,14 @@ func ask_autopilot(peer: int, on: bool) -> void:
 		asked.emit("autopilot", on)
 	elif pilot == peer:
 		set_autopilot(on)
+
+
+## peer asks to anchor the ship or weigh anchor. Only the pilot may.
+func ask_anchor(peer: int, on: bool) -> void:
+	if not ship.simulated:
+		asked.emit("anchor", on)
+	elif pilot == peer:
+		ship.anchored = on
 
 
 ## Whether someone standing at where (in ship space) can use the helm.

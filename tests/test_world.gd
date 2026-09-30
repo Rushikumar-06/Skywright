@@ -31,10 +31,6 @@ func test_boarding_another_ship_moves_you_and_your_controls() -> void:
 	assert_eq(player.prompt(), "Take the helm", "standing by its helm")
 	await get_tree().process_frame
 	assert_false(is_instance_valid(old_crew), "the old crew member is gone")
-	player.crew.position.y -= 100.0
-	await simulate(0.1)
-	assert_true(player.crew.position.distance_to(player.crew.home) < 0.2, "back aboard")
-	assert_true(world.hud._message.visible and world.hud._message.text == "You fell overboard. Back aboard!", world.hud._message.text)
 
 
 func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:

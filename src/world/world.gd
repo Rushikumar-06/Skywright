@@ -6,15 +6,19 @@ extends Node3D
 ## clients get them through the world's WorldSync. You board the host's ship when you
 ## arrive, and your own ship whenever one arrives: launch a design and you're at its
 ## helm, and B brings you back from a test flight. When the ship you're on goes, you
-## board its successor, or the ship you came from, or your own, or the host's. A
-## dedicated server's world has no player, HUD or pause menu.
+## board its successor, or the ship you came from, or your own, or the host's, and
+## with none of those you step off into the air. Stepping off a deck puts you ashore,
+## on foot in this world; landing on a deck, or E next to a hull, puts you aboard;
+## and falling into the Roil puts you back aboard. A dedicated server's world has no
+## player, HUD or pause menu.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := WorldGen.START
 
 var session: Node
 var sync: WorldSync
-var ship: Ship                 ## The ship you're aboard.
+var ship: Ship                 ## The ship you're aboard. Null while ashore.
+var left: Ship                 ## The ship you last stepped off, while it's here.
 var player: PlayerController   ## You, once the ship has arrived.
 var hud: Hud
 var towns: Array[Node3D] = []  ## Every town, in WorldGen.towns' order, under the Towns node.
@@ -107,30 +111,65 @@ func on_test_flight() -> bool:
 
 ## Whether your crew member, where the world draws them, is near a town's dock.
 func at_dock() -> bool:
-	return player != null and town_at(_where_you_are()) >= 0
+	return player != null and town_at(player.world_position()) >= 0
 
 
 ## Puts you aboard target at spot (-1 for your roster slot), with your controls.
 func board(target: Ship, spot := -1) -> void:
-	var crew := CrewMember.new(target, target.crew_spawn(my_slot() if spot < 0 else spot))
+	come_aboard(target, target.crew_spawn(my_slot() if spot < 0 else spot))
+
+
+## Puts you aboard target at local (in its space), standing still, with your controls.
+func come_aboard(target: Ship, local: Vector3) -> void:
+	var crew := CrewMember.new(target, local)
 	target.interior.add_child(crew)
 	if player == null:
 		player = PlayerController.new(crew)
 		add_child(player)
 		sync.player = player
+		player.left_ship.connect(go_ashore)
+		player.landed_on.connect(func(on: Ship) -> void: come_aboard(on, on.to_local(player.crew.global_position)))
+		player.climbing.connect(board)
+		player.lost.connect(rescue)
 		hud = Hud.new(player, session)
 		hud.wind = wind
 		add_child(hud)
 	else:
-		var here := sync.id_of(ship) != 0  # a ship on its way out can't be gone back to
-		if here and player.crew.station != null:
+		var from := ship if ship != null else left
+		var here := sync.id_of(from) != 0  # a ship on its way out can't be gone back to
+		if ship != null and here and player.crew.station != null:
 			ship.helm.ask_helm(player.peer, false)  # or nobody else could take her helm until you left
 		if not on_test_flight():  # from a second test flight, B still goes back where the first came from
-			_came_from = ship if here else null
-		var old_crew := player.crew
-		player.board(crew)
-		old_crew.queue_free()
+			_came_from = from if here else null
+		_swap_crew(crew)
 	ship = target
+
+
+## Steps you off your ship into this world, where you are, keeping the ship's
+## velocity there and the way you face.
+func go_ashore() -> void:
+	var from := ship
+	var old := player.crew
+	var point := from.global_transform * old.position
+	var crew := CrewMember.new(null, point)
+	crew.velocity = (from.point_velocity(point) + from.global_basis * old.velocity).limit_length(CrewMember.FALL_LIMIT)
+	var facing := from.global_basis * (Basis(Vector3.UP, old.look_yaw) * Vector3.FORWARD)
+	crew.look_yaw = atan2(-facing.x, -facing.z)
+	add_child(crew)
+	if sync.id_of(from) != 0 and old.station != null:
+		from.helm.ask_helm(player.peer, false)
+	left = from
+	ship = null
+	_swap_crew(crew)
+
+
+## Out of the Roil: aboard the ship you left, else your own, else the host's.
+func rescue() -> void:
+	for next: Ship in [left, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
+		if next != null and sync.id_of(next) != 0:
+			board(next)
+			hud.show_message("The Roil nearly took you. Back aboard!")
+			return
 
 
 ## Opens the shipyard on your design, when you're at a dock or dock_only is off.
@@ -141,7 +180,7 @@ func open_shipyard(dock_only := true) -> void:
 		hud.show_message("The shipyard is at the dock.")
 		return
 	if design == null:
-		design = ShipDesign.new(ship.grid)
+		design = ShipDesign.new(ship.grid if ship != null else StarterShip.build())
 	shipyard = Shipyard.new(design, (gen.towns[_town_here()]["dock"] as Vector3).y)
 	shipyard.layer = 3
 	shipyard.test_flight_requested.connect(test_flight)
@@ -166,14 +205,16 @@ func close_shipyard() -> void:
 	get_viewport().disable_3d = false
 
 
-## Where your crew member is drawn.
-func _where_you_are() -> Vector3:
-	return ship.global_transform * player.crew.position
+## Gives your controls to crew, and lets the crew member you had go.
+func _swap_crew(crew: CrewMember) -> void:
+	var old := player.crew
+	player.board(crew)
+	old.queue_free()
 
 
 ## The town you're at, or the first when you're not at one.
 func _town_here() -> int:
-	return maxi(0, town_at(_where_you_are())) if player != null else 0
+	return maxi(0, town_at(player.world_position())) if player != null else 0
 
 
 func _on_ship_added(added: Ship) -> void:
@@ -189,6 +230,8 @@ func _on_ship_added(added: Ship) -> void:
 func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 	if _came_from == removed:
 		_came_from = null
+	if left == removed:
+		left = null
 	if ship != removed:
 		return
 	for next: Ship in [successor, _came_from, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
@@ -197,6 +240,8 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 			if removed.test and removed.captain == multiplayer.get_unique_id() and not _pause.visible:
 				open_shipyard(false)  # back from a test flight
 			return
+	go_ashore()  # nowhere to go: into the air where she was
+	left = null
 
 
 func _exit_tree() -> void:

@@ -78,14 +78,12 @@ func test_climbing_a_ladder_up_to_the_helm_deck() -> void:
 	assert_true(crew.position.z > 3.5, "past the top of the ladder")
 
 
-func test_falling_overboard_brings_you_back_aboard() -> void:
-	board(Vector3(0, 1.45, -2))
-	var fell := [false]
-	crew.fell_overboard.connect(func() -> void: fell[0] = true)
-	crew.position = Vector3(0, -40, 0)
-	await simulate(0.1)
-	assert_true(fell[0], "fell_overboard fires")
-	assert_true(crew.position.distance_to(crew.home) < 0.1, "back where you came aboard")
+func test_falling_off_the_deck_asks_to_leave() -> void:
+	board(Vector3(7.5, 1.45, 0))  # 5 m off the starboard side, over nothing
+	var left := [0]
+	crew.left_ship.connect(func() -> void: left[0] += 1)
+	await simulate(0.5)
+	assert_eq(left[0], 1, "left_ship fires once")
 
 
 func test_nobody_walks_while_at_a_station() -> void:

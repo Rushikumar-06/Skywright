@@ -2,7 +2,8 @@ extends Node3D
 ## The game world: sky, the Roil, a few placeholder islands, and the starter ship
 ## with you aboard. Its Session is a sibling: the Session autoload in the game, or
 ## a test's own. The server builds the ship and flies it; clients get it through
-## the world's WorldSync, and you come aboard when it arrives.
+## the world's WorldSync, and you come aboard when it arrives. A dedicated server's
+## world has no player, HUD or pause menu.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := Vector3(0.0, 880.0, 7000.0)
@@ -36,8 +37,9 @@ func _ready() -> void:
 	add_child(sync)
 	if session.is_server():
 		sync.add_ship(StarterShip.build(), Transform3D(Basis.IDENTITY, START))
-	_build_pause_menu()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if not session.dedicated:
+		_build_pause_menu()
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _process(_delta: float) -> void:
@@ -48,6 +50,8 @@ func _on_ship_added(added: Ship) -> void:
 	if ship != null:
 		return
 	ship = added
+	if session.dedicated:
+		return
 	# Crew board at different spots, in the order they joined.
 	var slot := maxi(0, session.players.keys().find(multiplayer.get_unique_id()))
 	var crew := CrewMember.new(ship, ship.crew_spawn(slot))
@@ -64,7 +68,7 @@ func _exit_tree() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause"):
+	if event.is_action_pressed("pause") and _pause != null:
 		_toggle_pause()
 		get_viewport().set_input_as_handled()
 

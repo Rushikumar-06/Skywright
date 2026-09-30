@@ -13,3 +13,7 @@ func test_reads_solo() -> void:
 
 func test_ignores_unknown_and_malformed_options() -> void:
 	assert_eq(LaunchOptions.parse(PackedStringArray(["--fly", "--port=abc", "--port=70000", "host"])), {})
+
+
+func test_reads_server() -> void:
+	assert_eq(LaunchOptions.parse(PackedStringArray(["--server", "--port=4000", "--name=Skyport"])), {"server": true, "port": 4000, "name": "Skyport"})

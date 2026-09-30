@@ -375,3 +375,33 @@ func test_the_hud_says_who_comes_and_goes() -> void:
 	assert_true(await wait_until(func() -> bool: return message.visible and message.text == "Guest came aboard.", 3.0), "a joiner is announced")
 	client.leave()
 	assert_true(await wait_until(func() -> bool: return message.visible and message.text == "Guest left.", 3.0), "and a leaver: %s" % message.text)
+
+
+func test_a_dedicated_world_has_a_ship_and_nobody_aboard() -> void:
+	host = make_session("Server")
+	var port := free_port()
+	host.host("Skyport", port, true)
+	host_world = add_world(host)
+	await get_tree().process_frame
+	var ship: Ship = host_world.ship
+	assert_true(ship != null and ship.simulated, "the server flies a ship")
+	assert_true(host_world.player == null and host_world.hud == null, "but nobody plays here")
+	assert_true(ship.freeze, "anchored while nobody's aboard")
+	var anchored_at := ship.global_position
+	await play(0.5)
+	assert_true(ship.global_position.distance_to(anchored_at) < 0.01, "and she stays put")
+
+	client = make_session("Client")
+	client.join("Guest", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return client.sailing, 5.0), "a guest joins")
+	client_world = add_world(client)
+	assert_true(await wait_until(func() -> bool: return client_world.ship != null, 5.0), "and gets the ship")
+	assert_eq(client_world.player.crew.home, client_world.ship.crew_spawn(0), "the first spot is theirs")
+	assert_false(ship.freeze, "under way with someone aboard")
+	ship.throttle = 1.0
+	ship.helm.set_autopilot(true)
+	await play(0.3)
+	client.leave()
+	assert_true(await wait_until(func() -> bool: return ship.freeze, 3.0), "anchored again when they leave")
+	assert_eq(ship.throttle, 0.0)
+	assert_false(ship.helm.autopilot)

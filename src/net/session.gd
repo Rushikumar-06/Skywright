@@ -4,7 +4,8 @@ extends Node
 ## play share one code path.
 ##
 ## Online, the crew gather in a lobby until the host sets sail; then everyone goes
-## to the world, and anyone joining later goes straight there.
+## to the world, and anyone joining later goes straight there. A dedicated server
+## hosts with no player of its own and sails at once.
 ##
 ## Joining uses SceneMultiplayer's authentication step. The joiner sends its
 ## protocol version and name as plain bytes, a format no later RPC can shift, and
@@ -29,6 +30,7 @@ const SettingsScript := preload("res://src/core/settings.gd")
 
 var mode := Mode.NONE
 var sailing := false                      ## Past the lobby: the world is running.
+var dedicated := false                    ## Hosting with no player here: a dedicated server.
 var players: Dictionary = {}              ## peer id (int) -> {"name": String}
 var port := DEFAULT_PORT                  ## The port being hosted on or joined.
 var max_players := MAX_PLAYERS            ## Host included. Tests lower it to fill a game.
@@ -78,11 +80,14 @@ func start_solo(player_name: String) -> void:
 	sailed.emit()
 
 
-## Starts hosting on host_port. Returns OK, or ERR_CANT_CREATE when the port is taken.
-func host(player_name: String, host_port := DEFAULT_PORT) -> Error:
+## Starts hosting on host_port. Returns OK, or ERR_CANT_CREATE when the port is
+## taken. A dedicated server has no player of its own (player_name names the game
+## only), and its world starts at once.
+func host(player_name: String, host_port := DEFAULT_PORT, as_server := false) -> Error:
 	_reset()
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_server(host_port, max_players)
+	# One connection spare, so a joiner over the limit can still be told why.
+	var err := peer.create_server(host_port, max_players + 1)
 	if err != OK:
 		return err
 	multiplayer.multiplayer_peer = peer
@@ -93,9 +98,12 @@ func host(player_name: String, host_port := DEFAULT_PORT) -> Error:
 	_beacon = LanBeacon.new(discovery_port)
 	_beacon.info["id"] = randi()
 	add_child(_beacon)
-	_set_players({1: {"name": cleaned}})
-	_log("hosting on port %d" % port)
+	dedicated = as_server
+	_set_players({} if dedicated else {1: {"name": cleaned}})
+	_log("hosting on port %d%s" % [port, " as a dedicated server" if dedicated else ""])
 	started.emit()
+	if dedicated:
+		set_sail()
 	return OK
 
 
@@ -138,7 +146,8 @@ func set_sail() -> void:
 func leave() -> void:
 	if mode == Mode.NONE:
 		return
-	var say_goodbye := mode == Mode.HOST and players.size() > 1 \
+	var guests := players.size() - (0 if dedicated else 1)
+	var say_goodbye := mode == Mode.HOST and guests > 0 \
 			and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 	if say_goodbye:
 		_ending.rpc()
@@ -367,6 +376,7 @@ func _reset(linger := false) -> void:
 	_timeout.stop()
 	mode = Mode.NONE
 	sailing = false
+	dedicated = false
 	_accepted = false
 	_joining.clear()
 	if _beacon != null:

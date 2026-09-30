@@ -64,6 +64,37 @@ func test_a_guest_cannot_set_sail() -> void:
 	assert_false(host.sailing)
 
 
+func test_a_dedicated_server_has_no_player_of_its_own() -> void:
+	var server := make_session("Server")
+	server.max_players = 2
+	var sailed := [false]
+	server.sailed.connect(func() -> void: sailed[0] = true)
+	var port := free_port()
+	assert_eq(server.host("Skyport", port, true), OK)
+	assert_true(server.dedicated)
+	assert_true(server.is_server())
+	assert_eq(server.players, {}, "nobody plays on the server itself")
+	assert_true(server.sailing and sailed[0], "the world starts at once")
+	var ann := make_session("Ann")
+	ann.join("Ann", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return ann.sailing, 5.0), "Ann goes straight aboard")
+	assert_eq(ann.players.values(), [{"name": "Ann"}], "and is the only player")
+	var bob := make_session("Bob")
+	bob.join("Bob", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return server.players.size() == 2, 5.0), "Bob too")
+	var cy := make_session("Cy")
+	var refused := [""]
+	cy.ended.connect(func(why: String) -> void: refused[0] = why)
+	cy.join("Cy", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return refused[0] != "", 5.0), "Cy is refused")
+	assert_eq(refused[0], "The game is full (2 players).")
+	var ended := [""]
+	ann.ended.connect(func(why: String) -> void: ended[0] = why)
+	server.leave()
+	assert_true(await wait_until(func() -> bool: return ended[0] != "", 5.0), "stopping the server tells its players")
+	assert_eq(ended[0], "The host ended the game.")
+
+
 func test_client_joins_and_both_sides_share_the_roster() -> void:
 	var host := make_session("Host")
 	var client := make_session("Client")

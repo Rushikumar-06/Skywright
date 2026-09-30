@@ -20,7 +20,8 @@ extends Node
 ## reach, and tells everyone who has it. The pilot's keys come here at 30 Hz.
 ##
 ## When someone leaves the roster, everyone forgets their crew member, and the
-## server frees their stations.
+## server frees their stations. A dedicated server anchors its ships while nobody
+## is aboard, so they don't drift off in the wind for hours.
 
 signal ship_added(ship: Ship)
 
@@ -54,6 +55,7 @@ func _init(world_session: Node) -> void:
 
 func _ready() -> void:
 	session.players_changed.connect(_on_roster_changed)
+	ship_added.connect(func(_ship: Ship) -> void: _anchor_if_empty())
 	if not session.is_server():
 		_enter_world.rpc_id(1)
 
@@ -106,6 +108,23 @@ func _on_roster_changed() -> void:
 		for ship: Ship in ships.values():
 			if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
 				ship.helm.leave(ship.helm.pilot)
+	_anchor_if_empty()
+
+
+## Server: holds every ship still, engines stopped, while nobody is aboard.
+func _anchor_if_empty() -> void:
+	if not session.is_server():
+		return
+	var anchor: bool = session.players.is_empty()
+	for ship: Ship in ships.values():
+		if anchor and not ship.freeze:
+			ship.throttle = 0.0
+			ship.rudder = 0.0
+			if ship.helm != null:
+				ship.helm.autopilot = false
+			ship.linear_velocity = Vector3.ZERO
+			ship.angular_velocity = Vector3.ZERO
+		ship.freeze = anchor
 
 
 ## Client: a helm here was asked for something; the server decides.

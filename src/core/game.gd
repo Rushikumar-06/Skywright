@@ -1,5 +1,5 @@
 extends Node
-## Moves between the main menu and the world as sessions start and end, carries
+## Moves between the main menu and the world as the crew set sail and sessions end, carries
 ## the reason a session ended back to the menu, and applies launch options (see
 ## LaunchOptions), for example: godot --path . -- --host --name=Ann
 
@@ -11,7 +11,7 @@ var menu_message := ""
 
 
 func _ready() -> void:
-	Session.started.connect(_on_session_started)
+	Session.sailed.connect(_on_sailed)
 	Session.ended.connect(_on_session_ended)
 	_apply_launch_options.call_deferred(LaunchOptions.parse(OS.get_cmdline_user_args()))
 
@@ -33,7 +33,7 @@ func _apply_launch_options(options: Dictionary) -> void:
 			Session.join(player_name, target["host"], target["port"])
 
 
-func _on_session_started() -> void:
+func _on_sailed() -> void:
 	menu_message = ""
 	get_tree().change_scene_to_file(WORLD_SCENE)
 

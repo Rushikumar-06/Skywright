@@ -13,6 +13,57 @@ func test_solo_is_a_server_with_just_you() -> void:
 	assert_eq(solo.players, {1: {"name": "Ann"}})
 
 
+func test_solo_sails_straight_away() -> void:
+	var solo := make_session("Solo")
+	var sailed := [false]
+	solo.sailed.connect(func() -> void: sailed[0] = true)
+	solo.start_solo("Ann")
+	assert_true(solo.sailing)
+	assert_true(sailed[0], "sailed fires")
+
+
+func test_setting_sail_takes_the_crew_to_the_world() -> void:
+	var host := make_session("Host")
+	var client := make_session("Client")
+	assert_true(await host_and_join(host, client), "joined")
+	assert_false(host.sailing, "the host waits in the lobby")
+	assert_false(client.sailing, "and so does the guest")
+	var sailed := [0]
+	host.sailed.connect(func() -> void: sailed[0] += 1)
+	client.sailed.connect(func() -> void: sailed[0] += 1)
+	host.set_sail()
+	assert_true(await wait_until(func() -> bool: return sailed[0] == 2, 5.0), "both sail")
+	assert_true(host.sailing)
+	assert_true(client.sailing)
+
+
+func test_late_joiners_go_straight_to_the_world() -> void:
+	var host := make_session("Host")
+	var late := make_session("Late")
+	var port := free_port()
+	host.host("Ann", port)
+	host.set_sail()
+	var events: Array[String] = []
+	late.started.connect(func() -> void: events.append("started"))
+	late.sailed.connect(func() -> void: events.append("sailed"))
+	late.join("Bob", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return events.size() == 2, 5.0), "joined and sailed")
+	assert_eq(events, ["started", "sailed"] as Array[String])
+	assert_true(late.sailing)
+
+
+func test_a_guest_cannot_set_sail() -> void:
+	var host := make_session("Host")
+	var client := make_session("Client")
+	assert_true(await host_and_join(host, client), "joined")
+	client.set_sail()
+	allowed_engine_errors = 1  # the host's engine refuses the RPC and logs it
+	client._sail.rpc_id(1)  # as a modified client could
+	await wait_until(func() -> bool: return false, 0.3)
+	assert_false(client.sailing)
+	assert_false(host.sailing)
+
+
 func test_client_joins_and_both_sides_share_the_roster() -> void:
 	var host := make_session("Host")
 	var client := make_session("Client")

@@ -4,6 +4,7 @@ extends CanvasLayer
 ## E does, the helm's instruments while you steer, and short messages.
 
 const MESSAGE_TIME := 4.0  ## Seconds a message stays up.
+const SessionScript := preload("res://src/net/session.gd")
 
 var player: PlayerController
 
@@ -119,18 +120,23 @@ func _status_text() -> String:
 	if Session.mode == Session.Mode.SOLO:
 		return "Solo game"
 	if Session.mode == Session.Mode.HOST:
-		var targets: PackedStringArray = []
-		for address in Session.lan_addresses_by_interface(IP.get_local_interfaces()):
-			targets.append("%s:%d" % [address, Session.port])
-		if targets.is_empty():
-			return "Hosting on port %d" % Session.port
-		var text := "Hosting. Friends on your network join at " + targets[0]
-		if targets.size() > 1:
-			text += " (or " + ", ".join(targets.slice(1)) + ")"
-		return text
+		return "Hosting. " + invite_text(Session.port)
 	if Session.mode == Session.Mode.CLIENT:
 		return "Connected to the host"
 	return ""
+
+
+## What to tell friends so they can join a game hosted here on port.
+static func invite_text(port: int) -> String:
+	var targets: PackedStringArray = []
+	for address in SessionScript.lan_addresses_by_interface(IP.get_local_interfaces()):
+		targets.append("%s:%d" % [address, port])
+	if targets.is_empty():
+		return "Friends join at this computer's address, port %d." % port
+	var text := "Friends on your network join at " + targets[0]
+	if targets.size() > 1:
+		text += " (or " + ", ".join(targets.slice(1)) + ")"
+	return text + "."
 
 
 static func _monospace() -> SystemFont:

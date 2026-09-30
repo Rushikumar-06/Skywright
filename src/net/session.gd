@@ -3,6 +3,9 @@ extends Node
 ## Every game runs a server. Solo is a server with no network, so solo and online
 ## play share one code path.
 ##
+## Online, the crew gather in a lobby until the host sets sail; then everyone goes
+## to the world, and anyone joining later goes straight there.
+##
 ## Joining uses SceneMultiplayer's authentication step. The joiner sends its
 ## protocol version and name as plain bytes, a format no later RPC can shift, and
 ## the host accepts or refuses it before it counts as connected. Only accepted
@@ -12,6 +15,7 @@ extends Node
 signal started                  ## Solo began, hosting began, or the host accepted us.
 signal ended(reason: String)    ## The session stopped. reason is "" when the player chose to leave.
 signal players_changed          ## players changed.
+signal sailed                   ## The crew set sail: time to load the world.
 
 enum Mode { NONE, SOLO, HOST, CLIENT }
 
@@ -24,6 +28,7 @@ const LINGER := 0.25       ## Seconds a closed session's socket stays open so it
 const SettingsScript := preload("res://src/core/settings.gd")
 
 var mode := Mode.NONE
+var sailing := false                      ## Past the lobby: the world is running.
 var players: Dictionary = {}              ## peer id (int) -> {"name": String}
 var port := DEFAULT_PORT                  ## The port being hosted on or joined.
 var max_players := MAX_PLAYERS            ## Host included. Tests lower it to fill a game.
@@ -63,9 +68,11 @@ func is_server() -> bool:
 func start_solo(player_name: String) -> void:
 	_reset()
 	mode = Mode.SOLO
+	sailing = true
 	_set_players({1: {"name": SettingsScript.clean_name(player_name)}})
 	_log("started solo")
 	started.emit()
+	sailed.emit()
 
 
 ## Starts hosting on host_port. Returns OK, or ERR_CANT_CREATE when the port is taken.
@@ -104,6 +111,17 @@ func join(player_name: String, address: String, join_port := DEFAULT_PORT) -> Er
 	_timeout.start(connect_timeout)
 	_log("connecting to %s:%d" % [address, join_port])
 	return OK
+
+
+## Host: leaves the lobby and takes everyone to the world. Anyone joining after
+## this goes straight there.
+func set_sail() -> void:
+	if mode != Mode.HOST or sailing:
+		return
+	sailing = true
+	_sail.rpc()
+	_log("set sail")
+	sailed.emit()
 
 
 ## Leaves the session. Emits ended("") if one was running. A host with guests
@@ -257,7 +275,7 @@ func _on_peer_connected(id: int) -> void:
 	roster[id] = {"name": _joining[id]}
 	_joining.erase(id)
 	_set_players(roster)
-	_welcome.rpc_id(id, players)
+	_welcome.rpc_id(id, players, sailing)
 	_roster.rpc(players)
 	_log("peer %d joined as %s" % [id, roster[id]["name"]])
 
@@ -292,14 +310,24 @@ func _on_timeout() -> void:
 # --- RPCs (accepted peers only) ---
 
 @rpc("authority", "call_remote", "reliable")
-func _welcome(roster: Dictionary) -> void:
+func _welcome(roster: Dictionary, under_way: bool) -> void:
 	if mode != Mode.CLIENT or _accepted:
 		return
 	_accepted = true
 	_timeout.stop()
+	sailing = under_way
 	_set_players(roster)
 	_log("joined; crew: %s" % ", ".join(_names()))
 	started.emit()
+	if sailing:
+		sailed.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _sail() -> void:
+	if mode == Mode.CLIENT and _accepted and not sailing:
+		sailing = true
+		sailed.emit()
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -328,6 +356,7 @@ func _end(reason: String, linger := false) -> void:
 func _reset(linger := false) -> void:
 	_timeout.stop()
 	mode = Mode.NONE
+	sailing = false
 	_accepted = false
 	_joining.clear()
 	if _lingering != null:

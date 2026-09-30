@@ -1,11 +1,18 @@
 extends Node3D
 ## The main menu: play solo, host, join, settings and quit, over a drifting sky.
+## Hosting or joining opens the lobby, where the crew wait until the host sets sail.
 
 var _message: Label
 var _menu: VBoxContainer
 var _join_panel: VBoxContainer
 var _address: LineEdit
 var _join_button: Button
+var _lobby: VBoxContainer
+var _crew_list: VBoxContainer
+var _invite: Label
+var _waiting: Label
+var _sail_button: Button
+var _leave_button: Button
 var _settings: SettingsPanel
 
 
@@ -43,10 +50,14 @@ func _ready() -> void:
 
 	_join_panel = _build_join_panel()
 	column.add_child(_join_panel)
+	_lobby = _build_lobby()
+	column.add_child(_lobby)
 	_settings = SettingsPanel.new()
 	_settings.closed.connect(_show_menu)
 	column.add_child(_settings)
 
+	Session.started.connect(_open_lobby)
+	Session.players_changed.connect(_refresh_lobby)
 	_show_menu()
 	if not Game.menu_message.is_empty():
 		_show_problem(Game.menu_message)
@@ -75,9 +86,31 @@ func _build_join_panel() -> VBoxContainer:
 	return panel
 
 
+## The crew so far, how friends join (host), and Set sail (host) or a note to wait (guest).
+func _build_lobby() -> VBoxContainer:
+	var panel := VBoxContainer.new()
+	panel.add_theme_constant_override("separation", 12)
+	panel.add_child(UiTheme.caption("Crew"))
+	_crew_list = VBoxContainer.new()
+	panel.add_child(_crew_list)
+	_invite = UiTheme.caption("")
+	_invite.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(_invite)
+	_waiting = UiTheme.caption("Waiting for the host to set sail…")
+	panel.add_child(_waiting)
+	var row := HBoxContainer.new()
+	_sail_button = UiTheme.button("Set sail", Session.set_sail)
+	row.add_child(_sail_button)
+	_leave_button = UiTheme.button("Leave", _back)
+	row.add_child(_leave_button)
+	panel.add_child(row)
+	return panel
+
+
 func _show_menu() -> void:
 	_menu.visible = true
 	_join_panel.visible = false
+	_lobby.visible = false
 	_settings.visible = false
 	(_menu.get_child(0) as Button).grab_focus()
 
@@ -88,6 +121,34 @@ func _open_join() -> void:
 	_address.text = Settings.last_address
 	_address.grab_focus()
 	_address.caret_column = _address.text.length()
+
+
+## Hosting began or the host accepted us. Solo and late joiners sail straight on.
+func _open_lobby() -> void:
+	if Session.sailing:
+		return
+	var hosting := Session.mode == Session.Mode.HOST
+	_menu.visible = false
+	_join_panel.visible = false
+	_settings.visible = false
+	_message.visible = false
+	_lobby.visible = true
+	_invite.text = Hud.invite_text(Session.port) if hosting else ""
+	_invite.visible = hosting
+	_sail_button.visible = hosting
+	_waiting.visible = not hosting
+	_refresh_lobby()
+	(_sail_button if hosting else _leave_button).grab_focus()
+
+
+func _refresh_lobby() -> void:
+	for label in _crew_list.get_children():
+		_crew_list.remove_child(label)
+		label.queue_free()
+	for id: int in Session.players:
+		var label := Label.new()
+		label.text = Session.players[id]["name"] + (" (host)" if id == 1 else "")
+		_crew_list.add_child(label)
 
 
 func _open_settings() -> void:

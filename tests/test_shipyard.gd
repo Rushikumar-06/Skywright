@@ -289,3 +289,69 @@ func test_leaving_with_the_shipyard_open_gives_back_the_3d() -> void:
 	world.get_parent().remove_child(world)
 	assert_false(viewport.disable_3d, "drawn again once the world goes")
 	world.free()
+
+
+func test_the_name_box_gives_up_focus_when_you_click_the_view() -> void:
+	var world := await open_world()
+	var shipyard: Shipyard = world.shipyard
+	var edit: LineEdit = shipyard.find_children("*", "LineEdit", true, false)[0]
+	shipyard._blueprints.visible = true
+	edit.grab_focus()
+	assert_true(edit.has_focus(), "the name box has focus")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = Vector2(4, 4)
+	shipyard._on_view_input(click)
+	assert_true(shipyard.get_viewport().gui_get_focus_owner() == null, "a click on the view takes it away")
+	var turn := shipyard.block_rotation
+	key(shipyard, KEY_R)
+	assert_true(shipyard.block_rotation != turn, "and R turns the block")
+	assert_eq(edit.text, Blueprint.DEFAULT_NAME, "without typing into the name")
+	for each in shipyard.find_children("*", "Button", true, false):
+		assert_eq((each as Button).focus_mode, Control.FOCUS_NONE, "buttons don't take focus")
+
+
+func test_a_failed_save_says_so_and_keeps_the_old_file() -> void:
+	var world := await open_world()
+	var shipyard: Shipyard = world.shipyard
+	DirAccess.make_dir_recursive_absolute(_dir)
+	var path := Blueprint.path_for("Wreck", _dir)
+	DirAccess.make_dir_recursive_absolute(path)  # a folder where the file should go: the rename can't work
+	shipyard.save_blueprint("Wreck")
+	assert_true(shipyard.note_text().begins_with("Couldn't save \"Wreck\""), shipyard.note_text())
+	assert_false(FileAccess.file_exists(path + ".tmp"), "no half-written file is left")
+	DirAccess.remove_absolute(path)
+	assert_eq(Blueprint.save(shipyard.design.grid, "Fine", _dir), OK)
+	assert_eq(Blueprint.save(shipyard.design.grid, "Fine", _dir), OK, "and saving over a blueprint works")
+
+
+func test_a_launch_within_a_second_of_the_last_says_to_wait() -> void:
+	var world := await open_world()
+	world.launch(StarterShip.build())
+	world.open_shipyard(false)
+	(world.shipyard as Shipyard).blueprint_dir = _dir
+	press_button(world.shipyard, "Test flight (F)")
+	assert_eq((world.shipyard as Shipyard).note_text(), "Wait a moment, then try again.")
+	assert_true(world.shipyard != null, "the shipyard stays open")
+
+
+func test_coming_back_from_a_test_flight_with_the_pause_menu_open_leaves_the_shipyard_shut() -> void:
+	var world := await open_world()
+	press_button(world.shipyard, "Test flight (F)")
+	assert_true(world.on_test_flight(), "on a test flight")
+	press_key(world, "pause")
+	assert_true(world._pause.visible, "paused")
+	world.sync.end_test()
+	assert_true(world.shipyard == null, "the shipyard stays shut behind the pause menu")
+	assert_false(world.player.enabled, "your controls stay off")
+	assert_eq(Input.mouse_mode, Input.MOUSE_MODE_VISIBLE)
+
+
+func test_a_near_flat_aim_finds_nothing() -> void:
+	var world := await open_world()
+	var view: BuildView = (world.shipyard as Shipyard).view
+	view.look_from(Vector3(0, 0, 100), Vector3(0, -0.05, 0))
+	assert_eq(view.aim(Vector2(view.size) / 2.0, ShipGrid.new()), {}, "the plane is out of reach")
+	view.look_from(Vector3(0, 10, 10), Vector3.ZERO)
+	assert_true(view.aim(Vector2(view.size) / 2.0, ShipGrid.new()).has("place"), "but a steep look still finds it")

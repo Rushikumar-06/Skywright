@@ -67,6 +67,7 @@ func _ready() -> void:
 
 	_banner = PanelContainer.new()
 	_banner.theme = theme
+	_banner.visible = false
 	_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_banner.offset_top = 32
 	_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH

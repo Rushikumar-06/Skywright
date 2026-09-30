@@ -164,6 +164,7 @@ func _process(delta: float) -> void:
 func _on_view_input(event: InputEvent) -> void:
 	var button := event as InputEventMouseButton
 	if button != null and button.pressed:
+		get_viewport().gui_release_focus()  # the name box would keep typing otherwise
 		match button.button_index:
 			MOUSE_BUTTON_LEFT:
 				click(button.position, MOUSE_BUTTON_LEFT)
@@ -272,6 +273,7 @@ func _build_palette(theme: Theme) -> Control:
 	for hex: String in SWATCHES:
 		var swatch := Button.new()
 		swatch.tooltip_text = hex
+		swatch.focus_mode = Control.FOCUS_NONE
 		swatch.custom_minimum_size = Vector2(28, 28)
 		var box := StyleBoxFlat.new()
 		box.bg_color = Color(hex)
@@ -322,7 +324,9 @@ func _build_readout(theme: Theme) -> Control:
 	_name_edit = LineEdit.new()
 	_name_edit.text = blueprint_name
 	_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_name_edit.text_submitted.connect(save_blueprint)
+	_name_edit.text_submitted.connect(func(text: String) -> void:
+		save_blueprint(text)
+		_name_edit.release_focus())
 	row.add_child(_name_edit)
 	row.add_child(_small(UiTheme.button("Save", func() -> void: save_blueprint(_name_edit.text))))
 	files.add_child(row)
@@ -363,6 +367,12 @@ func _build_bar(theme: Theme) -> Control:
 	return panel
 
 
+## Shows text in the note.
+func say(text: String) -> void:
+	_note.text = text
+
+
 static func _small(b: Button) -> Button:
+	b.focus_mode = Control.FOCUS_NONE  # Space and Enter shouldn't press a button left focused
 	b.add_theme_font_size_override("font_size", 18)
 	return b

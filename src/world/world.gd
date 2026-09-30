@@ -72,13 +72,18 @@ func my_slot() -> int:
 
 ## Takes grid for a test flight from your test berth, at its helm.
 func test_flight(grid: ShipGrid) -> void:
-	sync.launch(grid, true)
+	_launch(grid, true)
 
 
 ## Launches grid as your ship, at your slipway and at its helm. It replaces your old
 ## ship, whose crew come too.
 func launch(grid: ShipGrid) -> void:
-	sync.launch(grid, false)
+	_launch(grid, false)
+
+
+func _launch(grid: ShipGrid, test: bool) -> void:
+	if not sync.launch(grid, test) and shipyard != null:
+		shipyard.say("Wait a moment, then try again.")
 
 
 ## Whether you're aboard your own test flight.
@@ -105,7 +110,8 @@ func board(target: Ship, spot := -1) -> void:
 		var here := sync.id_of(ship) != 0  # a ship on its way out can't be gone back to
 		if here and player.crew.station != null:
 			ship.helm.ask_helm(player.peer, false)  # or nobody else could take her helm until you left
-		_came_from = ship if here else null
+		if not on_test_flight():  # from a second test flight, B still goes back where the first came from
+			_came_from = ship if here else null
 		var old_crew := player.crew
 		player.board(crew)
 		old_crew.queue_free()
@@ -163,7 +169,7 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 	for next: Ship in [successor, _came_from, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
 		if next != null:
 			board(next)
-			if removed.test and removed.captain == multiplayer.get_unique_id():
+			if removed.test and removed.captain == multiplayer.get_unique_id() and not _pause.visible:
 				open_shipyard(false)  # back from a test flight
 			return
 

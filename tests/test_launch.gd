@@ -282,3 +282,24 @@ func test_the_hud_says_you_are_on_a_test_flight() -> void:
 	press_b(world)
 	await get_tree().process_frame
 	assert_false(banner.visible, "and none after")
+
+
+func test_a_second_test_flight_still_goes_back_to_the_ship_you_crewed() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var guest := client.multiplayer.get_unique_id()
+	var sync: WorldSync = host_world.sync
+	client_world.launch(skiff())
+	assert_true(await play_until(func() -> bool: return sync.ship_of(guest, false) != null, 2.0), "the guest's ship")
+	var theirs := sync.ship_of(guest, false)
+	sync.add_ship(StarterShip.build(), Dock.slipway(host_world.START, 3))  # nobody's, which home_ship() would prefer
+	sync.remove_ship(host_world.ship, theirs)  # the host has no ship of their own now
+	assert_eq(host_world.ship, theirs, "the host crews the guest's ship")
+	await play(1.1)
+	host_world.test_flight(skiff())
+	assert_true(await play_until(func() -> bool: return host_world.on_test_flight(), 2.0), "a test flight")
+	var first_id: int = sync.id_of(host_world.ship)
+	await play(1.1)
+	host_world.test_flight(skiff())
+	assert_true(await play_until(func() -> bool: return host_world.on_test_flight() and sync.id_of(host_world.ship) != first_id, 2.0), "and another")
+	press_b(host_world)
+	assert_eq(host_world.ship, theirs, "B goes back aboard the guest's ship")

@@ -134,7 +134,10 @@ func aim(point: Vector2, grid: ShipGrid) -> Dictionary:
 		return {"place": (hit["cell"] as Vector3i) + (hit["normal"] as Vector3i), "remove": hit["cell"]}
 	if direction.y >= 0.0:
 		return {}
-	var on_plane := from + direction * ((-0.5 - from.y) / direction.y)
+	var along := (-0.5 - from.y) / direction.y
+	if along > MAX_DISTANCE * 2.0:  # a near-flat ray lands out of the grid's reach
+		return {}
+	var on_plane := from + direction * along
 	return {"place": Vector3i(roundi(on_plane.x), 0, roundi(on_plane.z))}
 
 

@@ -51,11 +51,19 @@ static func save(grid: ShipGrid, ship_name: String, dir := DIR) -> Error:
 	var made := DirAccess.make_dir_recursive_absolute(dir)
 	if made != OK:
 		return made
-	var file := FileAccess.open(path_for(ship_name, dir), FileAccess.WRITE)
+	var path := path_for(ship_name, dir)
+	var temp := path + ".tmp"  # written whole first, so a failed write never empties an old blueprint
+	var file := FileAccess.open(temp, FileAccess.WRITE)
 	if file == null:
 		return FileAccess.get_open_error()
 	file.store_string(to_text(grid, ship_name))
-	return OK
+	var error := file.get_error()
+	file.close()
+	if error == OK:
+		error = DirAccess.rename_absolute(temp, path)
+	if error != OK:
+		DirAccess.remove_absolute(temp)
+	return error
 
 
 ## Reads a blueprint file as parse() does, refusing files that are too big or won't open.

@@ -75,11 +75,13 @@ func test_a_ship_removed_with_no_successor_sends_you_back() -> void:
 	var b := sync.add_ship(StarterShip.build(), Dock.slipway(host_world.START, 1))
 	host_world.board(b)
 	assert_eq(host_world.ship, b, "the host boards B")
+	var b_id := sync.id_of(b)
+	assert_true(await wait_until(func() -> bool: return client_world.sync.ships.has(b_id), 2.0), "the guest has B")
 	sync.remove_ship(b)
 	assert_eq(host_world.ship, starter, "and is back aboard the starter")
 	assert_eq(host_world.player.crew.get_parent(), starter.interior)
 	await play(0.3)
-	assert_eq(client_world.sync.ships.size(), 1, "B is gone for the guest")
+	assert_false(client_world.sync.ships.has(b_id), "B is gone for the guest")
 	assert_eq(client_world.player.crew.get_parent(), (client_world.ship as Ship).interior, "who stayed aboard the starter")
 
 

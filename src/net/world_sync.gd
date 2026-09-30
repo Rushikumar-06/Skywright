@@ -64,6 +64,7 @@ var _buffers: Dictionary = {}   ## Client: ship id -> SnapshotBuffer.
 var _crew: Dictionary = {}      ## Other players' crew: peer id -> {"ship": id, "buffer": SnapshotBuffer, "at": Vector3, "pitch": float}.
 var _avatars: Dictionary = {}   ## Peer id -> CrewAvatar.
 var _keys_heard: Dictionary = {}  ## Server: ship id -> _time its pilot's keys last came.
+var _my_launch_at := -INF  ## _time of this machine's last launch.
 var _launched_at: Dictionary = {}  ## Server: peer id -> _time of their last launch.
 
 
@@ -119,12 +120,17 @@ func id_of(ship: Ship) -> int:
 
 
 ## This machine's player launches grid: as a test flight when test, else as their
-## own ship in place of the old one. The server decides.
-func launch(grid: ShipGrid, test: bool) -> void:
+## own ship in place of the old one. The server decides. False when it's too soon
+## after the last one, which the server would ignore.
+func launch(grid: ShipGrid, test: bool) -> bool:
+	if _time - _my_launch_at < LAUNCH_COOLDOWN:
+		return false
+	_my_launch_at = _time
 	if session.is_server():
 		_launch_for(multiplayer.get_unique_id(), grid, test)
 	else:
 		_launch.rpc_id(1, grid.to_bytes(), grid.paint_names(), test)
+	return true
 
 
 ## This machine's player ends their test flight.

@@ -19,6 +19,7 @@ func _ready() -> void:
 
 func _apply_launch_options(options: Dictionary) -> void:
 	var player_name: String = options.get("name", Settings.player_name)
+	Session.requested_seed = options.get("seed", -1)
 	if options.has("server"):
 		Engine.max_fps = Engine.physics_ticks_per_second  # nothing to draw, so no faster than it simulates
 		var server_port: int = options.get("port", Session.DEFAULT_PORT)

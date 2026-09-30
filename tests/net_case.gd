@@ -6,6 +6,7 @@ extends TestCase
 
 const SessionScript := preload("res://src/net/session.gd")
 const WORLD_SCENE := "res://src/world/world.tscn"
+const SEED := 20260930  ## Every test world's seed, so tests don't depend on luck.
 
 var host: SessionScript           ## Set by sail_together, like the three below.
 var client: SessionScript
@@ -44,6 +45,7 @@ func make_session(branch_name: String, script: GDScript = SessionScript) -> Sess
 	var session: SessionScript = script.new()
 	session.name = "Session"
 	session.log_enabled = false
+	session.requested_seed = SEED
 	session.discovery_port = free_port()  # each its own, so tests never answer each other's queries
 	branch.add_child(session)
 	return session

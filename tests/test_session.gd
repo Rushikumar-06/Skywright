@@ -13,6 +13,28 @@ func test_solo_is_a_server_with_just_you() -> void:
 	assert_eq(solo.players, {1: {"name": "Ann"}})
 
 
+func test_solo_and_host_pick_a_seed_in_range() -> void:
+	var solo := make_session("Solo")
+	solo.requested_seed = -1
+	solo.start_solo("Ann")
+	assert_true(solo.world_seed >= 0 and solo.world_seed <= 0x7fffffff, "solo picks one")
+	var host := make_session("Host")
+	host.requested_seed = -1
+	host.host("Host", free_port())
+	assert_true(host.world_seed >= 0 and host.world_seed <= 0x7fffffff, "a host picks one")
+
+
+func test_a_requested_seed_is_used() -> void:
+	var solo := make_session("Solo")
+	solo.requested_seed = 123
+	solo.start_solo("Ann")
+	assert_eq(solo.world_seed, 123)
+	var host := make_session("Host")
+	host.requested_seed = 0
+	host.host("Host", free_port())
+	assert_eq(host.world_seed, 0)
+
+
 func test_solo_sails_straight_away() -> void:
 	var solo := make_session("Solo")
 	var sailed := [false]

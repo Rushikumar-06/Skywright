@@ -20,7 +20,7 @@ signal sailed                   ## The crew set sail: time to load the world.
 
 enum Mode { NONE, SOLO, HOST, CLIENT }
 
-const PROTOCOL_VERSION := 3
+const PROTOCOL_VERSION := 4
 const DEFAULT_PORT := 24650
 const MAX_PLAYERS := 8
 const AUTH_TIMEOUT := 5.0  ## Seconds a joiner has to introduce itself.
@@ -40,6 +40,8 @@ var drop_after := DROP_AFTER              ## Seconds of silence before a peer is
 var log_enabled := true                   ## Prints "[session] ..." lines; tests turn it off.
 var discovery_port := LanBeacon.DISCOVERY_PORT  ## Where a host answers LAN queries. Tests change it.
 var game_name := ""                       ## Host: what the LAN list calls this game.
+var requested_seed := -1                  ## The world's seed for the next solo or hosted game; -1 picks one at random.
+var world_seed := 0                       ## The seed of the world being played, from 0 to 2147483647.
 
 var _accepted := false
 var _pending_name := ""
@@ -74,6 +76,7 @@ func is_server() -> bool:
 
 ## Starts a solo game: a server with no network, with you as peer 1.
 func start_solo(player_name: String) -> void:
+	_choose_seed()
 	_reset()
 	mode = Mode.SOLO
 	sailing = true
@@ -87,6 +90,7 @@ func start_solo(player_name: String) -> void:
 ## taken. A dedicated server has no player of its own (player_name names the game
 ## only), and its world starts at once.
 func host(player_name: String, host_port := DEFAULT_PORT, as_server := false) -> Error:
+	_choose_seed()
 	_reset()
 	var peer := ENetMultiplayerPeer.new()
 	# One connection spare, so a joiner over the limit can still be told why.
@@ -130,6 +134,15 @@ func join(player_name: String, address: String, join_port := DEFAULT_PORT) -> Er
 	_timeout.start(connect_timeout)
 	_log("connecting to %s:%d" % [address, join_port])
 	return OK
+
+
+## Host: what goes in _welcome as the world's seed. Tests change it to send junk.
+func _seed_for_welcome() -> Variant:
+	return world_seed
+
+
+func _choose_seed() -> void:
+	world_seed = requested_seed if requested_seed >= 0 else randi() & 0x7fffffff
 
 
 ## Host: leaves the lobby and takes everyone to the world. Anyone joining after
@@ -295,7 +308,7 @@ func _on_peer_connected(id: int) -> void:
 	roster[id] = {"name": _joining[id]}
 	_joining.erase(id)
 	_set_players(roster)
-	_welcome.rpc_id(id, players, sailing)
+	_welcome.rpc_id(id, players, sailing, _seed_for_welcome())
 	_roster.rpc(players)
 	_log("peer %d joined as %s" % [id, roster[id]["name"]])
 
@@ -332,9 +345,13 @@ func _on_timeout() -> void:
 # --- RPCs (accepted peers only) ---
 
 @rpc("authority", "call_remote", "reliable")
-func _welcome(roster: Dictionary, under_way: bool) -> void:
+func _welcome(roster: Dictionary, under_way: bool, seed_value: Variant) -> void:
 	if mode != Mode.CLIENT or _accepted:
 		return
+	if not seed_value is int or seed_value < 0 or seed_value > 0x7fffffff:
+		_end("The host sent a world this game can't make.")
+		return
+	world_seed = seed_value
 	_accepted = true
 	_timeout.stop()
 	sailing = under_way

@@ -17,3 +17,10 @@ func test_ignores_unknown_and_malformed_options() -> void:
 
 func test_reads_server() -> void:
 	assert_eq(LaunchOptions.parse(PackedStringArray(["--server", "--port=4000", "--name=Skyport"])), {"server": true, "port": 4000, "name": "Skyport"})
+
+
+func test_reads_the_seed() -> void:
+	assert_eq(LaunchOptions.parse(PackedStringArray(["--seed=123"])), {"seed": 123})
+	assert_eq(LaunchOptions.parse(PackedStringArray(["--seed=0"])), {"seed": 0})
+	assert_eq(LaunchOptions.parse(PackedStringArray(["--seed=2147483647"])), {"seed": 2147483647})
+	assert_eq(LaunchOptions.parse(PackedStringArray(["--seed=-1", "--seed=abc", "--seed=99999999999", "--seed=2147483648"])), {})

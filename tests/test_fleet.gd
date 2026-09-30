@@ -103,7 +103,7 @@ func test_a_late_joiner_boards_the_hosts_ship() -> void:
 
 
 func test_the_client_skips_ships_that_make_no_sense() -> void:
-	assert_eq(SessionScript.PROTOCOL_VERSION, 3, "entries of 7 fields are protocol 3")
+	assert_true(SessionScript.PROTOCOL_VERSION >= 3, "entries of 7 fields came with protocol 3")
 	assert_true(await sail_together(), "the ship arrives")
 	var sync: WorldSync = host_world.sync
 	var guest := client.multiplayer.get_unique_id()

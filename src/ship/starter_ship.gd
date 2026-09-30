@@ -2,7 +2,7 @@ class_name StarterShip
 ## The ship every captain starts with: a 5 × 13 m deck on an iron-ballasted keel,
 ## a raised helm deck at the stern with ladders up to it, a balloon envelope on
 ## four posts, and one engine driving two propellers. -Z is the bow. It floats
-## level at about 880 m.
+## level at about 880 m (879.5 m at trim 1).
 
 const ENVELOPE_FROM := -4
 const ENVELOPE_TO := 6
@@ -52,12 +52,13 @@ static func build() -> ShipGrid:
 	grid.set_block(Vector3i(0, 2, 7), "rudder")
 	# Four posts up to the envelope: at the bow end of the main deck, and at the
 	# back corners of the helm deck, clear of the helmsman's view.
-	for y in range(2, 8):
+	for y in range(2, 9):
 		grid.set_block(Vector3i(-2, y, -4), "frame")
 		grid.set_block(Vector3i(2, y, -4), "frame")
-	for y in range(3, 8):
+	for y in range(3, 9):
 		grid.set_block(Vector3i(-2, y, 6), "frame")
 		grid.set_block(Vector3i(2, y, 6), "frame")
+	# The posts reach the envelope's widest row, so she is one piece by faces.
 	# The envelope: 3 m tall and 5 m wide at its middle, running the ship's length.
 	for z in range(ENVELOPE_FROM, ENVELOPE_TO + 1):
 		for x in range(-1, 2):
@@ -66,6 +67,6 @@ static func build() -> ShipGrid:
 		for x in range(-2, 3):
 			grid.set_block(Vector3i(x, 9, z), "balloon")
 	for z in [ENVELOPE_FROM - 1, ENVELOPE_TO + 1]:
-		for x in range(-1, 2):
+		for x in range(-2, 3):
 			grid.set_block(Vector3i(x, 9, z), "balloon")
 	return grid

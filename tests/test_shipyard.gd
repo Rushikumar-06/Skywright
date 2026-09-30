@@ -71,8 +71,8 @@ func test_b_opens_the_shipyard_at_the_dock() -> void:
 		return
 	assert_false(world.player.enabled, "your controls are off")
 	assert_false(world.hud.visible, "the HUD is hidden")
-	assert_eq(shipyard.design.grid.blocks.size(), 287, "designing the starter ship")
-	assert_true(shipyard.stats_text().begins_with("Blocks     287 of 4000"), shipyard.stats_text())
+	assert_eq(shipyard.design.grid.blocks.size(), 295, "designing the starter ship")
+	assert_true(shipyard.stats_text().begins_with("Blocks     295 of 4000"), shipyard.stats_text())
 	assert_eq(shipyard.warnings_text(), "No warnings. She should fly.")
 
 
@@ -109,7 +109,7 @@ func test_stats_and_warnings_follow_the_design() -> void:
 	assert_true(button(shipyard, "Test flight (F)").disabled, "no test flight")
 	assert_true(button(shipyard, "Launch").disabled, "no launch")
 	assert_eq(shipyard.note_text(), "Every ship needs a helm.")
-	assert_true(shipyard.stats_text().begins_with("Blocks     286 of 4000"))
+	assert_true(shipyard.stats_text().begins_with("Blocks     294 of 4000"))
 	press_button(shipyard, "Undo")
 	assert_eq(shipyard.warnings_text(), "No warnings. She should fly.")
 	assert_false(button(shipyard, "Test flight (F)").disabled, "test flight again")

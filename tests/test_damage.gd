@@ -136,14 +136,14 @@ func test_the_starter_ship_breaks_in_two_across_her_keel() -> void:
 	assert_true(parts["keep"].has(grid.cells_of("helm")[0]))
 	for cell: Vector3i in parts["keep"]:
 		assert_true(cell.z > 0)
-	# The envelope floats free of the hull by faces (its posts stop a cell short), so
-	# it is already a wreck of its own and the cut splits it too: three wrecks.
-	assert_eq(parts["wrecks"].size(), 3)
-	var engine := Vector3i(0, -1, -5)
-	var bow_hull: Array = parts["wrecks"].filter(func(w: Array) -> bool: return w.has(engine))[0]
-	for cell: Vector3i in bow_hull:
+	assert_eq(parts["wrecks"].size(), 1)
+	for cell: Vector3i in parts["wrecks"][0]:
 		assert_true(cell.z < 0)
 	assert_eq(parts["debris"].size(), 0)
+	var whole := Damage.split(StarterShip.build())
+	assert_eq(whole["keep"].size(), StarterShip.build().blocks.size())
+	assert_eq(whole["wrecks"].size(), 0)
+	assert_eq(whole["debris"].size(), 0)
 
 
 func test_changes_pack_and_unpack() -> void:

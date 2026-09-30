@@ -904,3 +904,35 @@ Build-log item: "Tests: blueprint round trip and stat calculations" (and the sta
 7. **Looks:** does the envelope read as cloth? Can you tell which way propellers, rudders and cannons face? Does paint look good in daylight and at dusk?
 8. **Co-op:** two players each launch a ship at the dock and fly alongside each other. Does each see the other's ship smoothly?
 9. **Big ships:** build or load a ship near 4,000 blocks. Does editing stay smooth, and does flying hold 60 fps on the Radeon 680M?
+
+---
+
+## Changes during execution and after the final review
+
+Every task had its own review, and a fresh reviewer read the whole branch at the end: "with fixes", no critical findings, three important ones. Each fix below has a test.
+
+| Problem | Fix |
+|---|---|
+| Two test setups couldn't happen: two lift stones can't carry the starter ship, and 20 × 10 × 20 frames plus a helm is 4,001 blocks. | A helm on one lift stone; one frame replaced by the helm. |
+| Fleet tests used made-up captains, which Task 7's leaver rule would remove. | Real guests captain the ships. |
+| A blueprint version of 1.5, `"1"` or missing gave "version 1" or "version ?". | Refused as `This isn't a Skywright blueprint.` |
+| A blueprint file that isn't UTF-8 logged engine errors. | The bytes are checked before decoding. |
+| Undoing a blueprint load kept the blueprint's paint. | Undo and redo bring the paint back too. |
+| A client took a squashed or mirrored ship transform, which logged an engine error. | Refused with the other bad entries. |
+| Boarding another ship kept your hold on the old helm. | You let go of it first. |
+| A test flight could be built inside your own ship parked at your test berth. | Only your old test ship is ignored when finding a clear spot. |
+| A guest back from a second test flight landed on the host's ship. | You go back to the ship you came from, then your own, then the host's. |
+| Review: after typing a blueprint name, keys kept going to the name box. | Clicking the view lets go of it, and buttons don't take focus. |
+| Review: a failed save could still say "Saved". | Saves write a temporary file, then rename it over the old one. |
+| Review: "Launching…" stayed up when a launch came within a second of the last. | It says `Wait a moment, then try again.` |
+| Review: the shipyard could reopen over the pause menu. | It doesn't while the pause menu is open. |
+| Review: aiming almost level at the grid could place a block far away. | No target beyond the aiming range. |
+
+**Moved or renamed:** `Shipyard.rotation` is `block_rotation` (`CanvasLayer` already has `rotation`). The shipyard's note sits in the bottom bar. `open_shipyard(dock_only)` skips the dock check when you come back from a test flight. "Ann is at the helm" takes priority over "B   Shipyard". Leaving the game with the shipyard open turns the world's 3D back on.
+
+**Deferred:**
+- A save that fails partway (a full disk) isn't detected, so it can still replace an existing blueprint. Check `store_string` and the temporary file's size before renaming.
+- The client's and server's one-launch-a-second checks run on different clocks, so a launch can still be dropped with "Launching…" left up. Send a refusal from the server when launches cost money (stage 7).
+- A tipped rudder gives no force and nothing warns about it. With two helms, only the first placed steers. Crew spawn aft of a turned helm in ship space. Each needs a decision about how control surfaces and stations work.
+- Rebuilding the mesh of a 4,000-block ship takes 20–50 ms, a hitch on each edit in the shipyard. Split it into sections with damage (stage 6), or build off the main thread.
+- Smaller items: an unbounded undo stack; 8-digit paint colours lose their alpha; Windows reserved file names; NetCase members shadow test locals; `world_sync.gd` is 615 lines, so split the launch rules out next time it grows.

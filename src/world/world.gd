@@ -201,6 +201,8 @@ func open_shipyard(dock_only := true) -> void:
 		return
 	if dock_only:
 		_yard_town = _town_here()
+	if map != null and map.visible:
+		_toggle_map()  # or it would be back when the shipyard closes
 	if design == null:
 		design = ShipDesign.new(ship.grid if ship != null else StarterShip.build())
 	shipyard = Shipyard.new(design, (gen.towns[_yard_town]["dock"] as Vector3).y)

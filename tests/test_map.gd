@@ -107,6 +107,19 @@ func test_m_only_mirrors_in_the_shipyard() -> void:
 	assert_false(world.map.visible, "and while paused")
 
 
+func test_opening_the_shipyard_closes_the_map() -> void:
+	var world := solo_world()
+	await get_tree().process_frame
+	press(world, "map")
+	assert_true(world.map.visible, "the map is open")
+	press(world, "shipyard")
+	assert_true(world.shipyard != null, "B opens the shipyard")
+	assert_false(world.map.visible, "and closes the map")
+	world.close_shipyard()
+	assert_false(world.map.visible, "which doesn't come back when the shipyard closes")
+	assert_true(world.hud.compass.visible, "but the compass does")
+
+
 func test_the_compass_reads_the_way_you_look() -> void:
 	var world := solo_world()
 	await get_tree().process_frame

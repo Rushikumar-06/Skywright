@@ -7,6 +7,9 @@ extends RefCounted
 ## Once per edit, undo, redo, replace or paint.
 signal changed
 
+## In place of a cell in an edit's change, marking the paint: [PAINT, before, after].
+const PAINT := "paint"
+
 var grid: ShipGrid
 var mirror := false
 
@@ -57,7 +60,7 @@ func remove(cell: Vector3i) -> bool:
 
 
 ## Swaps in the blocks and paint of with, at full hit points, as one undoable edit.
-## Undoing brings the blocks back; paint isn't undoable.
+## Undoing brings back the blocks and the paint. Emits nothing if neither differs.
 func replace(with: ShipGrid) -> void:
 	var fresh := ShipDesign.new(with).grid
 	var edit: Array = []
@@ -67,9 +70,9 @@ func replace(with: ShipGrid) -> void:
 	for cell: Vector3i in fresh.blocks:
 		if not grid.blocks.has(cell):
 			edit.append([cell, null, fresh.blocks[cell]])
-	grid.paint = fresh.paint
-	if not _apply(edit):
-		changed.emit()  # The paint may still have changed.
+	if fresh.paint != grid.paint:
+		edit.append([PAINT, grid.paint.duplicate(), fresh.paint])
+	_apply(edit)
 
 
 ## Paints every block of type in color (a Color), or back to its own colour (null).
@@ -126,7 +129,9 @@ func _step(from: Array[Array], onto: Array[Array], side: int) -> bool:
 
 func _write(edit: Array, side: int) -> void:
 	for change: Array in edit:
-		if change[side] == null:
+		if is_same(change[0], PAINT):
+			grid.paint = (change[side] as Dictionary).duplicate()
+		elif change[side] == null:
 			grid.blocks.erase(change[0])
 		else:
 			grid.blocks[change[0]] = (change[side] as Dictionary).duplicate()

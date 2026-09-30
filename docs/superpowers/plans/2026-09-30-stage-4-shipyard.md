@@ -283,7 +283,7 @@ Climb      +3.2 m/s at full trim
   - `test_lift_stones_lift_the_same_at_any_height`: a helm plus one lift stone has the same `lift` at 300 m and 1,500 m.
   - `test_an_overloaded_ship_is_too_heavy_to_fly`: the starter with iron over the deck (as in `test_an_overloaded_ship_sinks`). `ceiling == -INF`, and the warning is `Too heavy to fly: she sinks into the Roil.`
   - `test_a_ship_too_heavy_for_this_height_says_how_high_she_can_go`: remove the envelope's top layer (y = 10). The ceiling is between 200 and 880, and the warning reads exactly `Too heavy to hold 880 m: she can climb no higher than N m.` with N = `roundi(ceiling)`.
-  - `test_lift_stones_that_carry_her_alone_climb_forever`: the starter plus two lift stones on the keel. `float_altitude == INF`, and the warning is present.
+  - `test_lift_stones_that_carry_her_alone_climb_forever`: a helm on a lift stone (330 kg against 6,000 N). `float_altitude == INF`, and the warning is present.
   - `test_a_lopsided_ship_says_which_way_it_lists`: iron at x = 3 as in `test_ship.gd` gives `Lists N° to starboard.` The same at x = −3 gives port. `list` equals the `atan2` formula.
   - `test_a_nose_heavy_ship_is_down_by_the_bow`: four iron blocks at z = −6, y = 1 give `bow_down > 2` and `Down by the bow N°.`
   - `test_a_top_heavy_ship_will_roll_over`: a helm and deck on top of balloons give the top-heavy warning, and no list or trim warning.
@@ -369,7 +369,7 @@ Rules:
 
 - [ ] **Step 1: Write the failing tests.** In `tests/test_ship_grid.gd`:
   - `test_copy_is_independent`: edit the copy, and the original is unchanged. Hit points and paint are copied.
-  - `test_to_bytes_and_back`: the starter ship keeps every block, type, rotation and hit point. A damaged block keeps its hp. The starter is under 2,000 bytes. A 4,000-block ship (20 × 10 × 20 frames with a helm) is under 40,000 bytes.
+  - `test_to_bytes_and_back`: the starter ship keeps every block, type, rotation and hit point. A damaged block keeps its hp. The starter is under 2,000 bytes. A 4,000-block ship (20 × 10 × 20 frames, one of them replaced by a helm) is under 40,000 bytes.
   - `test_from_bytes_refuses_junk`: returns null, with no engine errors, for:
     - a String, an empty array, two bytes;
     - count 0, count 4001;
@@ -610,15 +610,15 @@ Rules:
   - Move `sail_together()` and its members into `NetCase`.
   - In `tests/test_fleet.gd`:
     - `test_the_dock_has_slipways_and_a_reach`: slipway 0 is at `START`, slipway 2 is 120 m to starboard, and the test berth is 90 m ahead. `near` is true on the quay and 140 m off it, and false 2 km away. The world has a dock.
-    - `test_a_ship_added_mid_game_reaches_everyone`: after sailing, the host adds a painted ship with captain 7 and test true at slipway 1. Within 2 s the guest has it, with the same block count, paint, captain and test flag, and it's kinematic.
+    - `test_a_ship_added_mid_game_reaches_everyone`: after sailing, the host adds a painted ship at slipway 1 with the guest's peer id as captain and test true. Within 2 s the guest has it, with the same block count, paint, captain and test flag, and it's kinematic. As its captain, the guest is aboard it.
     - `test_removing_a_ship_moves_its_crew_to_the_successor`: the host adds ship B, then removes the starter with successor B.
       - Both the host's player and the guest end up aboard B, and the starter is gone on both sides.
       - The guest's avatar reappears on the host within 1 s, reporting on B.
       - No engine errors, even though the guest sent a crew report for the starter in flight.
     - `test_a_ship_removed_with_no_successor_sends_you_back`: the host boards ship B with `world.board(B)`, then removes B with no successor. The host is aboard the starter again.
     - `test_a_late_joiner_boards_the_hosts_ship`:
-      - The host adds a ship with captain 5 at slipway 1, then replaces the starter with a new ship with captain 1 (`add_ship`, then `remove_ship(starter, new)`).
-      - A guest joins after that. They board the captain 1 ship, not the captain 5 one, which has the lower id.
+      - With a first guest in the world, the host adds a ship captained by that guest at slipway 1, then replaces the starter with a new ship with captain 1 (`add_ship`, then `remove_ship(starter, new)`).
+      - A second guest joins after that. They board the captain 1 ship, not the first guest's, which has the lower id.
   - In `tests/test_helm.gd`: `test_crew_can_board_in_front_of_the_helm`: a design with deck only in front of the helm gives a spawn spot in front of it, standing on the deck.
   - In `tests/test_world.gd`: `test_boarding_another_ship_moves_you_and_your_controls`:
     - Add a second ship next to the starter, and `world.board(it)`.

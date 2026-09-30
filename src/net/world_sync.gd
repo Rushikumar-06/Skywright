@@ -85,6 +85,18 @@ func now() -> float:
 	return _time + _offset
 
 
+## Where the world must be loaded around: on the server every ship and this
+## machine's player, on a client this machine's player (nowhere until it's here).
+func focus_points() -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	if session.is_server():
+		for ship: Ship in ships.values():
+			points.append(ship.global_position)
+	if player != null:
+		points.append(player.crew.ship.global_transform * player.crew.position)
+	return points
+
+
 ## How peer's crew member is drawn here, or null.
 func avatar_of(peer: int) -> CrewAvatar:
 	return _avatars.get(peer)

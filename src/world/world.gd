@@ -1,21 +1,16 @@
 extends Node3D
-## The game world: sky, the Roil, a few placeholder islands, the dock, and the
-## starter ship at its first slipway with you aboard. Its Session is a sibling: the
-## Session autoload in the game, or a test's own. The server builds the ships and
-## flies them; clients get them through the world's WorldSync. You board the host's
-## ship when you arrive, and your own ship whenever one arrives: launch a design
-## and you're at its helm, and B brings you back from a test flight. When the ship
-## you're on goes, you board its successor, or the ship you came from, or your own,
-## or the host's. A dedicated server's world has no player, HUD or pause menu.
+## The game world: sky, the Roil, the islands made from the session's seed (streamed
+## in around every ship), the dock, and the starter ship at its first slipway with
+## you aboard. Its Session is a sibling: the Session autoload in the game, or a
+## test's own. The server builds the ships and flies them; clients get them through
+## the world's WorldSync. You board the host's ship when you arrive, and your own
+## ship whenever one arrives: launch a design and you're at its helm, and B brings
+## you back from a test flight. When the ship you're on goes, you board its
+## successor, or the ship you came from, or your own, or the host's. A dedicated
+## server's world has no player, HUD or pause menu.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
-const START := Vector3(0.0, 880.0, 7000.0)
-## Placeholder islands: [offset from START, radius].
-const ISLANDS := [
-	[Vector3(-160, -40, -520), 60.0], [Vector3(380, 30, -1100), 110.0], [Vector3(-620, -110, -1500), 90.0],
-	[Vector3(120, -150, -300), 34.0], [Vector3(900, -60, -200), 80.0], [Vector3(-1000, 20, -600), 120.0],
-	[Vector3(-300, 80, 700), 70.0], [Vector3(600, -20, 900), 95.0],
-]
+const START := WorldGen.START
 
 var session: Node
 var sync: WorldSync
@@ -25,6 +20,8 @@ var hud: Hud
 var dock: StaticBody3D
 var shipyard: Shipyard         ## Null while closed.
 var design: ShipDesign         ## Your design, kept for the whole game.
+var gen: WorldGen              ## The world made from the session's seed.
+var streamer: WorldStreamer    ## Loads its chunks around every ship and player.
 
 var _came_from: Ship           ## The ship you were on before this one, while it's still here.
 
@@ -38,8 +35,7 @@ func _ready() -> void:
 	_sky = WorldSky.new()
 	add_child(_sky)
 	add_child(Roil.new())
-	for island: Array in ISLANDS:
-		add_child(Island.create(START + island[0], island[1]))
+	gen = WorldGen.new(session.world_seed)
 	dock = Dock.create(START)
 	add_child(dock)
 	sync = WorldSync.new(session)
@@ -52,6 +48,9 @@ func _ready() -> void:
 	add_child(sync)
 	if session.is_server():
 		sync.add_ship(StarterShip.build(), Dock.slipway(START, 0), 0 if session.dedicated else 1)
+	streamer = WorldStreamer.new(gen, not session.dedicated)
+	streamer.focus = sync.focus_points
+	add_child(streamer)
 	if not session.dedicated:
 		_build_pause_menu()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

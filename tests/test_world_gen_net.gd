@@ -12,14 +12,17 @@ func test_the_seed_travels_with_the_handshake() -> void:
 
 func test_host_and_guest_generate_the_same_chunks() -> void:
 	assert_true(await sail_together(), "the ship arrives")
-	# Task 3 gives each world its own WorldGen; until then, make one from each seed.
-	var host_gen := WorldGen.new(host.world_seed)
-	var client_gen := WorldGen.new(client.world_seed)
-	var under_ship := WorldGen.chunk_of(WorldGen.START)
+	var host_gen: WorldGen = host_world.gen
+	var client_gen: WorldGen = client_world.gen
 	for chunk in WorldGen.chunks_near(WorldGen.START, 800.0):
 		assert_eq(host_gen.islands_in(chunk), client_gen.islands_in(chunk))
 	assert_eq(var_to_str(host_gen.towns), var_to_str(client_gen.towns))
-	assert_true(under_ship in WorldGen.chunks_near(WorldGen.START, 800.0))
+	# The chunk under the guest's ship, once each world has loaded it, collides alike.
+	var under_ship := WorldGen.chunk_of(client_world.ship.global_position)
+	var loaded := func() -> bool:
+		return host_world.streamer.chunks.has(under_ship) and client_world.streamer.chunks.has(under_ship)
+	assert_true(await wait_until(loaded, 20.0), "both worlds load it")
+	assert_eq(_faces(host_world, under_ship), _faces(client_world, under_ship))
 
 
 func test_a_junk_seed_is_refused() -> void:
@@ -35,3 +38,11 @@ func test_a_junk_seed_is_refused() -> void:
 	client.join("Guest", "127.0.0.1", port)
 	assert_true(await wait_until(func() -> bool: return reason[0] != "", 5.0), "the client ends")
 	assert_eq(reason[0], "The host sent a world this game can't make.")
+
+
+## The collision faces of a world's chunk, or none when it has no islands.
+func _faces(world: Node3D, chunk: Vector2i) -> PackedVector3Array:
+	var bodies: Array[Node] = (world.streamer.chunks[chunk] as Node3D).find_children("*", "StaticBody3D", false, false)
+	if bodies.is_empty():
+		return PackedVector3Array()
+	return ((bodies[0].get_child(0) as CollisionShape3D).shape as ConcavePolygonShape3D).get_faces()

@@ -29,7 +29,7 @@ func _init(player_crew: CrewMember) -> void:
 
 func _ready() -> void:
 	camera = Camera3D.new()
-	camera.far = 8000.0
+	camera.far = 3200.0
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(camera)
 	camera.make_current()

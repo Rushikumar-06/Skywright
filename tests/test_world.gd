@@ -49,7 +49,7 @@ func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:
 	assert_true(world.player.enabled, "and work again after resuming")
 
 
-func test_islands_are_solid() -> void:
+func test_placeholder_islands_are_solid() -> void:
 	var island := Island.create(Vector3(0, 800, 0), 50.0)
 	add_child(island)
 	var shapes := island.find_children("*", "CollisionShape3D", false, false)

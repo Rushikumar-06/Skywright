@@ -42,8 +42,8 @@ func _ready() -> void:
 	_environment.glow_enabled = true
 	_environment.fog_enabled = true
 	_environment.fog_mode = Environment.FOG_MODE_DEPTH
-	_environment.fog_depth_begin = 1500.0
-	_environment.fog_depth_end = 14000.0
+	_environment.fog_depth_begin = 900.0
+	_environment.fog_depth_end = 2600.0
 	_environment.fog_sky_affect = 0.0
 	var world_environment := WorldEnvironment.new()
 	world_environment.environment = _environment

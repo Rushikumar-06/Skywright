@@ -16,6 +16,7 @@ var _helm: PanelContainer
 var _readout: Label
 var _message: Label
 var _message_left := 0.0
+var _crew_names: Dictionary = {}  ## The roster as last shown: peer id -> name.
 
 
 func _init(for_player: PlayerController, world_session: Node) -> void:
@@ -124,9 +125,21 @@ static func readout(ship: Ship) -> String:
 func _refresh_session() -> void:
 	_status.text = _status_text()
 	var names: PackedStringArray = []
+	var news: PackedStringArray = []
 	for id: int in session.players:
-		names.append(session.players[id]["name"])
+		var crew_name: String = session.players[id]["name"]
+		names.append(crew_name)
+		if not _crew_names.is_empty() and not _crew_names.has(id):
+			news.append("%s came aboard." % crew_name)
+	for id: int in _crew_names:
+		if not session.players.has(id) and not session.players.is_empty():
+			news.append("%s left." % _crew_names[id])
 	_crew.text = "Crew (%d): %s" % [names.size(), ", ".join(names)]
+	_crew_names.clear()
+	for id: int in session.players:
+		_crew_names[id] = session.players[id]["name"]
+	if not news.is_empty():
+		show_message(" ".join(news))
 
 
 func _status_text() -> String:

@@ -18,6 +18,9 @@ extends Node
 ## Stations belong to the server. A client's helm passes asks on here; the server
 ## takes the helm for the asker only if they last said they were aboard and in
 ## reach, and tells everyone who has it. The pilot's keys come here at 30 Hz.
+##
+## When someone leaves the roster, everyone forgets their crew member, and the
+## server frees their stations.
 
 signal ship_added(ship: Ship)
 
@@ -50,7 +53,7 @@ func _init(world_session: Node) -> void:
 
 
 func _ready() -> void:
-	multiplayer.peer_disconnected.connect(func(peer: int) -> void: _in_world.erase(peer))
+	session.players_changed.connect(_on_roster_changed)
 	if not session.is_server():
 		_enter_world.rpc_id(1)
 
@@ -86,6 +89,23 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool) -> Ship:
 		ship.helm.pilot_changed.connect(_on_pilot_changed.bind(id))
 	ship_added.emit(ship)
 	return ship
+
+
+## Forgets everyone no longer on the roster, and frees the stations they held.
+func _on_roster_changed() -> void:
+	for peer: int in _in_world.keys():
+		if not session.players.has(peer):
+			_in_world.erase(peer)
+	for peer: int in _crew.keys():
+		if not session.players.has(peer):
+			_crew.erase(peer)
+			if _avatars.has(peer):
+				(_avatars[peer] as CrewAvatar).queue_free()
+				_avatars.erase(peer)
+	if session.is_server():
+		for ship: Ship in ships.values():
+			if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
+				ship.helm.leave(ship.helm.pilot)
 
 
 ## Client: a helm here was asked for something; the server decides.

@@ -326,3 +326,52 @@ func test_the_autopilot_answers_only_the_pilot() -> void:
 	assert_true(await wait_until(func() -> bool: return client_world.ship.helm.autopilot, 2.0), "and sees it on")
 	ours.helm.ask_autopilot(1, false)
 	assert_true(ours.helm.autopilot, "the host isn't the pilot, so it stays on")
+
+
+func test_a_pilot_who_drops_frees_the_helm() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var client_id := client.multiplayer.get_unique_id()
+	var ours: Ship = host_world.ship
+	await play(0.2)
+	press(client_world.player, "interact")
+	assert_true(await wait_until(func() -> bool: return ours.helm.pilot == client_id, 2.0), "the guest takes the helm")
+	host_world.player.enabled = false
+	Input.action_press("move_right")
+	assert_true(await wait_until(func() -> bool: return ours.rudder == 1.0, 2.0), "hard to starboard")
+	assert_true(host_world.sync.avatar_of(client_id) != null, "the host sees the guest")
+	client.leave()  # mid-turn
+	assert_true(await wait_until(func() -> bool: return ours.helm.pilot == 0, 2.0), "the helm is freed")
+	assert_eq(ours.rudder, 0.0, "the rudder centres")
+	assert_eq(ours.helm.rudder_input, 0.0, "and stays centred")
+	assert_true(host_world.sync.avatar_of(client_id) == null, "the guest is gone from the deck")
+	host_world.player.enabled = true
+	press(host_world.player, "interact")
+	assert_eq(ours.helm.pilot, 1, "and anyone else can take the helm")
+
+
+func test_everyone_drops_the_avatar_of_someone_who_leaves() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var late := make_session("Late")
+	late.join("Cy", "127.0.0.1", host.port)
+	assert_true(await wait_until(func() -> bool: return late.sailing, 5.0), "Cy joins")
+	var late_world := add_world(late)
+	var late_id := late.multiplayer.get_unique_id()
+	assert_true(await wait_until(func() -> bool: return client_world.sync.avatar_of(late_id) != null, 3.0), "the guest sees Cy")
+	late.leave()
+	assert_true(await wait_until(func() -> bool: return client_world.sync.avatar_of(late_id) == null, 3.0), "and then doesn't")
+	assert_true(late_world.player != null)
+
+
+func test_the_hud_says_who_comes_and_goes() -> void:
+	host = make_session("Host")
+	var port := free_port()
+	host.host("Host", port)
+	host.set_sail()
+	host_world = add_world(host)
+	await get_tree().process_frame
+	var message: Label = host_world.hud._message
+	client = make_session("Client")
+	client.join("Guest", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return message.visible and message.text == "Guest came aboard.", 3.0), "a joiner is announced")
+	client.leave()
+	assert_true(await wait_until(func() -> bool: return message.visible and message.text == "Guest left.", 3.0), "and a leaver: %s" % message.text)

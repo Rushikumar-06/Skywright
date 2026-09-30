@@ -32,6 +32,7 @@ const CLOCK_EASE := 0.1  ## How far a client's clock moves toward each snapshot'
 const CREW_REACH := 35.0     ## m. Crew reported further than this from their ship's blocks are refused.
 const CREW_MAX_SPEED := 50.0 ## m/s. Likewise for crew reported moving faster.
 const REACH_SLACK := 0.5     ## m. Allowance on the helm's reach for where a client last said it was.
+const KEYS_GO_STALE := 0.25  ## s. A remote pilot's keys count as let go when none come for this long.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
@@ -46,6 +47,7 @@ var _in_world: Dictionary = {}  ## Server: peers whose world has loaded (peer id
 var _buffers: Dictionary = {}   ## Client: ship id -> SnapshotBuffer.
 var _crew: Dictionary = {}      ## Other players' crew: peer id -> {"ship": id, "buffer": SnapshotBuffer, "at": Vector3, "pitch": float}.
 var _avatars: Dictionary = {}   ## Peer id -> CrewAvatar.
+var _keys_heard: Dictionary = {}  ## Server: ship id -> _time its pilot's keys last came.
 
 
 func _init(world_session: Node) -> void:
@@ -156,6 +158,7 @@ func _physics_process(delta: float) -> void:
 	if session.is_server():
 		# Stamp snapshots before the clock ticks on: they hold the ships as the last
 		# physics step left them, which is where they were at _time.
+		_let_go_of_stale_keys()
 		if sending and not _in_world.is_empty():
 			var states := _ship_states()
 			for peer: int in _in_world:
@@ -174,6 +177,20 @@ func _physics_process(delta: float) -> void:
 	for id: int in _buffers:
 		var at: Dictionary = (_buffers[id] as SnapshotBuffer).sample(shown_at)
 		(ships[id] as Ship).global_transform = Transform3D(Basis(at["rotation"] as Quaternion), at["position"])
+
+
+## Server: a remote pilot whose keys stop coming (a hung game, dead Wi-Fi) has let
+## go of them. Their connection only counts as lost after Session.DROP_AFTER, and
+## until then their last keys would keep steering.
+func _let_go_of_stale_keys() -> void:
+	for id: int in ships:
+		var helm := (ships[id] as Ship).helm
+		if helm == null or helm.pilot == 0 or helm.pilot == multiplayer.get_unique_id():
+			continue
+		if _time - _keys_heard.get(id, -INF) > KEYS_GO_STALE:
+			helm.throttle_input = 0.0
+			helm.rudder_input = 0.0
+			helm.climb_input = 0.0
 
 
 ## Places the other players' avatars on their ships, as those are drawn.
@@ -354,6 +371,7 @@ func _helm_keys(ship_id: Variant, throttle: Variant, rudder: Variant, climb: Var
 	for key: Variant in [throttle, rudder, climb]:
 		if not key is float or not is_finite(key):
 			return
+	_keys_heard[ship_id] = _time
 	helm.throttle_input = clampf(throttle, -1.0, 1.0)
 	helm.rudder_input = clampf(rudder, -1.0, 1.0)
 	helm.climb_input = clampf(climb, -1.0, 1.0)

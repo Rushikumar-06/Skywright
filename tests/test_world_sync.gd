@@ -415,3 +415,24 @@ func test_a_pilot_and_a_guest_leaving_together_are_dropped_cleanly() -> void:
 	late.leave()
 	assert_true(await wait_until(func() -> bool: return host_world.ship.helm.pilot == 0 and host.players.size() == 1, 3.0), "both gone, the helm freed")
 	await play(0.2)
+
+
+func test_a_pilot_who_goes_silent_stops_steering() -> void:
+	# A hung game or dead Wi-Fi sends no goodbye, and the connection only counts as
+	# lost after Session.DROP_AFTER. The keys held until then mustn't keep steering.
+	assert_true(await sail_together(), "the ship arrives")
+	var client_id := client.multiplayer.get_unique_id()
+	var ours: Ship = host_world.ship
+	await play(0.2)
+	press(client_world.player, "interact")
+	assert_true(await wait_until(func() -> bool: return ours.helm.pilot == client_id, 2.0), "the guest takes the helm")
+	host_world.player.enabled = false
+	Input.action_press("move_right")
+	Input.action_press("move_forward")
+	assert_true(await play_until(func() -> bool: return ours.rudder == 1.0, 2.0), "hard to starboard")
+	client_world.sync.player = null  # the guest's game falls silent
+	assert_true(await play_until(func() -> bool: return ours.rudder == 0.0, 0.5), "the rudder centres within half a second")
+	var throttle := ours.throttle
+	await play(0.3)
+	assert_eq(ours.throttle, throttle, "the throttle stops opening")
+	assert_eq(ours.helm.pilot, client_id, "the helm is still theirs until the connection is lost")

@@ -223,7 +223,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 - **Interior world:** each ship owns an interior `SubViewport` with `own_world_3d = true`. That gives it a separate physics space; it's never rendered. The interior holds a static copy of the ship's collision boxes in ship-local coordinates, plus the `CharacterBody3D` of everyone aboard.
 - **Gravity aboard:** crew gravity is `ship_basis⁻¹ × (0, −9.81, 0)`, and `up_direction` is its opposite. A tilted ship therefore feels like a sloped deck. Look yaw is relative to the ship, so you turn with it.
 - **Drawing crew:** a crew member is drawn in the main world at the ship's interpolated transform multiplied by their local transform.
-- **Leaving and boarding:** you leave the ship when no ship floor has been under your feet for 0.2 s and nothing of the ship is below you (`Ship.is_over`). You then become a main-world character (`ship` is null) in world space, with the ship's point velocity plus your own. Ashore you walk with ordinary gravity, never faster than 50 m/s, and gliding eases you to 13 m/s where you look, sinking at most 3 m/s. Landing on a ship's deck puts you aboard that ship, once you've been ashore 0.5 s so you don't bounce straight back. So does E within 3 m of a ship's box, because you can't jump 2 m up a hull and ships don't hold still at a quay. Falling below the Roil's 200 m puts you back aboard the ship you left, else your own, else the host's.
+- **Leaving and boarding:** you leave the ship when no ship floor has been under your feet for 0.2 s and nothing of the ship is below you (`Ship.is_over`). You then become a main-world character (`ship` is null) in world space, with the ship's point velocity plus your own. Ashore you walk with ordinary gravity, never faster than 50 m/s, and a glide (Space held through 0.3 s of falling, not rising, or pressed again in the air) eases you to 13 m/s where you look, sinking at most 3 m/s. Landing on a ship's deck puts you aboard that ship, once you've been ashore 0.5 s so you don't bounce straight back. So does E within 3 m of a ship's box, because you can't jump 2 m up a hull and ships don't hold still at a quay. Falling below the Roil's 200 m puts you back aboard the ship you left, else your own, else the host's.
 - **Walking in a tilted gravity:** walking "uphill" against gravity that isn't square to the deck makes Godot skip its floor snap, so crew apply the snap themselves (except when jumping or on a ladder). Ladders are open cells: while your body is in a ladder's column you hold on, gravity stops, and you climb along the ship's up.
 - **Being hit:** each crew member also has a main-world hitbox (`Area3D`) so projectiles can hit them.
 - **Other players:** each machine walks only its own crew member, in its own copy of the interior, and reports where it is (§4.6). Everyone else is drawn as an avatar with a name tag. Crew don't collide with each other until combat needs server-side crew bodies (stage 6).
@@ -277,7 +277,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 
 ### 4.8 Rendering
 
-- **Sky:** `ProceduralSkyMaterial` at first, replaced by a custom sky shader (sun, stars, cloud layer) when the world stage needs it.
+- **Sky:** `ProceduralSkyMaterial`. The world stage kept it; a custom sky shader (sun, stars, cloud layer) is deferred to the polish stage (stage 10).
 - **Fog:** depth fog hazes the distance from 900 m to 2,600 m, which hides the streaming edge. Over the Roil, two translucent fog sheets (at 240 m and 290 m) follow the camera, and each storm cell has a dark column of cloud. Volumetric fog was dropped: sheets are cheap on any GPU, and it can come with the polish stage.
 - **Weather:** lightning strikes in storms within 3 km of the camera and under the islands within 1 km. It's only visual. Every machine makes its own bolts, and a dedicated server has none. Clouds are instanced puffs, made per chunk.
 - **Lighting:** a sun (`DirectionalLight3D`) with 4-split shadows, driven by the day–night cycle.
@@ -360,6 +360,7 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | A player drops | Their stations are freed and the rudder centres. A dedicated server anchors its ships once nobody is aboard. |
 | Can't reach the host | After 8 s: "The host didn't answer." |
 | Version mismatch | Refused with "This game is version A; you have version B." |
+| Host sends a seed the game can't use | The client leaves with "The host sent a world this game can't make." |
 | Game full | Refused with "The game is full (8 players)." |
 | Port in use when hosting | "Port 24650 is already in use. Is another game running?" |
 | Broken settings file | Defaults are used and the file is rewritten on the next save. |
@@ -408,6 +409,9 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-30 | Anchoring (G at the helm) freezes the ship where she is |
 | 2026-09-30 | Crew ashore are drawn to others as a plain avatar, with no glider, until the polish stage |
 | 2026-09-30 | River wind blends its segments, so it swings smoothly round bends instead of jumping between segments |
+| 2026-09-30 | River wind is its segments' sum capped at the strongest, so rivers blowing opposite ways cancel to calm where they overlap |
+| 2026-09-30 | The sky stays `ProceduralSkyMaterial` through stage 5; the custom sky shader moves to the polish stage |
+| 2026-09-30 | Streaming counts focus points within 64 m of each other as one, and frees far chunks a few a frame |
 | 2026-09-30 | Piers stand 1.5 m off a ship at each slipway, and docks are frictionless so a ship blown onto one slides along it; launches keep 1 m from dock obstacles and 2 m from ships |
 | 2026-09-30 | Crew ashore report in world space (ship id 0), at most 50 m/s overall, with 0.01 m/s of slack on the server |
 | 2026-09-30 | The world seed travels in the handshake (protocol 4), and a guest makes the world from it |

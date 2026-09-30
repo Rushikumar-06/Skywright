@@ -555,3 +555,38 @@ Build-log item s05-09: "Tests: the same seed always builds the same world" (and 
 8. **Map and compass:** does the map fill in as you fly? Can you find your way back to a town with the compass alone?
 9. **Co-op:** a friend joins and goes ashore on another island. Do you see them walking and gliding? Do both of you see the same islands?
 10. **Frame rate:** does it hold 60 fps on the Radeon 680M flying fast through the Shattered Belt?
+
+---
+
+## Changes during execution and after the final review
+
+Every task had its own review, and a fresh reviewer read the whole branch at the end: "with fixes", no critical findings, four important ones. Each fix below has a test.
+
+| Problem | Fix |
+|---|---|
+| Storm cells drift with `Wind.prevailing_speed`, which Task 4 was to write. | Task 1 added `prevailing_speed` to the old `wind.gd`; Task 4 kept it. |
+| Outline noise sampled at `(cos a, sin a) * 3` gave a near-perfect circle, and hills at full frequency broke the 0.5 m surface tolerance. | The outline samples a circle two noise units across; hills use half the frequency. |
+| Jolt refuses an empty concave shape. | A chunk with no islands has no collision body. |
+| The host/guest collision test compared the chunk under the ship, which has no islands, so it compared nothing. | It compares the chunk of the island nearest `START`, and checks the faces aren't empty. |
+| River wind jumped at bends (nearest segment's direction) and again where two rivers overlap going opposite ways (29 m/s in 1 m, in 44 of 100 worlds). | Every segment in reach adds its push weighted by closeness, and the sum is capped at the strongest: `sum.limit_length(strongest)`. The worst step is now 1.5 m/s. |
+| The storm continuity test sampled a storm where it had been 50 s earlier. | It walks across the storm's edge where it is, and checks it really crossed it. |
+| Piers 3 m out left a 0.5 m gap, so every ship at a slipway ground along its pier, and a network test was loosened to hide it. | Piers run 4–8 m out (1.5 m from the starter ship), the dock is frictionless, and launches keep 1 m from dock obstacles and 2 m from ships. The test is back to its old bound. |
+| The obstacle coverage test was loosened to 2 m because the island's rock overhangs its radius. | The island's obstacle box is widened by the rock's reach (×1.12), and the test is back to 1 cm. |
+| "Drop anchor" and "Raise anchor" could never show: "Leave the helm" comes first at the helm. | Dropped. The helm caption says "G anchor" and the readout says "Anchored". |
+| Falling ashore could pass 50 m/s horizontally plus vertically, and the server refused the reports. | The whole speed ashore in the air is capped at 50 m/s, and the server allows 0.01 m/s of rounding. |
+| Review: holding Space on an ordinary jump opened the glider on the way up. | The glide opens after 0.3 s of falling (or a second press), and so does its prompt. |
+| Review: after a test flight, launching could go from the starting town if the ship you came back to had left the dock. | The shipyard remembers the town it was opened at, for launches, test flights, reopening and its stats. |
+| Review: replanning took 11–22 ms with 8–20 ships and players. | Near focus points merge, and one pass builds what to load and what to keep, without sorting. 20 spread points take 1.9 ms. Far chunks are freed a few per frame. |
+| Review: B with the map open opened the shipyard over it. | Opening the shipyard closes the map. |
+
+**Frame rate.** On the Radeon 680M (`--gpu-index 0`, seed 7, 1920 × 1011, vsync off), a scripted 130 s flight from the starting town through the Shattered Belt and a storm averaged 243 fps. The slowest second was 126 fps while the first chunks loaded, and 189 fps after that. The worst 1% of frames took 5.4 ms, and the worst frame after loading 22 ms. Nothing needed tuning. A hand-flown check is playtest item 10.
+
+**Moved or renamed:** `Hud.readout(ship, wind)`; `WorldSync.docks` replaces `berths`, `test_berths` and `obstacles`; `PlayerController.climbing(ship)` carries E beside a hull; `WorldSync.crew_speed_ok(v)`; `Exploration.revision` tells the map when to redraw; the pause menu shows `World seed %d`.
+
+**Deferred:**
+- The server trusts the town a launch names, and where a guest ashore says they are (within the checks). Check both when launching costs money (stage 7), or if griefing shows up.
+- A listen host builds island meshes around every guest's ship. Measure its memory in an 8-player playtest.
+- Opening the map after a long flight works out the islands of every newly seen chunk at once (up to about 100 ms for the whole disc), and the map draws every seen island each frame. Spread the first over frames and draw the second into a cached layer if it shows.
+- One chunk with a wreck can take more than the 3 ms budget to build; ten towns are built at load without being timed.
+- Levels of detail switch by each chunk's centre, so a low island in a tall Shattered Belt chunk can lose detail early. Watch for it in playtests.
+- Smaller items: stepping off your own test flight leaves B unable to end it; boarding resets your view to the bow; ships pass through people standing on islands; trees can stand inside houses and roofs don't collide; a wreck may float or dig in by a metre; `Dock.ROCK_REACH` repeats a number from `IslandMesh`; duplicated `_add_shape` helpers; the compass's town names can overlap its cardinal letters.

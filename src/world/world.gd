@@ -320,6 +320,7 @@ func _build_pause_menu() -> void:
 	_resume = UiTheme.button("Resume", _toggle_pause)
 	column.add_child(_resume)
 	column.add_child(UiTheme.button("Leave game", session.leave))
+	column.add_child(UiTheme.caption("World seed %d" % session.world_seed))
 
 
 func _toggle_pause() -> void:

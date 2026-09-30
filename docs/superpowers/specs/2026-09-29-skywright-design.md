@@ -1,7 +1,7 @@
 # Skywright: design spec
 
 - **Date:** 2026-09-29
-- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stages 2, 3 and 4 settled.
+- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stages 2, 3, 4 and 5 settled.
 - **Tracker:** [Skywright Build Log](https://claude.ai/artifact/N8W3J8xUU77JcdYdhcSZCx)
 
 ## 1. Summary
@@ -35,7 +35,9 @@ The ground is gone under **the Roil**, a storm sea that fills everything below 2
 | Stormwall | 1,600–2,200 m | A ring of violent storm. Crossing it needs a strong, well-built ship or a gap in a sky river. |
 | The Eye | 0–1,600 m | The endgame region |
 
-Beyond 8,000 m, rim winds push ships back inward (a soft boundary). The seed generates islands, towns, wrecks and winds, so each world is different. There is a day–night cycle.
+Beyond 8,000 m, rim winds push ships back inward (a soft boundary). The seed generates islands, towns, landmarks, wrecks, sky rivers and storms, so each world is different, and the same seed always makes the same world. There is a day–night cycle.
+
+There are ten towns: four in the Calm Reaches, three in the Shattered Belt, two in the Gale Expanse and one at the Stormwall. The first, in the Calm Reaches, is the starting town, at the same place in every world. Each town has a dock and a shipyard. Eight named landmarks (spires, arches and ruins, one of them in the Eye) and twenty wrecks (none in the Eye) give the sky things worth flying to.
 
 ### 3.2 Core loop
 
@@ -49,7 +51,7 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 - **Shipyard readouts:** weight, lift at the current altitude, thrust, estimated top speed and climb rate. Markers show the centre of mass against the centre of lift, with warnings such as "lists 8° to port" or "too heavy to hold altitude".
 - **Cargo:** crates are stowed in cargo bays, and their weight counts where they're stowed.
 - **Damage:** destroyed blocks are removed. Any section no longer connected to the helm's section breaks away as its own wreck, and a severed balloon floats away.
-- **Shipyard:** until towns arrive (stage 5), the shipyard opens within 150 m of a placeholder dock at the start, which has a slipway for each player. Blocks are placed, removed, turned, tipped and mirrored, with undo and redo. Mirror mode makes every edit on both sides of the keel.
+- **Shipyard:** the shipyard opens within 150 m of any town's dock, which has a slipway for each player. A launch or test flight goes from the nearest town's slipways. Blocks are placed, removed, turned, tipped and mirrored, with undo and redo. Mirror mode makes every edit on both sides of the keel.
 - **Test flights:** a design can be flown at once from the shipyard, with the designer at the helm, and returned from instantly. A test flight is a real ship that's removed when it ends.
 - **Blueprints:** designs are saved as blueprints, which are shareable files.
 
@@ -59,7 +61,8 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 - At the helm, the camera can switch to a third-person chase view.
 - The helm has an autopilot that holds heading and altitude, so a solo player can leave the helm to man a gun.
 - AI crew hired in towns staff stations: gunner, engineer and repairer.
-- Players can leave the ship on foot to explore islands, and glide back to it. A ship can be anchored so it stays put.
+- Players can leave the ship on foot to explore islands, and glide back to it. Stepping off the deck puts you ashore, where you walk in the world with ordinary gravity; holding Space in the air opens a glider. Landing on a ship's deck, or pressing E beside her hull, puts you aboard. Falling into the Roil puts you back aboard.
+- A pilot can anchor the ship (G at the helm). An anchored ship is held still where she is, whatever the wind, until the pilot weighs anchor.
 
 ### 3.5 Threats and combat
 
@@ -124,9 +127,9 @@ src/net/                  Session autoload (roles, handshake); later sync and LA
 src/ship/                 blocks, grid, mass properties, forces, meshes, damage   (stage 2+)
 src/crew/                 ship-space physics, player controller, stations        (stage 2+)
 src/builder/              shipyard build mode                                     (stage 4)
-src/world/                world scene; later generation, streaming, wind, Roil
+src/world/                world scene, generation, streaming, wind, weather, towns, the Roil   (stage 5)
 src/combat/ src/ai/ src/economy/ src/campaign/ src/audio/ src/save/               (later stages)
-src/ui/                   menus, HUD
+src/ui/                   menus, HUD, map, compass
 tests/                    run_tests.gd, test_case.gd, test_*.gd
 docs/superpowers/         specs and plans
 ```
@@ -220,7 +223,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 - **Interior world:** each ship owns an interior `SubViewport` with `own_world_3d = true`. That gives it a separate physics space; it's never rendered. The interior holds a static copy of the ship's collision boxes in ship-local coordinates, plus the `CharacterBody3D` of everyone aboard.
 - **Gravity aboard:** crew gravity is `ship_basis⁻¹ × (0, −9.81, 0)`, and `up_direction` is its opposite. A tilted ship therefore feels like a sloped deck. Look yaw is relative to the ship, so you turn with it.
 - **Drawing crew:** a crew member is drawn in the main world at the ship's interpolated transform multiplied by their local transform.
-- **Leaving and boarding:** when no ship floor has been under your feet for 0.2 s and a downward ray in the main world doesn't hit this ship, you move to a main-world character. Your velocity is the ship's point velocity plus your own. Landing on any ship moves you into that ship's interior. This arrives with going ashore in stage 5. Until then, crew who fall 30 m below their ship are put back aboard where they started, and told so.
+- **Leaving and boarding:** you leave the ship when no ship floor has been under your feet for 0.2 s and nothing of the ship is below you (`Ship.is_over`). You then become a main-world character (`ship` is null) in world space, with the ship's point velocity plus your own. Ashore you walk with ordinary gravity, never faster than 50 m/s, and gliding eases you to 13 m/s where you look, sinking at most 3 m/s. Landing on a ship's deck puts you aboard that ship, once you've been ashore 0.5 s so you don't bounce straight back. So does E within 3 m of a ship's box, because you can't jump 2 m up a hull and ships don't hold still at a quay. Falling below the Roil's 200 m puts you back aboard the ship you left, else your own, else the host's.
 - **Walking in a tilted gravity:** walking "uphill" against gravity that isn't square to the deck makes Godot skip its floor snap, so crew apply the snap themselves (except when jumping or on a ladder). Ladders are open cells: while your body is in a ladder's column you hold on, gravity stops, and you climb along the ship's up.
 - **Being hit:** each crew member also has a main-world hitbox (`Area3D`) so projectiles can hit them.
 - **Other players:** each machine walks only its own crew member, in its own copy of the interior, and reports where it is (§4.6). Everyone else is drawn as an avatar with a name tag. Crew don't collide with each other until combat needs server-side crew bodies (stage 6).
@@ -234,38 +237,48 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
   - Channel 0 is reliable, for events.
   - Channel 1 is unreliable-ordered, for ship snapshots.
   - Channel 2 is unreliable-ordered, for crew movement and the pilot's helm keys.
-- **The world clock:** seconds of physics since the server's world began. Snapshots carry it, and each client eases its own clock toward it. The day–night cycle and client interpolation both run on it, so everyone sees the same sky. Wind is still computed only on the server, so it needs no clock sync.
+- **The world clock:** seconds of physics since the server's world began. Snapshots carry it, and each client eases its own clock toward it. The day–night cycle and client interpolation both run on it, so everyone sees the same sky. Wind is a function of the seed and this clock, so every machine computes the same wind, and storms are where everyone sees them.
 - **Who flies:** only the server simulates ships. On clients a ship is a frozen, kinematic copy that follows the snapshots, and no forces act on it.
-- **Ship snapshots (30 Hz):** each carries `{ship id, position, rotation, linear velocity, angular velocity, throttle, rudder, trim, autopilot, target heading, target altitude}` at a server time. Clients render ships 100 ms in the past with Hermite interpolation between snapshots, and extrapolate up to 250 ms when packets are late.
-- **Crew (30 Hz):** each client sends `{ship id, local position, velocity, yaw, pitch}` to the server. The server checks it (finite, at most 50 m/s, within 35 m of the ship's blocks), stamps it with its own clock and relays it to everyone else. Clients draw other crew 100 ms in the past, on their ship as it's drawn.
+- **Ship snapshots (30 Hz):** each carries `{ship id, position, rotation, linear velocity, angular velocity, throttle, rudder, trim, autopilot, target heading, target altitude, anchored}` at a server time. Clients render ships 100 ms in the past with Hermite interpolation between snapshots, and extrapolate up to 250 ms when packets are late.
+- **Crew (30 Hz):** each client sends `{ship id, local position, velocity, yaw, pitch}` to the server. The server checks it (finite, at most 50 m/s, within 35 m of the ship's blocks), stamps it with its own clock and relays it to everyone else. Clients draw other crew 100 ms in the past, on their ship as it's drawn. A report with ship id 0 is of someone ashore: its position and velocity are in world space, and the server checks they are finite, at most 50 m/s (plus 0.01 m/s of slack), within 11,000 m of the centre, and between 0 and 5,000 m high.
 - **Stations:** a client asks the server for the helm. The server grants it only if the asker last reported standing aboard that ship within reach (1.8 m, plus 0.5 m of slack), and tells everyone who holds it. Only the pilot's helm keys are applied (clamped to −1…1), and only the pilot can switch the autopilot.
 - **Events (reliable):** ship spawned (with compressed blocks, paint and damage), ship removed, blocks destroyed, ship split, projectile fired (`origin`, `velocity`, `type`, `server time`), projectile hit, station claimed or released, and economy changes. Every machine simulates a projectile's arc from its launch data, and only the server decides hits.
 - **Protocol 3 (stage 4):** `_ship_added` and `_ship_removed` carry ships that come and go mid-game, and `_world` sends every ship's entry `[id, blocks, paint, transform, pilot, captain, test]`. A client asks with `_launch(blocks, paint, test)` (at most one a second; the server checks the bytes) and ends a test with `_end_test`. A launch or a test replaces the player's last ship or test, and `_ship_removed` names the ship that takes over its crew. The server trusts a client to be at the dock until launching costs money (stage 7).
+- **Protocol 4 (stage 5):**
+  - `_welcome(roster, under_way, seed)` adds the world seed, an `int` from 0 to 2,147,483,647, so a guest makes the host's world before it loads. A client refuses anything else and ends with "The host sent a world this game can't make."
+  - `_launch(blocks, paint, test, town)` adds the town whose dock to launch from, an index into the world's towns. Anything else is ignored.
+  - Each ship state in `_ships` gains a 12th field, `anchored`.
+  - `_request(ship_id, what, on)` may ask for `"anchor"`. Only the pilot may.
+  - `_crew_report` and `_crew_moved` use ship id 0 for crew ashore, as above.
 - **Block bytes:** two bytes of block count (`encode_u16`), then a zstd-compressed body of 7 bytes per block: `x + 64`, `y + 64`, `z + 64`, the type's index in `Tuning.BLOCKS`' key order, the rotation, and the hit points as `u16`. Reordering `Tuning.BLOCKS` changes the protocol.
-- **Joining mid-game:** only peers whose world has loaded get world traffic. A client's world asks to enter when it's ready, and receives the world clock and every ship (blocks as bytes, paint, transform, pilot, captain and test). Later stages add the world seed and the list of changes to the world. The crew roster comes with the handshake.
+- **Joining mid-game:** only peers whose world has loaded get world traffic. A client's world asks to enter when it's ready, and receives the world clock and every ship (blocks as bytes, paint, transform, pilot, captain and test). The world seed comes with the handshake; later stages add the list of changes to the world. The crew roster comes with the handshake.
 - **Budget:** at most 64 KB/s down per client. Twelve ships at 30 Hz is about 22 KB/s.
 
 ### 4.7 World generation
 
-- **Chunks:** the seed drives everything. The disc is cut into 256 m × 256 m columns, and each column's random stream is seeded from `hash(seed, cx, cz, purpose)`.
-- **Streaming:** chunks are generated on `WorkerThreadPool` and added to the scene on the main thread.
-  - The server keeps collision loaded within 2.5 km of every ship and player.
-  - Each client streams visuals within 2.5 km of its own player.
-- **Detail levels:** full detail below 800 m, medium below 1,800 m, low below 3,000 m. Fog hides the edge.
-- **Islands:** 0–3 per chunk, with density by region (the Shattered Belt is densest) and a radius of 15–120 m. Each island has a noise-shaped grassy top and a tapered, noisy rock underside. Trees and rocks are drawn as MultiMesh instances, and collision is a static trimesh.
-- **Towns and wrecks:** towns sit on large islands placed by seeded Poisson sampling. There are 4 towns in the Calm Reaches (one of them the starting town), 3 in the Shattered Belt, 2 in the Gale Expanse, and 1 outpost at the Stormwall. Wrecks are generated from damaged pirate blueprints.
-- **Wind:** `W(p, t)` = prevailing wind + sky rivers + storm cells + turbulence.
+- **The seed makes the world, as data.** `WorldGen.new(seed)` works out once, with no nodes, everything the whole disc needs to know: the towns, landmarks, wrecks, rivers and storm cells. A seed is 0 to 2,147,483,647 and travels with the handshake (§4.6). Any chunk can be made alone, in any order, on any thread or machine, and comes out the same.
+- **Chunks:** the disc is cut into 256 m × 256 m columns, and each column's random stream is seeded from `hash([seed, cx, cz, purpose])`. `WorldChunk.generate` makes a chunk's arrays on any thread; `WorldChunk.build` makes its nodes on the main thread: one mesh per level of detail switched by `visibility_range`, trees as a MultiMesh, a waterfall, clouds, one static collision body, and any wreck or landmark standing in it. A chunk takes about 5 ms to generate and 2 ms to build on the development laptop.
+- **Streaming:** chunks are generated on `WorkerThreadPool` and added to the scene on the main thread, nearest first, within 3 ms of a frame.
+  - Chunks within 2.5 km of a focus point are loaded, and chunks beyond 2.8 km of every focus point are freed. The server's focus points are every ship and every player. A client's is its own player.
+  - Every loaded chunk has collision and visuals. A dedicated server loads collision only.
+- **Detail levels:** full below 800 m, medium below 1,800 m, low below 3,000 m. Trees stop at 1,200 m, waterfalls at 1,800 m and clouds at 3,000 m. Fog hides the edge.
+- **Islands:** each chunk makes up to 4 tries by region, and a try lands 70% of the time if it fits. The Shattered Belt has the most (4 tries of small islands, 15–60 m in radius), the Stormwall the fewest (1 try, 15–40 m), and the others 2 tries of 25–120 m. The rim has none. Tops float between 300 m and 1,700 m. Each island has a noise-shaped grassy top and a tapered, noisy rock underside, flat shaded, with trees and sometimes a waterfall. Collision is a static trimesh.
+- **Towns:** ten, placed by seeded dart throwing with at least 1,500 m between docks, in the regions' shares (§3.1). The starting town is always at the start point, `(0, 880, 7000)`. A town is a flat island with houses and a beacon tower, behind a stone quay with a slipway for every player and a finger pier 1.5 m off the side of a ship at each slipway. Docks are frictionless, so a ship blown against a pier slides along it. A launch keeps 1 m from the dock's obstacles and 2 m from other ships.
+- **Landmarks and wrecks:** landmarks are spires, arches and ruins. A wreck is a starter ship with its balloons gone and each other block lost with a 35% chance, resting on an island. Both are made from their own seeds, so they come out the same everywhere. Wrecks will be made from pirate blueprints when pirates arrive (stage 6).
+- **Wind:** `W(p, t)` = prevailing wind + sky rivers + storm cells + turbulence, and the rim's push inward past 8,000 m.
   - The prevailing wind circles the Eye counter-clockwise, rising from 2 m/s at the rim to 12 m/s in the Gale Expanse.
-  - There are 6–10 sky rivers, splines generated from the seed. They reach up to 35 m/s within 60–120 m of the spline, fading smoothly.
-  - Storm cells are drifting circles 300–800 m across.
-  - The Stormwall is a band of extreme turbulence.
-  - Wind is a pure function of position, time and seed, so it never needs to be sent over the network.
-- **The Roil:** an animated storm surface at 200 m, with volumetric fog below and lightning flashes.
+  - There are 6–10 sky rivers, each a winding spline of 20 points at 600–1,400 m. They blow 20–35 m/s in a core 60–120 m wide, fading smoothly to nothing at twice that, and at their two ends. Segments blend, so the wind swings round a bend instead of jumping.
+  - There are 6–10 storm cells, circles 300–800 m across orbiting the Eye, each with extra gusts and updrafts. Gusts and updrafts are at full in a cell's core and fade out between 0.6 and 1 times its radius.
+  - Wind is a pure function of position, time and seed, so it never needs to be sent over the network. `WorldSync` drives its clock from the world clock.
+  - Sails push a ship along the way they face, by the wind across them.
+- **The Roil:** an animated storm surface at 200 m, with fog sheets over it and lightning (§4.8).
+- **Exploring:** each machine keeps a grid of 128 m cells over the disc, marked as seen when you pass within 1,200 m. The map and compass draw from it.
 
 ### 4.8 Rendering
 
 - **Sky:** `ProceduralSkyMaterial` at first, replaced by a custom sky shader (sun, stars, cloud layer) when the world stage needs it.
-- **Fog:** depth fog hazes the distance from 1.5 km. Volumetric fog for the Roil and cloud banks comes with the world stage, if the Radeon 680M can afford it.
+- **Fog:** depth fog hazes the distance from 900 m to 2,600 m, which hides the streaming edge. Over the Roil, two translucent fog sheets (at 240 m and 290 m) follow the camera, and each storm cell has a dark column of cloud. Volumetric fog was dropped: sheets are cheap on any GPU, and it can come with the polish stage.
+- **Weather:** lightning strikes in storms within 3 km of the camera and under the islands within 1 km. It's only visual. Every machine makes its own bolts, and a dedicated server has none. Clouds are instanced puffs, made per chunk.
 - **Lighting:** a sun (`DirectionalLight3D`) with 4-split shadows, driven by the day–night cycle.
 - **Detail and instancing:** `visibility_range` and mesh LODs for detail levels, and MultiMesh for vegetation.
 - **Performance target:** 60 fps at 1080p on medium settings on the Radeon 680M. This laptop's integrated GPU is the baseline, and the RTX 3050 does better.
@@ -375,7 +388,7 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-29 | Online co-op is built at stage 3, before content |
 | 2026-09-30 | Ships get a keel term in their drag, so they carve turns instead of skidding (about 6°/s for the starter ship) |
 | 2026-09-30 | The starter ship is balanced by iron ballast in its keel, and floats level at 877 m |
-| 2026-09-30 | Until stage 5, crew who fall overboard are put back aboard where they started |
+| 2026-09-30 | Until stage 5, crew who fall overboard are put back aboard where they started (stage 5 replaced this with going ashore) |
 | 2026-09-30 | LAN discovery is query and answer, not announcements, because only one program per machine can listen on 24651 |
 | 2026-09-30 | Online games gather in a lobby until the host sets sail; late joiners go straight aboard |
 | 2026-09-30 | A connection silent for 8 s counts as lost (ENet's default is 30 s) |
@@ -385,4 +398,15 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-30 | Propellers and rudders act along their facing |
 | 2026-09-30 | Each player has one ship and one test flight at a time; a leaver's ships go with them |
 | 2026-09-30 | A blueprint is refused with the first problem found, and nothing is loaded |
-| 2026-09-30 | The shipyard opens only at the dock until towns arrive in stage 5 |
+| 2026-09-30 | The shipyard opens only at the dock until towns arrive in stage 5 (it then opens at any town's dock) |
+| 2026-09-30 | Wrecks are damaged starter ships until pirates arrive in stage 6 |
+| 2026-09-30 | Towns are placed by seeded dart throwing, 1,500 m apart, per region, not Poisson sampling. The starting town is always at the start point. |
+| 2026-09-30 | Every loaded chunk has collision and visuals, which switch off with `visibility_range`; only a dedicated server loads collision alone |
+| 2026-09-30 | Translucent fog sheets over the Roil and depth fog (900–2,600 m) replace volumetric fog |
+| 2026-09-30 | Landing on a ship's deck, or E within 3 m of her hull, puts you aboard; the stage 2 rule of 30 m below is gone |
+| 2026-09-30 | Anchoring (G at the helm) freezes the ship where she is |
+| 2026-09-30 | Crew ashore are drawn to others as a plain avatar, with no glider, until the polish stage |
+| 2026-09-30 | River wind blends its segments, so it swings smoothly round bends instead of jumping between segments |
+| 2026-09-30 | Piers stand 1.5 m off a ship at each slipway, and docks are frictionless so a ship blown onto one slides along it; launches keep 1 m from dock obstacles and 2 m from ships |
+| 2026-09-30 | Crew ashore report in world space (ship id 0), at most 50 m/s overall, with 0.01 m/s of slack on the server |
+| 2026-09-30 | The world seed travels in the handshake (protocol 4), and a guest makes the world from it |

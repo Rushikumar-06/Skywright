@@ -17,7 +17,7 @@ extends Node
 ## sends the same changes to everyone, who apply them to their copies; a ship with
 ## no blocks left is taken away. Pieces cut off from the helm's break away: each big
 ## enough is added as a wreck, nobody's, and smaller ones vanish. Once a second the
-## server wears ships: wrecks go when they're old, too many or far from everyone.
+## server wears ships: wrecks go when they're old, too many or far from every player.
 ##
 ## Each player walks their own crew member and reports where it is in ship space
 ## at 30 Hz (spec §4.5), or in world space with ship id 0 while ashore. The server
@@ -60,7 +60,7 @@ const OBSTACLE_CLEARANCE := 1.0  ## m. Likewise between it and a dock or a town 
 const WEAR_EVERY := 1.0       ## s between the server's wearing of ships.
 const WRECK_LIFETIME := 180.0 ## s a wreck lasts.
 const MAX_WRECKS := 8         ## The most wrecks at once: the oldest go first.
-const FAR := 3000.0           ## m. Wrecks further than this from every crewed ship go.
+const FAR := 3000.0           ## m. Wrecks further than this from every player go.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
@@ -255,16 +255,31 @@ func crewed_ships() -> Array[Ship]:
 	return crewed
 
 
+## Server: where every player is in the world, aboard or ashore (in the air too):
+## this machine's player where they are, and the others at their ship, or where they
+## last said they were ashore.
+func player_positions() -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	if player != null:
+		points.append(player.world_position())
+	for heard: Dictionary in _crew.values():
+		if heard["ship"] == 0:
+			points.append(heard["at"])
+		elif ships.has(heard["ship"]):
+			points.append((ships[heard["ship"]] as Ship).global_position)
+	return points
+
+
 ## Server, every WEAR_EVERY: clears away wrecks (nobody's, without a helm) older than
-## WRECK_LIFETIME or further than FAR from every crewed ship, then the oldest while
-## there are more than MAX_WRECKS.
+## WRECK_LIFETIME or further than FAR from every player (all of them when there are
+## no players), then the oldest while there are more than MAX_WRECKS.
 func _wear() -> void:
-	var crewed := crewed_ships()
+	var players := player_positions()
 	var wrecks: Array[Ship] = []
 	for ship: Ship in ships.values():
 		if not ship.is_wreck() or ship.captain != 0:
 			continue
-		var far := crewed.all(func(near: Ship) -> bool: return near.global_position.distance_to(ship.global_position) > FAR)
+		var far := players.all(func(at: Vector3) -> bool: return at.distance_to(ship.global_position) > FAR)
 		if now() - ship.born > WRECK_LIFETIME or far:
 			remove_ship(ship)
 		else:

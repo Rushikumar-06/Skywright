@@ -166,6 +166,24 @@ func test_wrecks_are_cleared_away() -> void:
 	assert_true(sync.id_of(ship) != 0, "and so does your ship")
 
 
+func test_wrecks_stay_near_players_ashore() -> void:
+	await start()
+	var wreck := add_wreck(Vector3(0, 30, 0))
+	wreck.anchored = true
+	world.go_ashore()
+	var crew: CrewMember = world.player.crew
+	var hold := [ship.global_position + Vector3(40, 0, 0)]
+	var held := func(_tick: int) -> void:
+		crew.position = hold[0]
+		crew.velocity = Vector3.ZERO
+	assert_true(sync.crewed_ships().is_empty(), "nobody is aboard a ship")
+	await simulate(3.5, held)
+	assert_true(is_instance_valid(wreck) and sync.id_of(wreck) != 0, "the wreck stays through three wears while you're in the air nearby")
+	hold[0] = wreck.global_position + Vector3(3500, 0, 0)
+	await simulate(1.1, held)
+	assert_true(not is_instance_valid(wreck) or sync.id_of(wreck) == 0, "and goes once you're more than 3 km away")
+
+
 func test_nobody_is_put_aboard_a_wreck() -> void:
 	await start()
 	var other := sync.add_ship(StarterShip.build(), Dock.slipway(world.START, 1))
@@ -193,6 +211,8 @@ func test_you_can_still_board_a_wreck() -> void:
 	var crew: CrewMember = world.player.crew
 	crew.position = wreck.global_transform * Vector3(0, 13, -3)
 	crew.velocity = Vector3.ZERO
+	sync._wear()
+	assert_true(sync.id_of(wreck) != 0, "she stays while you're ashore beside her")
 	assert_true(await simulate_until(func() -> bool: return world.ship == wreck, 3.0), "landing on her boards her")
 	world.board(wreck)
 	assert_true(world.ship == wreck, "and so does boarding her")

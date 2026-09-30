@@ -41,8 +41,9 @@ func test_faces_between_cubes_are_left_out() -> void:
 	drawn.free()
 	grid.set_block(Vector3i(1, 0, 0), "propeller")
 	drawn = ShipMesh.build(grid)
-	# The frame keeps all 6 faces (36 points); the propeller adds its own.
-	assert_true(_points(drawn).size() > 36 + 36, "the frame's face beside the propeller is drawn")
+	# Both are wood, so one surface: the frame keeps all 6 faces (36 points) and the propeller is 3 boxes (108).
+	assert_eq(drawn.mesh.get_surface_count(), 1)
+	assert_eq(_points(drawn).size(), 36 + 108)
 	drawn.free()
 
 

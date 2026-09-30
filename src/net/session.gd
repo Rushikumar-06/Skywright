@@ -15,10 +15,12 @@ signal players_changed          ## players changed.
 
 enum Mode { NONE, SOLO, HOST, CLIENT }
 
-const PROTOCOL_VERSION := 1
+const PROTOCOL_VERSION := 2
 const DEFAULT_PORT := 24650
 const MAX_PLAYERS := 8
 const AUTH_TIMEOUT := 5.0  ## Seconds a joiner has to introduce itself.
+const DROP_AFTER := 8.0    ## Seconds of silence before a connection counts as lost (ENet's own is 30).
+const LINGER := 0.25       ## Seconds a closed session's socket stays open so its goodbye goes out.
 const SettingsScript := preload("res://src/core/settings.gd")
 
 var mode := Mode.NONE
@@ -27,12 +29,14 @@ var port := DEFAULT_PORT                  ## The port being hosted on or joined.
 var max_players := MAX_PLAYERS            ## Host included. Tests lower it to fill a game.
 var protocol_version := PROTOCOL_VERSION  ## The version this game speaks. Tests change it.
 var connect_timeout := 8.0                ## Seconds a client waits to be accepted.
+var drop_after := DROP_AFTER              ## Seconds of silence before a peer is dropped. Tests shorten it.
 var log_enabled := true                   ## Prints "[session] ..." lines; tests turn it off.
 
 var _accepted := false
 var _pending_name := ""
 var _joining: Dictionary = {}             ## Host: accepted peer id -> name, until connected.
 var _timeout: Timer
+var _lingering: MultiplayerPeer = null    ## The last session's socket, while its goodbye goes out.
 
 
 func _ready() -> void:
@@ -80,12 +84,17 @@ func host(player_name: String, host_port := DEFAULT_PORT) -> Error:
 	return OK
 
 
-## Starts connecting to a host. started fires once the host accepts us. ended fires
+## Starts connecting to a host. Returns ERR_CANT_RESOLVE at once when address is a
+## name that doesn't resolve. started fires once the host accepts us. ended fires
 ## if it refuses, can't be reached, or doesn't answer within connect_timeout seconds.
 func join(player_name: String, address: String, join_port := DEFAULT_PORT) -> Error:
 	_reset()
+	# ENet would fail on an unknown name too, but only after logging engine errors.
+	var ip := IP.resolve_hostname(address)
+	if ip.is_empty():
+		return ERR_CANT_RESOLVE
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_client(address, join_port)
+	var err := peer.create_client(ip, join_port)
 	if err != OK:
 		return err
 	multiplayer.multiplayer_peer = peer
@@ -216,9 +225,9 @@ func _on_hello(id: int, hello: Dictionary) -> void:
 	var version: Variant = hello.get("version")
 	var refusal := ""
 	if not version is int or version != protocol_version:
-		refusal = "The host is on version %d and you're on version %s. Both need the same version." % [protocol_version, str(version)]
+		refusal = "This game is version %d; you have version %s." % [protocol_version, str(version)]
 	elif players.size() + _joining.size() >= max_players:
-		refusal = "The game is full."
+		refusal = "The game is full (%d players)." % max_players
 	if not refusal.is_empty():
 		api.send_auth(id, var_to_bytes({"refused": refusal}))
 		# Disconnect once the refusal has gone out; a plain disconnect would drop it.
@@ -238,6 +247,10 @@ func _on_peer_authentication_failed(id: int) -> void:
 
 
 func _on_peer_connected(id: int) -> void:
+	# A host that crashes or is killed sends no goodbye, so notice silence sooner
+	# than ENet's default 30 s. Hosts drop silent guests the same way.
+	var ms := int(drop_after * 1000.0)
+	(multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(id).set_timeout(32, ms, ms)
 	if mode != Mode.HOST or not _joining.has(id):
 		return
 	var roster := players.duplicate(true)
@@ -309,19 +322,27 @@ func _end(reason: String, linger := false) -> void:
 
 ## Drops any connection and returns to NONE without emitting ended. Mode changes
 ## first, so disconnect signals fired while closing are ignored. With linger, the
-## old socket stays open briefly so a goodbye just sent isn't cut off: ENet drops
-## packets that arrive in the same update as a disconnect.
+## old socket stays open for LINGER seconds so a goodbye just sent isn't cut off:
+## ENet drops packets that arrive in the same update as a disconnect. Starting a
+## new session closes a lingering socket at once, so its port is free again.
 func _reset(linger := false) -> void:
 	_timeout.stop()
 	mode = Mode.NONE
 	_accepted = false
 	_joining.clear()
+	if _lingering != null:
+		_lingering.close()
+		_lingering = null
 	var old_peer := multiplayer.multiplayer_peer
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	if old_peer != null and not old_peer is OfflineMultiplayerPeer:
 		if linger:
+			_lingering = old_peer
 			# The lambda keeps the peer alive until then; a bound Callable wouldn't.
-			get_tree().create_timer(0.25).timeout.connect(func() -> void: old_peer.close())
+			get_tree().create_timer(LINGER).timeout.connect(func() -> void:
+				old_peer.close()
+				if _lingering == old_peer:
+					_lingering = null)
 		else:
 			old_peer.close()
 	if not players.is_empty():

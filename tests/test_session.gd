@@ -1,53 +1,5 @@
-extends TestCase
+extends NetCase
 ## Session roles, the join handshake, and the address helpers (spec §4.3, §7).
-
-const SessionScript := preload("res://src/net/session.gd")
-
-var _branches: Array[Node] = []
-
-
-func after_each() -> void:
-	for branch in _branches:
-		var session := branch.get_node_or_null("Session") as SessionScript
-		if session:
-			session.leave()
-		else:
-			branch.multiplayer.multiplayer_peer.close()
-		get_tree().set_multiplayer(null, branch.get_path())
-
-
-## A branch with its own MultiplayerAPI, so several peers can run in one process.
-func make_branch(branch_name: String) -> Node:
-	var branch := Node.new()
-	branch.name = branch_name
-	add_child(branch)
-	get_tree().set_multiplayer(SceneMultiplayer.new(), branch.get_path())
-	_branches.append(branch)
-	return branch
-
-
-## A Session under its own branch. script lets a test use a changed Session.
-func make_session(branch_name: String, script: GDScript = SessionScript) -> SessionScript:
-	var branch := make_branch(branch_name)
-	var session: SessionScript = script.new()
-	session.name = "Session"
-	session.log_enabled = false
-	branch.add_child(session)
-	return session
-
-
-## A random port below the ephemeral range (32768 and up on Linux, 49152 on
-## Windows), where other programs' UDP sockets could already hold it.
-func free_port() -> int:
-	return 20000 + randi() % 10000
-
-
-## Hosts on a fresh port, joins it, and waits until both sides have the full roster.
-func host_and_join(host: SessionScript, client: SessionScript, guest_name := "Guest") -> bool:
-	var port := free_port()
-	if host.host("Host", port) != OK or client.join(guest_name, "127.0.0.1", port) != OK:
-		return false
-	return await wait_until(func() -> bool: return client.players.size() == 2 and host.players.size() == 2, 5.0)
 
 
 func test_solo_is_a_server_with_just_you() -> void:
@@ -102,7 +54,7 @@ func test_version_check_survives_new_rpcs() -> void:
 	client.ended.connect(func(why: String) -> void: reason[0] = why)
 	client.join("Guest", "127.0.0.1", port)
 	assert_true(await wait_until(func() -> bool: return reason[0] != "", 5.0), "client is told why")
-	assert_true(reason[0].contains("version 2") and reason[0].contains("version 1"), reason[0])
+	assert_eq(reason[0], "This game is version %d; you have version %d." % [SessionScript.PROTOCOL_VERSION + 1, SessionScript.PROTOCOL_VERSION])
 
 
 func test_a_peer_that_never_introduces_itself_is_dropped() -> void:
@@ -130,22 +82,23 @@ func test_host_refuses_a_different_version() -> void:
 	client.ended.connect(func(why: String) -> void: reason[0] = why)
 	client.join("Guest", "127.0.0.1", port)
 	assert_true(await wait_until(func() -> bool: return reason[0] != "", 5.0), "client is told why")
-	assert_true(reason[0].contains("version 1") and reason[0].contains("version 2"), reason[0])
+	assert_eq(reason[0], "This game is version %d; you have version %d." % [SessionScript.PROTOCOL_VERSION, SessionScript.PROTOCOL_VERSION + 1])
 	assert_eq(client.mode, SessionScript.Mode.NONE)
 	assert_eq(host.players.size(), 1)
 
 
 func test_host_refuses_when_full() -> void:
 	var host := make_session("Host")
-	var client := make_session("Client")
-	host.max_players = 1
-	var port := free_port()
-	host.host("Host", port)
+	var guest := make_session("Guest")
+	var late := make_session("Late")
+	host.max_players = 2
+	assert_true(await host_and_join(host, guest), "the first guest fills it")
 	var reason := [""]
-	client.ended.connect(func(why: String) -> void: reason[0] = why)
-	client.join("Guest", "127.0.0.1", port)
-	assert_true(await wait_until(func() -> bool: return reason[0] != "", 5.0), "client is told why")
-	assert_eq(reason[0], "The game is full.")
+	late.ended.connect(func(why: String) -> void: reason[0] = why)
+	late.join("Late", "127.0.0.1", host.port)
+	assert_true(await wait_until(func() -> bool: return reason[0] != "", 5.0), "the late joiner is told why")
+	assert_eq(reason[0], "The game is full (2 players).")
+	assert_eq(host.players.size(), 2)
 
 
 func test_host_drops_a_player_who_leaves() -> void:
@@ -181,6 +134,39 @@ func test_client_is_told_when_the_connection_drops() -> void:
 	host.multiplayer.multiplayer_peer.close()  # the host vanishes without a goodbye
 	assert_true(await wait_until(func() -> bool: return reason[0] != "", 5.0), "client notices")
 	assert_eq(reason[0], "Lost the connection to the host.")
+
+
+func test_a_client_notices_a_host_that_goes_silent() -> void:
+	# A host that crashes or is killed says no goodbye. Freeze the host by polling
+	# only the client, and the client should give up after drop_after seconds.
+	var host := make_session("Host")
+	var client := make_session("Client")
+	client.drop_after = 1.0
+	assert_true(await host_and_join(host, client), "joined")
+	var reason := [""]
+	client.ended.connect(func(why: String) -> void: reason[0] = why)
+	get_tree().multiplayer_poll = false
+	var gave_up := await wait_until(func() -> bool:
+		client.multiplayer.poll()
+		return reason[0] != "", 4.0)
+	get_tree().multiplayer_poll = true
+	assert_true(gave_up, "the client gives up on a silent host")
+	assert_eq(reason[0], "Lost the connection to the host.")
+
+
+func test_rehosting_straight_after_leaving_works() -> void:
+	var host := make_session("Host")
+	var client := make_session("Client")
+	assert_true(await host_and_join(host, client), "joined")
+	var port := host.port
+	host.leave()  # says goodbye, and would keep the old socket open a moment for it
+	assert_eq(host.host("Host", port), OK, "the port is free again at once")
+
+
+func test_joining_an_unknown_host_name_fails_straight_away() -> void:
+	var client := make_session("Client")
+	assert_eq(client.join("Guest", "no-such-host.invalid", free_port()), ERR_CANT_RESOLVE)
+	assert_eq(client.mode, SessionScript.Mode.NONE)
 
 
 func test_join_gives_up_when_nobody_answers() -> void:

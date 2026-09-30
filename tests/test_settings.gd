@@ -97,3 +97,10 @@ func test_names_are_cleaned() -> void:
 	assert_eq(SettingsScript.clean_name("   "), "Captain")
 	assert_eq(SettingsScript.clean_name("Ann\nBob\t"), "Ann Bob")
 	assert_eq(SettingsScript.clean_name("x".repeat(40)).length(), 24)
+
+
+func test_clean_name_turns_unicode_line_breaks_into_spaces() -> void:
+	# U+2028 and U+2029 are line and paragraph breaks, U+0085 is the C1 "next
+	# line" control, and U+007F is delete: none belong in a one-line name.
+	assert_eq(SettingsScript.clean_name("Ann Bob\u0085Cy Di\u007f"), "Ann Bob Cy Di")
+	assert_eq(SettingsScript.clean_name("Zoë é\U01F680"), "Zoë é\U01F680", "letters and emoji stay")

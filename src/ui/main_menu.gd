@@ -127,6 +127,9 @@ func _join() -> void:
 	Settings.last_address = typed
 	Settings.save()
 	var err := Session.join(Settings.player_name, target["host"], target["port"])
+	if err == ERR_CANT_RESOLVE:
+		_show_problem("Couldn't find \"%s\". Check the address." % target["host"])
+		return
 	if err != OK:
 		_show_problem("Couldn't start connecting (%s)." % error_string(err))
 		return

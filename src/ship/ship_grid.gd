@@ -180,6 +180,39 @@ static func in_area(cell: Vector3i) -> bool:
 	return cell.clamp(Vector3i.ONE * MIN_CELL, Vector3i.ONE * MAX_CELL) == cell
 
 
+## The first block a ray enters (ladders included) as {"cell": Vector3i, "normal":
+## Vector3i}, the normal being the face it came through, or {} when nothing is hit
+## within max_distance. A voxel walk, so no physics is needed.
+func raycast(from: Vector3, direction: Vector3, max_distance := 200.0) -> Dictionary:
+	var dir := direction.normalized()
+	var p := from + Vector3(0.5, 0.5, 0.5)  # cell c now spans [c, c + 1)
+	var cell := Vector3i(floori(p.x), floori(p.y), floori(p.z))
+	var step := Vector3i.ZERO
+	var t_max := Vector3(INF, INF, INF)
+	var t_delta := Vector3(INF, INF, INF)
+	for axis in 3:
+		if dir[axis] > 0.0:
+			step[axis] = 1
+			t_max[axis] = (cell[axis] + 1 - p[axis]) / dir[axis]
+			t_delta[axis] = 1.0 / dir[axis]
+		elif dir[axis] < 0.0:
+			step[axis] = -1
+			t_max[axis] = (cell[axis] - p[axis]) / dir[axis]
+			t_delta[axis] = -1.0 / dir[axis]
+	var normal := Vector3i.ZERO
+	var t := 0.0
+	while t <= max_distance:
+		if blocks.has(cell):
+			return {"cell": cell, "normal": normal}
+		var axis := t_max.min_axis_index()
+		t = t_max[axis]
+		cell[axis] += step[axis]
+		t_max[axis] += t_delta[axis]
+		normal = Vector3i.ZERO
+		normal[axis] = -step[axis]
+	return {}
+
+
 ## The blocks packed for the network: bytes 0-1 are the block count (u16), the rest
 ## is the zstd-compressed body of BYTES_PER_BLOCK bytes a block: x + 64, y + 64,
 ## z + 64, the type's index in Tuning.BLOCKS' key order, the rotation, and the hit

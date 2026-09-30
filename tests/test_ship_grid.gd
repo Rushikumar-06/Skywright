@@ -269,3 +269,20 @@ func test_paint_is_checked() -> void:
 func test_bounds_hold_every_block() -> void:
 	var grid := grid_of({Vector3i(0, 0, 0): "deck", Vector3i(2, 1, -3): "frame"})
 	assert_eq(grid.bounds(), AABB(Vector3(-0.5, -0.5, -3.5), Vector3(3, 2, 4)))
+
+
+func test_raycast_finds_the_first_block_and_its_face() -> void:
+	var grid := grid_of({Vector3i(0, 0, 0): "frame", Vector3i(0, 3, 0): "frame", Vector3i(5, 0, 0): "frame", Vector3i(2, 0, 0): "frame"})
+	var down := grid.raycast(Vector3(0, 10, 0), Vector3.DOWN)
+	assert_eq(down, {"cell": Vector3i(0, 3, 0), "normal": Vector3i(0, 1, 0)})
+	var along := grid.raycast(Vector3(-10, 0, 0), Vector3.RIGHT)
+	assert_eq(along, {"cell": Vector3i(0, 0, 0), "normal": Vector3i(-1, 0, 0)})
+	# A diagonal ray from the origin enters (2, 2) before (4, 4).
+	assert_eq(grid_of({Vector3i(2, 2, 0): "frame", Vector3i(4, 4, 0): "frame"}).raycast(Vector3(0, 0, 0), Vector3(1, 1, 0.01))["cell"], Vector3i(2, 2, 0))
+
+
+func test_raycast_misses_and_stops_at_its_range() -> void:
+	var grid := grid_of({Vector3i(0, 0, 0): "frame"})
+	assert_eq(grid.raycast(Vector3(0, 10, 0), Vector3.UP), {})
+	assert_eq(grid.raycast(Vector3(0, 100, 0), Vector3.DOWN, 50.0), {})
+	assert_true(grid.raycast(Vector3(0, 100, 0), Vector3.DOWN, 150.0).has("cell"))

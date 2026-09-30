@@ -28,6 +28,7 @@ const REGION_OUTER := [1600.0, 2200.0, 4000.0, 6000.0, 8000.0]  ## m from the ce
 
 const TOWN_ISLAND := Vector3(240.0, -1.5, 160.0)  ## A town island's top centre, from its dock.
 const TOWN_RADIUS := 130.0
+const TOWN_DEPTH := 1.3          ## A town island's depth, in radii.
 const TOWN_SPACING := 1500.0
 const EXCLUSION_DOCK := 150.0    ## m a town's dock area is grown by to keep others away.
 const EXCLUSION_ISLAND := 60.0   ## m a town's island is grown by.
@@ -260,7 +261,7 @@ func _town_fits(dock: Vector3, _radius: float) -> bool:
 func _add_town(rng: RandomNumberGenerator, dock: Vector3, region: int) -> void:
 	var town_name := name_town(rng)
 	var town_seed := rng.randi()
-	var island := {"id": "town-%d" % towns.size(), "at": dock + TOWN_ISLAND, "radius": TOWN_RADIUS, "depth": TOWN_RADIUS * 1.3,
+	var island := {"id": "town-%d" % towns.size(), "at": dock + TOWN_ISLAND, "radius": TOWN_RADIUS, "depth": TOWN_RADIUS * TOWN_DEPTH,
 			"seed": rng.randi(), "trees": 0.25, "waterfall": true, "flat": true, "site": ""}
 	towns.append({"name": town_name, "dock": dock, "region": region, "seed": town_seed, "island": island})
 	var area := Dock.area(dock).grow(EXCLUSION_DOCK)

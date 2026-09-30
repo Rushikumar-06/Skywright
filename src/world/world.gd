@@ -1,13 +1,13 @@
 extends Node3D
 ## The game world: sky, the Roil, the islands made from the session's seed (streamed
-## in around every ship), the dock, and the starter ship at its first slipway with
-## you aboard. Its Session is a sibling: the Session autoload in the game, or a
-## test's own. The server builds the ships and flies them; clients get them through
-## the world's WorldSync. You board the host's ship when you arrive, and your own
-## ship whenever one arrives: launch a design and you're at its helm, and B brings
-## you back from a test flight. When the ship you're on goes, you board its
-## successor, or the ship you came from, or your own, or the host's. A dedicated
-## server's world has no player, HUD or pause menu.
+## in around every ship), the ten towns with their docks, and the starter ship at the
+## first town's first slipway with you aboard. Its Session is a sibling: the Session
+## autoload in the game, or a test's own. The server builds the ships and flies them;
+## clients get them through the world's WorldSync. You board the host's ship when you
+## arrive, and your own ship whenever one arrives: launch a design and you're at its
+## helm, and B brings you back from a test flight. When the ship you're on goes, you
+## board its successor, or the ship you came from, or your own, or the host's. A
+## dedicated server's world has no player, HUD or pause menu.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := WorldGen.START
@@ -17,7 +17,7 @@ var sync: WorldSync
 var ship: Ship                 ## The ship you're aboard.
 var player: PlayerController   ## You, once the ship has arrived.
 var hud: Hud
-var dock: StaticBody3D
+var towns: Array[Node3D] = []  ## Every town, in WorldGen.towns' order, under the Towns node.
 var shipyard: Shipyard         ## Null while closed.
 var design: ShipDesign         ## Your design, kept for the whole game.
 var gen: WorldGen              ## The world made from the session's seed.
@@ -38,16 +38,20 @@ func _ready() -> void:
 	add_child(Roil.new())
 	gen = WorldGen.new(session.world_seed)
 	wind = Wind.new(gen)
-	dock = Dock.create(START)
-	add_child(dock)
+	var town_root := Node3D.new()
+	town_root.name = "Towns"
+	add_child(town_root)
+	for i in gen.towns.size():
+		var town := Town.create(gen.towns[i], not session.dedicated)
+		town.name = "Town%d" % i
+		town_root.add_child(town)
+		towns.append(town)
 	sync = WorldSync.new(session)
 	sync.wind = wind
 	sync.ship_added.connect(_on_ship_added)
 	sync.ship_removed.connect(_on_ship_removed)
-	for index in Dock.SLIPWAYS:
-		sync.berths.append(Dock.slipway(START, index))
-		sync.test_berths.append(Dock.test_berth(START, index))
-	sync.obstacles = Dock.obstacles(START)
+	for town: Dictionary in gen.towns:
+		sync.docks.append(town["dock"])
 	add_child(sync)
 	if session.is_server():
 		sync.add_ship(StarterShip.build(), Dock.slipway(START, 0), 0 if session.dedicated else 1)
@@ -72,19 +76,27 @@ func my_slot() -> int:
 	return maxi(0, session.players.keys().find(multiplayer.get_unique_id()))
 
 
-## Takes grid for a test flight from your test berth, at its helm.
+## The town whose dock p is near, or -1.
+func town_at(p: Vector3) -> int:
+	for i in gen.towns.size():
+		if Dock.near(gen.towns[i]["dock"], p):
+			return i
+	return -1
+
+
+## Takes grid for a test flight from your test berth at the nearest town, at its helm.
 func test_flight(grid: ShipGrid) -> void:
 	_launch(grid, true)
 
 
-## Launches grid as your ship, at your slipway and at its helm. It replaces your old
-## ship, whose crew come too.
+## Launches grid as your ship, at your slipway at the nearest town and at its helm. It
+## replaces your old ship, whose crew come too.
 func launch(grid: ShipGrid) -> void:
 	_launch(grid, false)
 
 
 func _launch(grid: ShipGrid, test: bool) -> void:
-	if not sync.launch(grid, test) and shipyard != null:
+	if not sync.launch(grid, test, _town_here()) and shipyard != null:
 		shipyard.say("Wait a moment, then try again.")
 
 
@@ -93,9 +105,9 @@ func on_test_flight() -> bool:
 	return ship != null and ship.test and ship.captain == multiplayer.get_unique_id()
 
 
-## Whether your crew member, where the world draws them, is near the dock.
+## Whether your crew member, where the world draws them, is near a town's dock.
 func at_dock() -> bool:
-	return player != null and Dock.near(START, ship.global_transform * player.crew.position)
+	return player != null and town_at(_where_you_are()) >= 0
 
 
 ## Puts you aboard target at spot (-1 for your roster slot), with your controls.
@@ -121,7 +133,7 @@ func board(target: Ship, spot := -1) -> void:
 	ship = target
 
 
-## Opens the shipyard on your design, when you're at the dock or dock_only is off.
+## Opens the shipyard on your design, when you're at a dock or dock_only is off.
 func open_shipyard(dock_only := true) -> void:
 	if shipyard != null or player == null:
 		return
@@ -130,7 +142,7 @@ func open_shipyard(dock_only := true) -> void:
 		return
 	if design == null:
 		design = ShipDesign.new(ship.grid)
-	shipyard = Shipyard.new(design, START.y)
+	shipyard = Shipyard.new(design, (gen.towns[_town_here()]["dock"] as Vector3).y)
 	shipyard.layer = 3
 	shipyard.test_flight_requested.connect(test_flight)
 	shipyard.launch_requested.connect(launch)
@@ -152,6 +164,16 @@ func close_shipyard() -> void:
 	hud.visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	get_viewport().disable_3d = false
+
+
+## Where your crew member is drawn.
+func _where_you_are() -> Vector3:
+	return ship.global_transform * player.crew.position
+
+
+## The town you're at, or the first when you're not at one.
+func _town_here() -> int:
+	return maxi(0, town_at(_where_you_are())) if player != null else 0
 
 
 func _on_ship_added(added: Ship) -> void:

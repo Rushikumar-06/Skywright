@@ -1,40 +1,45 @@
 class_name Dock
-## The placeholder dock until towns arrive in stage 5: a stone quay on an island,
-## with a slipway for each player in a row to starboard of the first, and a test
-## berth ahead of each. Ships at a slipway face the bow (-Z). Within REACH of it
-## counts as at the dock.
+## A town's dock: a stone quay along the front of its island, a slipway for each
+## player in a row to starboard of the first with a finger pier beside each, and a
+## test berth ahead of each. Ships at a slipway face the bow (-Z). Within REACH of
+## it counts as at the dock.
 
 const SPACING := 60.0                    ## m between slipways.
 const SLIPWAYS := 9                      ## One for each player, and one more for a dedicated server's ship.
 const TEST_OFFSET := Vector3(0, 0, -90)  ## From a slipway to its test berth.
 const REACH := 150.0                     ## m from the dock's area that count as at the dock.
 const QUAY := AABB(Vector3(-30, -6.5, 30), Vector3(540, 5, 14))  ## Its top is 1.5 m below the deck of a ship at a slipway.
-const ISLAND_AT := Vector3(240, -8, 110)
-const ISLAND_RADIUS := 70.0
+const PIER := AABB(Vector3(3, -6.5, -12), Vector3(4, 5, 42))  ## Beside slipway 0, from the quay forward. Its top is the quay's.
+const ABOVE_TOWN := 40.0                 ## m over the town island's top that obstacles reach: the houses and the beacon.
 
 
-## The quay and the island under it, for slipway 0 at at.
-static func create(at: Vector3) -> StaticBody3D:
+## The quay and a pier beside every slipway, for slipway 0 at at, drawn when visuals
+## and always collided.
+static func create(at: Vector3, visuals := true) -> StaticBody3D:
 	var dock := StaticBody3D.new()
 	dock.name = "Dock"
 	dock.position = at
-	var stone := BoxMesh.new()
-	stone.size = QUAY.size
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color("8d8578")
 	material.roughness = 0.95
-	var quay := MeshInstance3D.new()
-	quay.mesh = stone
-	quay.material_override = material
-	quay.position = QUAY.get_center()
-	dock.add_child(quay)
-	var box := BoxShape3D.new()
-	box.size = QUAY.size
-	var shape := CollisionShape3D.new()
-	shape.shape = box
-	shape.position = QUAY.get_center()
-	dock.add_child(shape)
-	dock.add_child(Island.create(ISLAND_AT, ISLAND_RADIUS))
+	var parts: Array[AABB] = [QUAY]
+	for index in SLIPWAYS:
+		parts.append(AABB(PIER.position + Vector3(index * SPACING, 0, 0), PIER.size))
+	for part in parts:
+		if visuals:
+			var stone := BoxMesh.new()
+			stone.size = part.size
+			var block := MeshInstance3D.new()
+			block.mesh = stone
+			block.material_override = material
+			block.position = part.get_center()
+			dock.add_child(block)
+		var box := BoxShape3D.new()
+		box.size = part.size
+		var shape := CollisionShape3D.new()
+		shape.shape = box
+		shape.position = part.get_center()
+		dock.add_child(shape)
 	return dock
 
 
@@ -53,12 +58,17 @@ static func area(at: Vector3) -> AABB:
 	return AABB(at + Vector3(-30, -60, -100), Vector3(540, 120, 144))
 
 
-## What ships mustn't be put inside: the quay and the island.
+## What ships mustn't be put inside: the quay, the piers (in that order) and the
+## town island, from its rock up to over its beacon.
 static func obstacles(at: Vector3) -> Array[AABB]:
-	# The island's cap reaches 1.02 radii out and 0.06 radii up, and its rock
-	# hangs 1.5 radii down (see Island.create).
-	var island := AABB(at + ISLAND_AT + Vector3(-1.02, -1.5, -1.02) * ISLAND_RADIUS, Vector3(2.04, 1.56, 2.04) * ISLAND_RADIUS)
-	return [AABB(at + QUAY.position, QUAY.size), island]
+	var found: Array[AABB] = [AABB(at + QUAY.position, QUAY.size)]
+	for index in SLIPWAYS:
+		found.append(AABB(at + PIER.position + Vector3(index * SPACING, 0, 0), PIER.size))
+	var radius := WorldGen.TOWN_RADIUS
+	var depth := radius * WorldGen.TOWN_DEPTH
+	var top := at + WorldGen.TOWN_ISLAND
+	found.append(AABB(top + Vector3(-radius, -depth, -radius), Vector3(2.0 * radius, depth + ABOVE_TOWN, 2.0 * radius)))
+	return found
 
 
 ## Whether where is near enough to the dock at at to use it.

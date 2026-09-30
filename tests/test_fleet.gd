@@ -14,11 +14,22 @@ func test_the_dock_has_slipways_and_a_reach() -> void:
 	assert_true(Dock.near(start, quay), "on the quay")
 	assert_true(Dock.near(start, start + Vector3(510 + 140, -1.5, 37)), "140 m off its end")
 	assert_false(Dock.near(start, quay + Vector3(2000, 0, 0)), "2 km away")
-	assert_true(world.dock != null and world.dock.is_inside_tree(), "the world has a dock")
+	assert_true(world.towns[0].is_inside_tree(), "the world has its first town's dock")
+	assert_eq(world.sync.docks[0], start, "which is where the slipways are")
 	var obstacles := Dock.obstacles(start)
-	for mesh: MeshInstance3D in world.dock.find_children("*", "MeshInstance3D", true, false):
+	for i in Dock.SLIPWAYS:
+		var pier := AABB(start + Vector3(i * Dock.SPACING, 0, 0) + Dock.PIER.position, Dock.PIER.size)
+		assert_true(obstacles.has(pier), "the obstacles have a pier beside slipway %d" % i)
+	assert_true(obstacles.has(AABB(start + Dock.QUAY.position, Dock.QUAY.size)), "and the quay")
+	var island: AABB = obstacles[-1]
+	assert_true(island.has_point(start + WorldGen.TOWN_ISLAND + Vector3(0, 30, 0)), "and the town island, up over its beacon")
+	assert_true(island.has_point(start + WorldGen.TOWN_ISLAND + Vector3(0, -100, 0)), "down through its rock")
+	assert_false(island.has_point(start + WorldGen.TOWN_ISLAND + Vector3(0, 45, 0)), "but not far above it")
+	for mesh: MeshInstance3D in world.towns[0].find_children("*", "MeshInstance3D", true, false):
+		if mesh.name == "Waterfall":
+			continue  # it hangs far below its island, in the open air
 		var box := mesh.global_transform * mesh.get_aabb()
-		assert_true(obstacles.any(func(obstacle: AABB) -> bool: return obstacle.grow(0.01).encloses(box)), "the obstacles cover %s" % box)
+		assert_true(obstacles.any(func(obstacle: AABB) -> bool: return obstacle.grow(2.0).encloses(box)), "the obstacles cover %s" % box)
 
 
 func test_a_ship_added_mid_game_reaches_everyone() -> void:

@@ -33,12 +33,30 @@ static var _water: ShaderMaterial
 static var _fall_quad: QuadMesh
 
 
-## A chunk's arrays, safe to make on any thread: {"chunk", "islands", "faces"} and,
-## with visuals, "lods" (per level {"vertices", "normals", "colors"}), "trees" (a
-## MultiMesh transform buffer) and "falls" (IslandMesh.waterfall dictionaries).
+## A chunk's arrays, safe to make on any thread: {"chunk", "islands", "faces", "wrecks",
+## "landmarks"} (the sites in the chunk) and, with visuals, "lods" (per level
+## {"vertices", "normals", "colors"}), "trees" (a MultiMesh transform buffer) and
+## "falls" (IslandMesh.waterfall dictionaries).
 static func generate(gen: WorldGen, chunk: Vector2i, visuals: bool) -> Dictionary:
-	var origin := WorldGen.chunk_origin(chunk)
 	var islands := gen.islands_in(chunk)
+	var data := arrays_of(islands, WorldGen.chunk_origin(chunk), visuals)
+	data.merge({"chunk": chunk, "islands": islands, "wrecks": _in_chunk(gen.wrecks, chunk), "landmarks": _in_chunk(gen.landmarks, chunk)})
+	return data
+
+
+## The nodes for one island on its own, at its place in the world with its own
+## space: what build() makes of a chunk, for the town islands.
+static func island_node(island: Dictionary, visuals: bool) -> Node3D:
+	var node := Node3D.new()
+	node.name = "Island"
+	node.position = island["at"]
+	fill(node, arrays_of([island], island["at"], visuals))
+	return node
+
+
+## The arrays of islands, in the space whose origin is origin: {"faces"} and, with
+## visuals, "lods", "trees" and "falls" as generate() describes them.
+static func arrays_of(islands: Array[Dictionary], origin: Vector3, visuals: bool) -> Dictionary:
 	var faces := PackedVector3Array()
 	var lods: Array[Dictionary] = []
 	for lod in IslandMesh.LODS.size():
@@ -64,22 +82,39 @@ static func generate(gen: WorldGen, chunk: Vector2i, visuals: bool) -> Dictionar
 		if not fall.is_empty():
 			fall["from"] += offset
 			falls.append(fall)
-	var data := {"chunk": chunk, "islands": islands, "faces": faces}
+	var data := {"faces": faces}
 	if visuals:
 		data.merge({"lods": lods, "trees": trees, "falls": falls})
 	return data
 
 
-## The chunk's nodes from generate()'s arrays, on the main thread. A chunk with no
-## islands is an empty Node3D.
+## The chunk's nodes from generate()'s arrays, on the main thread: the islands, and
+## any wreck or landmark standing on them. A chunk with no islands is an empty Node3D.
 static func build(data: Dictionary) -> Node3D:
 	var chunk: Vector2i = data["chunk"]
+	var origin := WorldGen.chunk_origin(chunk)
 	var node := Node3D.new()
 	node.name = "Chunk%d_%d" % [chunk.x, chunk.y]
-	node.position = WorldGen.chunk_origin(chunk)
+	node.position = origin
+	fill(node, data)
+	var visuals := data.has("lods")
+	var sites: Array[Node3D] = []
+	for wreck: Dictionary in data["wrecks"]:
+		sites.append(Sites.create_wreck(wreck, visuals))
+	for landmark: Dictionary in data["landmarks"]:
+		sites.append(Sites.create_landmark(landmark, visuals))
+	for site in sites:
+		site.position -= origin  # they're made in the world's space
+		node.add_child(site)
+	return node
+
+
+## Adds the collision body for arrays_of's faces to node, and with its visuals the
+## levels of detail, trees and waterfalls.
+static func fill(node: Node3D, data: Dictionary) -> void:
 	var faces: PackedVector3Array = data["faces"]
 	if faces.is_empty():
-		return node
+		return
 	var shape := ConcavePolygonShape3D.new()
 	shape.backface_collision = false
 	shape.set_faces(faces)
@@ -89,7 +124,7 @@ static func build(data: Dictionary) -> Node3D:
 	body.add_child(collision)
 	node.add_child(body)
 	if not data.has("lods"):
-		return node
+		return
 
 	var lods: Array[Dictionary] = data["lods"]
 	for lod in lods.size():
@@ -137,7 +172,6 @@ static func build(data: Dictionary) -> Node3D:
 		water.transform = Transform3D(basis, top - Vector3(0.0, drop / 2.0, 0.0))
 		water.visibility_range_end = FALLS_END
 		node.add_child(water)
-	return node
 
 
 ## The islands' material: their vertex colours, matte.
@@ -155,21 +189,10 @@ static func tree_mesh() -> ArrayMesh:
 	if _tree == null:
 		var vertices := PackedVector3Array()
 		var colors := PackedColorArray()
-		_cone(vertices, colors, 0.0, 2.6, 0.3, 0.22, 5, TRUNK)
-		_cone(vertices, colors, 1.8, 5.8, 2.2, 0.0, 6, LEAVES)
-		_cone(vertices, colors, 4.2, 8.0, 1.5, 0.0, 6, LEAVES_TOP)
-		var normals := PackedVector3Array()
-		for t in vertices.size() / 3:
-			var normal := (vertices[t * 3 + 2] - vertices[t * 3]).cross(vertices[t * 3 + 1] - vertices[t * 3]).normalized()
-			normals.append_array(PackedVector3Array([normal, normal, normal]))
-		var arrays := []
-		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = vertices
-		arrays[Mesh.ARRAY_NORMAL] = normals
-		arrays[Mesh.ARRAY_COLOR] = colors
-		_tree = ArrayMesh.new()
-		_tree.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		_tree.surface_set_material(0, ground_material())
+		cone(vertices, colors, 0.0, 2.6, 0.3, 0.22, 5, TRUNK)
+		cone(vertices, colors, 1.8, 5.8, 2.2, 0.0, 6, LEAVES)
+		cone(vertices, colors, 4.2, 8.0, 1.5, 0.0, 6, LEAVES_TOP)
+		_tree = flat_mesh(vertices, colors)
 	return _tree
 
 
@@ -190,6 +213,52 @@ static func _quad() -> QuadMesh:
 	return _fall_quad
 
 
+## Triangles in the islands' style (three vertices each, wound clockwise seen from
+## outside) as a flat-shaded mesh with the ground material.
+static func flat_mesh(vertices: PackedVector3Array, colors: PackedColorArray) -> ArrayMesh:
+	var normals := PackedVector3Array()
+	for t in vertices.size() / 3:
+		var normal := (vertices[t * 3 + 2] - vertices[t * 3]).cross(vertices[t * 3 + 1] - vertices[t * 3]).normalized()
+		normals.append_array(PackedVector3Array([normal, normal, normal]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.surface_set_material(0, ground_material())
+	return mesh
+
+
+## Adds a box, size across and its centre at where's origin, as triangles.
+static func add_box(vertices: PackedVector3Array, colors: PackedColorArray, where: Transform3D, size: Vector3, color: Color) -> void:
+	var h := size / 2.0
+	var corners: Array[Vector3] = []
+	for i in 8:
+		corners.append(where * Vector3(h.x if i & 1 else -h.x, h.y if i & 2 else -h.y, h.z if i & 4 else -h.z))
+	for face: Array in [[0, 1, 3, 2], [4, 6, 7, 5], [0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6]]:
+		_convex_quad(vertices, colors, [corners[face[0]], corners[face[1]], corners[face[2]], corners[face[3]]], where.origin, color)
+
+
+## Adds a gable roof standing on where's origin: size.x by size.z at its foot, with a
+## ridge along z at height size.y. It has no floor.
+static func add_prism(vertices: PackedVector3Array, colors: PackedColorArray, where: Transform3D, size: Vector3, color: Color) -> void:
+	var hx := size.x / 2.0
+	var hz := size.z / 2.0
+	var a := where * Vector3(-hx, 0.0, -hz)
+	var b := where * Vector3(hx, 0.0, -hz)
+	var c := where * Vector3(hx, 0.0, hz)
+	var d := where * Vector3(-hx, 0.0, hz)
+	var ridge_front := where * Vector3(0.0, size.y, -hz)
+	var ridge_back := where * Vector3(0.0, size.y, hz)
+	var inside := where * Vector3(0.0, size.y / 3.0, 0.0)
+	_convex_quad(vertices, colors, [a, d, ridge_back, ridge_front], inside, color)
+	_convex_quad(vertices, colors, [b, c, ridge_back, ridge_front], inside, color)
+	_convex_triangle(vertices, colors, a, b, ridge_front, inside, color)
+	_convex_triangle(vertices, colors, d, c, ridge_back, inside, color)
+
+
 ## points, each moved by offset.
 static func _moved(points: PackedVector3Array, offset: Vector3) -> PackedVector3Array:
 	var moved := PackedVector3Array()
@@ -199,9 +268,24 @@ static func _moved(points: PackedVector3Array, offset: Vector3) -> PackedVector3
 	return moved
 
 
+## A triangle of a convex shape around inside, wound to face away from it.
+static func _convex_triangle(vertices: PackedVector3Array, colors: PackedColorArray, a: Vector3, b: Vector3, c: Vector3, inside: Vector3, color: Color) -> void:
+	var facing := (c - a).cross(b - a)  # where the winding a, b, c faces
+	if facing.dot(a - inside) < 0.0:
+		vertices.append_array(PackedVector3Array([a, c, b]))
+	else:
+		vertices.append_array(PackedVector3Array([a, b, c]))
+	colors.append_array(PackedColorArray([color, color, color]))
+
+
+static func _convex_quad(vertices: PackedVector3Array, colors: PackedColorArray, corners: Array, inside: Vector3, color: Color) -> void:
+	_convex_triangle(vertices, colors, corners[0], corners[1], corners[2], inside, color)
+	_convex_triangle(vertices, colors, corners[0], corners[2], corners[3], inside, color)
+
+
 ## A capped frustum (a cone when top_radius is 0) around the y axis, flat shaded,
 ## wound clockwise seen from outside as IslandMesh's triangles are.
-static func _cone(vertices: PackedVector3Array, colors: PackedColorArray, bottom: float, top: float,
+static func cone(vertices: PackedVector3Array, colors: PackedColorArray, bottom: float, top: float,
 		bottom_radius: float, top_radius: float, sides: int, color: Color) -> void:
 	var lower := PackedVector3Array()
 	var upper := PackedVector3Array()
@@ -222,3 +306,12 @@ static func _cone(vertices: PackedVector3Array, colors: PackedColorArray, bottom
 		for corner: Vector3 in corners:
 			vertices.append(corner)
 			colors.append(color)
+
+
+## The entries (wrecks or landmarks) whose place is in chunk.
+static func _in_chunk(entries: Array[Dictionary], chunk: Vector2i) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	for entry in entries:
+		if WorldGen.chunk_of(entry["at"]) == chunk:
+			found.append(entry)
+	return found

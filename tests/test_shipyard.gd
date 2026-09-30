@@ -2,6 +2,8 @@ extends NetCase
 ## The shipyard (spec §3.8): building a design block by block at the dock, with its
 ## stats, warnings and blueprints, and taking it on a test flight or launching it.
 
+const START_HEIGHT := 880.0
+
 var _dir := ""
 
 
@@ -78,7 +80,7 @@ func test_the_shipyard_is_only_at_the_dock() -> void:
 	var world := solo_world()
 	await get_tree().process_frame
 	var ship: Ship = world.ship
-	ship.global_position += Vector3(2000, 0, 0)
+	ship.global_position = Vector3(0, START_HEIGHT, 0)  # the Eye, where there are no towns
 	ship.reset_physics_interpolation()
 	press_key(world, "shipyard")
 	assert_true(world.shipyard == null, "no shipyard opens")
@@ -275,7 +277,7 @@ func test_the_hud_says_b_opens_the_shipyard_at_the_dock() -> void:
 	await get_tree().process_frame
 	assert_eq(world.hud._prompt.text, "B   Shipyard")
 	var ship: Ship = world.ship
-	ship.global_position += Vector3(2000, 0, 0)
+	ship.global_position = Vector3(0, START_HEIGHT, 0)  # the Eye, where there are no towns
 	ship.reset_physics_interpolation()
 	await get_tree().process_frame
 	await get_tree().process_frame

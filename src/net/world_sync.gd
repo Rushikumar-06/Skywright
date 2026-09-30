@@ -50,9 +50,7 @@ const CLEARANCE := 2.0       ## m. The least gap between a ship being launched a
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
 var player: PlayerController  ## This machine's player, whose crew it reports. Null when there's none.
-var berths: Array[Transform3D] = []       ## Where each slipway's ships are built. Set by the World.
-var test_berths: Array[Transform3D] = []  ## Where each slipway's test flights start. Likewise.
-var obstacles: Array[AABB] = []           ## What ships mustn't be built inside. Likewise.
+var docks: Array[Vector3] = []            ## Where each town's slipway 0 is. Set by the World.
 var wind: Wind                            ## The world's wind, which every ship feels. Likewise.
 
 var _time := 0.0            ## Seconds of physics since this world began.
@@ -133,16 +131,17 @@ func id_of(ship: Ship) -> int:
 
 
 ## This machine's player launches grid: as a test flight when test, else as their
-## own ship in place of the old one. The server decides. False when it's too soon
-## after the last one, which the server would ignore.
-func launch(grid: ShipGrid, test: bool) -> bool:
+## own ship in place of the old one, from the dock of town (an index into docks).
+## The server decides. False when it's too soon after the last one, which the server
+## would ignore.
+func launch(grid: ShipGrid, test: bool, town := 0) -> bool:
 	if _time - _my_launch_at < LAUNCH_COOLDOWN:
 		return false
 	_my_launch_at = _time
 	if session.is_server():
-		_launch_for(multiplayer.get_unique_id(), grid, test)
+		_launch_for(multiplayer.get_unique_id(), grid, test, town)
 	else:
-		_launch.rpc_id(1, grid.to_bytes(), grid.paint_names(), test)
+		_launch.rpc_id(1, grid.to_bytes(), grid.paint_names(), test, town)
 	return true
 
 
@@ -162,11 +161,12 @@ func ship_of(peer: int, test: bool) -> Ship:
 	return null
 
 
-## Where peer's test flights start when test, else where their ships are built: at
-## the slipway for their place in the roster, after a dedicated server's own.
-func berth_of(peer: int, test: bool) -> Transform3D:
+## Where peer's test flights start when test, else where their ships are built, at
+## town's dock: at the slipway for their place in the roster, after a dedicated
+## server's own.
+func berth_of(peer: int, test: bool, town := 0) -> Transform3D:
 	var index: int = maxi(0, session.players.keys().find(peer)) + (1 if session.dedicated else 0)
-	return test_berths[index] if test else berths[index]
+	return Dock.test_berth(docks[town], index) if test else Dock.slipway(docks[town], index)
 
 
 ## The ship to board when there's no other reason to pick one: the host's (captain
@@ -216,9 +216,9 @@ func _remove(id: int, successor: Ship) -> void:
 	ship.queue_free()
 
 
-## Server: builds grid for peer, whole, at their berth with them at its helm. It
-## replaces their test flight, and their own ship too unless it's a test flight.
-func _launch_for(peer: int, grid: ShipGrid, test: bool) -> void:
+## Server: builds grid for peer, whole, at their berth in town with them at its helm.
+## It replaces their test flight, and their own ship too unless it's a test flight.
+func _launch_for(peer: int, grid: ShipGrid, test: bool, town: int) -> void:
 	if _time - _launched_at.get(peer, -INF) < LAUNCH_COOLDOWN:
 		return
 	_launched_at[peer] = _time
@@ -226,7 +226,7 @@ func _launch_for(peer: int, grid: ShipGrid, test: bool) -> void:
 	var trial := ship_of(peer, true)
 	var own := ship_of(peer, false)
 	# A test flight leaves your own ship where it is, so keep clear of it.
-	var at := _clear_spot(built, berth_of(peer, test), [trial] if test else [trial, own])
+	var at := _clear_spot(built, berth_of(peer, test, town), [trial] if test else [trial, own], town)
 	var ship := add_ship(built, at, peer, test, peer)
 	if trial != null:
 		remove_ship(trial, ship)
@@ -234,17 +234,20 @@ func _launch_for(peer: int, grid: ShipGrid, test: bool) -> void:
 		remove_ship(own, ship)
 
 
-## at, raised until grid's box there is CLEARANCE clear of every obstacle and of
-## every ship but those in ignoring. After 20 spots it settles for the last.
-func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array) -> Transform3D:
-	var others: Array[AABB] = obstacles.duplicate()
-	for ship: Ship in ships.values():
+## at, raised until grid's box there is clear of town's dock and island, and
+## CLEARANCE clear of every ship but those in ignoring. After 20 spots it settles for
+## the last.
+func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array, town: int) -> Transform3D:
+	var fixed := Dock.obstacles(docks[town])
+	var ships: Array[AABB] = []
+	for ship: Ship in self.ships.values():
 		if not ignoring.has(ship):
-			others.append(ship.global_transform * ship.bounds)
+			ships.append(ship.global_transform * ship.bounds)
 	for _spot in 19:
 		var box := at * grid.bounds()
 		var near := box.grow(CLEARANCE)
-		if not others.any(func(other: AABB) -> bool: return near.intersects(other)):
+		if not fixed.any(func(other: AABB) -> bool: return box.intersects(other)) \
+				and not ships.any(func(other: AABB) -> bool: return near.intersects(other)):
 			break
 		at = at.translated(Vector3(0.0, box.size.y + CLEARANCE, 0.0))
 	return at
@@ -562,19 +565,22 @@ func _request(ship_id: Variant, what: Variant, on: Variant) -> void:
 		helm.ask_autopilot(peer, on)
 
 
-## Client -> server: launch these blocks with this paint, as a test flight or not.
-## Junk is refused before it counts as the sender's launch for the second.
+## Client -> server: launch these blocks with this paint, as a test flight or not,
+## from the dock of town (an index into WorldGen.towns). Junk is refused before it
+## counts as the sender's launch for the second.
 @rpc("any_peer", "call_remote", "reliable", 0)
-func _launch(blocks: Variant, paint: Variant, test: Variant) -> void:
+func _launch(blocks: Variant, paint: Variant, test: Variant, town: Variant) -> void:
 	var peer := multiplayer.get_remote_sender_id()
 	if not session.is_server() or not _in_world.has(peer) or not test is bool:
+		return
+	if not town is int or town < 0 or town >= docks.size():
 		return
 	var grid := ShipGrid.from_bytes(blocks)
 	var colours: Variant = ShipGrid.read_paint(paint)
 	if grid == null or colours == null:
 		return
 	grid.paint = colours
-	_launch_for(peer, grid, test)
+	_launch_for(peer, grid, test, town)
 
 
 ## Client -> server: end my test flight.

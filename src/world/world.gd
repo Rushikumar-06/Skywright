@@ -1,8 +1,9 @@
 extends Node3D
 ## The game world: sky, the Roil, the islands made from the session's seed (streamed
 ## in around every ship), the ten towns with their docks, and the starter ship at the
-## first town's first slipway with you aboard. Its Session is a sibling: the Session
-## autoload in the game, or a test's own. The server builds the ships and flies them;
+## first town's first slipway with you aboard. Its Weather (fog sheets, storm columns
+## and lightning) is only drawn where someone plays. Its Session is a sibling: the
+## Session autoload in the game, or a test's own. The server builds the ships and flies them;
 ## clients get them through the world's WorldSync. You board the host's ship when you
 ## arrive, and your own ship whenever one arrives: launch a design and you're at its
 ## helm, and B brings you back from a test flight. When the ship you're on goes, you
@@ -10,7 +11,7 @@ extends Node3D
 ## with none of those you step off into the air. Stepping off a deck puts you ashore,
 ## on foot in this world; landing on a deck, or E next to a hull, puts you aboard;
 ## and falling into the Roil puts you back aboard. A dedicated server's world has no
-## player, HUD or pause menu.
+## player, HUD, pause menu or Weather.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := WorldGen.START
@@ -57,6 +58,8 @@ func _ready() -> void:
 	for town: Dictionary in gen.towns:
 		sync.docks.append(town["dock"])
 	add_child(sync)
+	if not session.dedicated:
+		add_child(Weather.new(gen, sync.now))
 	if session.is_server():
 		sync.add_ship(StarterShip.build(), Dock.slipway(START, 0), 0 if session.dedicated else 1)
 	streamer = WorldStreamer.new(gen, not session.dedicated)

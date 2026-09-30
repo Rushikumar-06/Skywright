@@ -8,6 +8,8 @@ extends RefCounted
 const TREES_END := 1200.0  ## m: trees stop being drawn.
 const FALLS_END := 1800.0  ## m: waterfalls likewise.
 const LOD_MARGIN := 20.0   ## m either side of a level's range where it fades over.
+const CLOUDS_END := 3000.0 ## m: clouds stop being drawn.
+const CLOUD_CLUSTERS := [Vector2i(0, 0), Vector2i(4, 6), Vector2i(1, 3), Vector2i(0, 2), Vector2i(0, 1), Vector2i(0, 0)]  ## Per region (Region's order): the fewest and most clusters in a chunk.
 const FALL_OUT := 1.0      ## m the water starts outside the rim, so it never hides in the rock.
 
 const TRUNK := Color("5a4230")
@@ -31,17 +33,41 @@ static var _ground: StandardMaterial3D
 static var _tree: ArrayMesh
 static var _water: ShaderMaterial
 static var _fall_quad: QuadMesh
+static var _puff: ArrayMesh
+static var _cloud: StandardMaterial3D
 
 
 ## A chunk's arrays, safe to make on any thread: {"chunk", "islands", "faces", "wrecks",
 ## "landmarks"} (the sites in the chunk) and, with visuals, "lods" (per level
 ## {"vertices", "normals", "colors"}), "trees" (a MultiMesh transform buffer) and
-## "falls" (IslandMesh.waterfall dictionaries).
+## "falls" (IslandMesh.waterfall dictionaries) and "clouds" (clouds()' puffs).
 static func generate(gen: WorldGen, chunk: Vector2i, visuals: bool) -> Dictionary:
 	var islands := gen.islands_in(chunk)
 	var data := arrays_of(islands, WorldGen.chunk_origin(chunk), visuals)
 	data.merge({"chunk": chunk, "islands": islands, "wrecks": _in_chunk(gen.wrecks, chunk), "landmarks": _in_chunk(gen.landmarks, chunk)})
+	if visuals:
+		data["clouds"] = clouds(gen, chunk)
 	return data
+
+
+## The cloud puffs of a chunk, in its own space, from a seed of the chunk's own. Clusters
+## of 5 to 12 puffs, each 20 to 60 m wide and 0.5 to 0.7 of that high,
+## spread 80 m around a point 900 to 2,200 m up. The Stormwall has the most clusters
+## and the Eye none. Safe on any thread.
+static func clouds(gen: WorldGen, chunk: Vector2i) -> Array[Transform3D]:
+	var puffs: Array[Transform3D] = []
+	var origin := WorldGen.chunk_origin(chunk)
+	var counts: Vector2i = CLOUD_CLUSTERS[WorldGen.region_at(origin + Vector3(WorldGen.CHUNK / 2.0, 0.0, WorldGen.CHUNK / 2.0))]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([gen.world_seed, chunk.x, chunk.y, "clouds"])
+	for _cluster in rng.randi_range(counts.x, counts.y):
+		var middle := Vector3(rng.randf() * WorldGen.CHUNK, rng.randf_range(900.0, 2200.0), rng.randf() * WorldGen.CHUNK)
+		for _puff_number in rng.randi_range(5, 12):
+			var width := rng.randf_range(20.0, 60.0)
+			var scale := Vector3(width, width * rng.randf_range(0.5, 0.7), width)
+			var at := middle + Vector3(rng.randf_range(-80.0, 80.0), rng.randf_range(-30.0, 30.0), rng.randf_range(-80.0, 80.0))
+			puffs.append(Transform3D(Basis.from_scale(scale).rotated(Vector3.UP, rng.randf() * TAU), at))
+	return puffs
 
 
 ## The nodes for one island on its own, at its place in the world with its own
@@ -98,6 +124,8 @@ static func build(data: Dictionary) -> Node3D:
 	node.position = origin
 	fill(node, data)
 	var visuals := data.has("lods")
+	if data.has("clouds") and not (data["clouds"] as Array).is_empty():
+		node.add_child(_cloud_node(data["clouds"]))
 	var sites: Array[Node3D] = []
 	for wreck: Dictionary in data["wrecks"]:
 		sites.append(Sites.create_wreck(wreck, visuals))
@@ -106,6 +134,21 @@ static func build(data: Dictionary) -> Node3D:
 	for site in sites:
 		site.position -= origin  # they're made in the world's space
 		node.add_child(site)
+	return node
+
+
+static func _cloud_node(puffs: Array[Transform3D]) -> MultiMeshInstance3D:
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = puff_mesh()
+	multimesh.instance_count = puffs.size()
+	for i in puffs.size():
+		multimesh.set_instance_transform(i, puffs[i])
+	var node := MultiMeshInstance3D.new()
+	node.name = "Clouds"
+	node.multimesh = multimesh
+	node.visibility_range_end = CLOUDS_END
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return node
 
 
@@ -194,6 +237,60 @@ static func tree_mesh() -> ArrayMesh:
 		cone(vertices, colors, 4.2, 8.0, 1.5, 0.0, 6, LEAVES_TOP)
 		_tree = flat_mesh(vertices, colors)
 	return _tree
+
+
+## A low-poly cloud puff, one metre across: an icosahedron cut once (80 triangles),
+## flat shaded, made once.
+static func puff_mesh() -> ArrayMesh:
+	if _puff == null:
+		var t := (1.0 + sqrt(5.0)) / 2.0
+		var corners: Array[Vector3] = [Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0),
+				Vector3(0, -1, t), Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t),
+				Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
+		var faces := [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+				[3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]]
+		var vertices := PackedVector3Array()
+		var normals := PackedVector3Array()
+		for face: Array in faces:
+			var a: Vector3 = corners[face[0]].normalized() * 0.5
+			var b: Vector3 = corners[face[1]].normalized() * 0.5
+			var c: Vector3 = corners[face[2]].normalized() * 0.5
+			var ab := ((a + b) / 2.0).normalized() * 0.5
+			var bc := ((b + c) / 2.0).normalized() * 0.5
+			var ca := ((c + a) / 2.0).normalized() * 0.5
+			for triangle: Array in [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]:
+				var p: Vector3 = triangle[0]
+				var q: Vector3 = triangle[1]
+				var r: Vector3 = triangle[2]
+				var outward := (r - p).cross(q - p)  # where p, q, r faces
+				if outward.dot(p + q + r) < 0.0:
+					var swap := q
+					q = r
+					r = swap
+					outward = -outward
+				vertices.append_array(PackedVector3Array([p, q, r]))
+				var normal := outward.normalized()
+				normals.append_array(PackedVector3Array([normal, normal, normal]))
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = vertices
+		arrays[Mesh.ARRAY_NORMAL] = normals
+		_puff = ArrayMesh.new()
+		_puff.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		_puff.surface_set_material(0, cloud_material())
+	return _puff
+
+
+## The clouds' material: white, matte, with a little rim light; no vertex colours.
+static func cloud_material() -> StandardMaterial3D:
+	if _cloud == null:
+		_cloud = StandardMaterial3D.new()
+		_cloud.albedo_color = Color.WHITE
+		_cloud.roughness = 1.0
+		_cloud.rim_enabled = true
+		_cloud.rim = 0.3
+		_cloud.vertex_color_use_as_albedo = false
+	return _cloud
 
 
 ## The waterfalls' material: translucent white-blue streaks pouring down, fading

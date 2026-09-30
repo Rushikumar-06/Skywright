@@ -31,8 +31,10 @@ static func parse(text: String) -> Dictionary:
 		return {"problem": "This isn't a Skywright blueprint."}
 	var data: Dictionary = json.data
 	var version: Variant = data.get("version")
-	if not version is float or version != floorf(version) or version != VERSION:
-		return {"problem": "This blueprint is version %s; this game reads version %d." % [str(int(version)) if version is float and is_finite(version) and absf(version) < 1e9 else "?", VERSION]}
+	if not version is float or not is_finite(version) or version != floorf(version):
+		return {"problem": "This isn't a Skywright blueprint."}
+	if version != VERSION:
+		return {"problem": "This blueprint is version %s; this game reads version %d." % [str(int(version)) if absf(version) < 1e9 else "?", VERSION]}
 	var read := ShipGrid.read_blocks(data.get("blocks"))
 	if read.has("problem"):
 		return read
@@ -63,7 +65,10 @@ static func load_file(path: String) -> Dictionary:
 		return {"problem": "Couldn't open \"%s\"." % path.get_file()}
 	if file.get_length() > MAX_FILE_SIZE:
 		return {"problem": "\"%s\" is too big to be a blueprint." % path.get_file()}
-	return parse(file.get_as_text())
+	var bytes := file.get_buffer(file.get_length())
+	if not _is_utf8(bytes):
+		return {"problem": "This isn't a Skywright blueprint."}
+	return parse(bytes.get_string_from_utf8())
 
 
 ## Where a ship of this name is saved: the cleaned name, made safe as a file name.
@@ -86,3 +91,27 @@ static func list(dir := DIR) -> PackedStringArray:
 
 static func clean_name(raw: String) -> String:
 	return SettingsScript.clean_name(raw, MAX_NAME_LENGTH, DEFAULT_NAME)
+
+
+# Godot has no silent UTF-8 check (get_string_from_utf8 logs an error on bad bytes),
+# so walk the bytes. ponytail: about 1 MiB at most; upgrade if Godot adds a quiet check.
+static func _is_utf8(bytes: PackedByteArray) -> bool:
+	var i := 0
+	var n := bytes.size()
+	while i < n:
+		var b := bytes[i]
+		if b < 0x80:
+			i += 1
+			continue
+		var extra := 1 if b >= 0xC2 and b < 0xE0 else 2 if b >= 0xE0 and b < 0xF0 else 3 if b >= 0xF0 and b < 0xF5 else 0
+		if extra == 0 or i + extra >= n:
+			return false
+		for k in range(1, extra + 1):
+			if bytes[i + k] & 0xC0 != 0x80:
+				return false
+		# Overlong, surrogate and out-of-range forms.
+		var b1 := bytes[i + 1]
+		if (b == 0xE0 and b1 < 0xA0) or (b == 0xED and b1 >= 0xA0) or (b == 0xF0 and b1 < 0x90) or (b == 0xF4 and b1 >= 0x90):
+			return false
+		i += extra + 1
+	return true

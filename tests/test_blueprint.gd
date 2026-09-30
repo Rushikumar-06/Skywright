@@ -51,6 +51,10 @@ func test_bad_blueprints_are_refused_with_the_first_problem() -> void:
 		['{"format": "skywright-blueprint", "version": 2, "blocks": []}', "This blueprint is version 2; this game reads version 1."],
 		['{"format": "skywright-blueprint", "version": 1}', "The ship has no blocks."],
 		[text_of('"x"'), "The ship has no blocks."],
+		['{"format": "skywright-blueprint", "version": 1.5, "blocks": []}', "This isn't a Skywright blueprint."],
+		['{"format": "skywright-blueprint", "blocks": []}', "This isn't a Skywright blueprint."],
+		['{"format": "skywright-blueprint", "version": "1", "blocks": []}', "This isn't a Skywright blueprint."],
+		['{"format": "skywright-blueprint", "version": 1e400, "blocks": []}', "This isn't a Skywright blueprint."],
 		[text_of("[[1e400, 0, 0, \"helm\", 0]]"), "Block 1 has a number that isn't a whole number."],
 		[text_of("[[0.5, 0, 0, \"helm\", 0]]"), "Block 1 has a number that isn't a whole number."],
 		[text_of("[[0, 0, 0, \"gold\", 0]]"), "Block 1 is an unknown type, \"gold\"."],
@@ -92,3 +96,14 @@ func test_the_list_shows_saved_blueprints() -> void:
 	FileAccess.open(dir.path_join("notes.txt"), FileAccess.WRITE).close()
 	assert_eq(Blueprint.list(dir), PackedStringArray([Blueprint.path_for("A ship", dir), Blueprint.path_for("B ship", dir)]))
 	DirAccess.remove_absolute(dir.path_join("notes.txt"))
+
+
+func test_a_file_that_is_not_utf8_is_refused_quietly() -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	var path := dir.path_join("bad.skyship.json")
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_buffer(PackedByteArray([123, 0xFF, 0xFE, 125]))
+	file.close()
+	assert_eq(Blueprint.load_file(path).get("problem"), "This isn't a Skywright blueprint.")
+	Blueprint.save(StarterShip.build(), "Zoë é\U01F680", dir)
+	assert_eq(Blueprint.load_file(Blueprint.path_for("Zoë é\U01F680", dir)).get("name"), "Zoë é\U01F680", "real unicode still loads")

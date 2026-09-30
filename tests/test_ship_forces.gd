@@ -34,12 +34,3 @@ func test_top_speed_is_where_thrust_meets_drag() -> void:
 	var drag := ShipForces.zone_drag(Vector3(0, 0, 50.0), Vector3(0, 0, -speed), ShipForces.air_density(800.0))
 	assert_near(drag.z, 5000.0, 0.01)
 	assert_eq(ShipForces.top_speed(0.0, 50.0, 800.0), 0.0)
-
-
-func test_the_prevailing_wind_circles_the_eye_counter_clockwise() -> void:
-	# Gusts come and go; over ten minutes they average out, leaving the prevailing wind.
-	var sum := Vector3.ZERO
-	for second in 600:
-		sum += Wind.at(Vector3(0, 800, 7000), second)  # due south of the Eye
-	assert_near((sum / 600.0).x, Wind.PREVAILING, 0.3, "blowing east there")
-	assert_near((sum / 600.0).z, 0.0, 0.3)

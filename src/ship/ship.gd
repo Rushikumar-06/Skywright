@@ -16,6 +16,9 @@ var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
 var trim := 1.0      ## Balloon trim, Tuning.TRIM_MIN to Tuning.TRIM_MAX.
 var calm := false    ## No wind. Flight tests fly in still air.
+## The world's wind. The WorldSync sets it before adding the ship; a ship without
+## one makes its own, which counts physics ticks.
+var weather: Wind
 var captain := 0     ## The peer id of the player whose ship it is, or 0 for nobody's.
 var test := false    ## A test flight from the dock.
 ## False on clients: the ship is then a frozen, kinematic copy that follows the
@@ -29,6 +32,8 @@ var _thrust_axes: Array[Vector3] = []   ## Each propeller's push direction, in s
 var _rudders: Array[Vector3] = []
 var _rudder_sides: Array[Vector3] = []  ## Each rudder's flat-side normal, in ship space.
 var _rudder_chords: Array[Vector3] = [] ## The way air flows along each rudder, in ship space.
+var _sails: Array[Vector3] = []
+var _sail_normals: Array[Vector3] = []  ## Each sail's facing, in ship space.
 var _zones: Array[Dictionary] = []
 var _power := 0.0  ## The share of full thrust the engines give each propeller.
 var _last_good := Transform3D.IDENTITY
@@ -42,6 +47,8 @@ func _ready() -> void:
 	if not simulated:
 		freeze_mode = FREEZE_MODE_KINEMATIC
 		freeze = true
+	if weather == null:
+		weather = Wind.new()
 	var props := grid.mass_properties()
 	mass = props["mass"]
 	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
@@ -71,6 +78,9 @@ func _ready() -> void:
 		var turn := Blocks.basis(grid.blocks[cell]["rotation"])
 		_rudder_sides.append(turn * Vector3.RIGHT)
 		_rudder_chords.append(turn * Vector3.FORWARD)
+	for cell in grid.cells_of("sail"):
+		_sails.append(Vector3(cell))
+		_sail_normals.append(Blocks.facing(grid.blocks[cell]["rotation"]))
 	_power = ShipForces.propeller_power(grid)
 	_zones = grid.drag_zones()
 	bounds = grid.bounds()
@@ -144,8 +154,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	_last_good = state.transform
 	var basis := state.transform.basis
 	var altitude := state.transform.origin.y
-	# The wind's clock is physics ticks since the game started; stage 3 uses the host's.
-	var wind := Vector3.ZERO if calm else Wind.at(state.transform.origin, Engine.get_physics_frames() / float(Engine.physics_ticks_per_second))
+	var wind := Vector3.ZERO if calm else weather.at(state.transform.origin, weather.now())
 
 	# Lift: every balloon and lift stone pulls straight up, so together they act as
 	# one force at their lift-weighted centre.
@@ -184,6 +193,15 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var flow := (basis * _rudder_chords[i]).dot(state.get_velocity_at_local_position(offset) - wind)
 		var push := Tuning.RUDDER_FORCE * ShipForces.air_density(altitude + offset.y) * flow * absf(flow) * rudder
 		state.apply_force(-(basis * _rudder_sides[i]) * push, offset)
+
+	# Sails push along their normal, whichever face the wind hits, by the wind across them.
+	for i in _sails.size():
+		var offset := basis * _sails[i]
+		var normal := basis * _sail_normals[i]
+		var flow := (wind - state.get_velocity_at_local_position(offset)).dot(normal)
+		var density := ShipForces.air_density(altitude + offset.y)
+		var push := 0.5 * Tuning.AIR_DENSITY * density * Tuning.SAIL_COEFFICIENT * Tuning.SAIL_AREA * flow * absf(flow)
+		state.apply_force(normal * push, offset)
 
 
 func _sane(state: PhysicsDirectBodyState3D) -> bool:

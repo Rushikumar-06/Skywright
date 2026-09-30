@@ -21,6 +21,7 @@ var dock: StaticBody3D
 var shipyard: Shipyard         ## Null while closed.
 var design: ShipDesign         ## Your design, kept for the whole game.
 var gen: WorldGen              ## The world made from the session's seed.
+var wind: Wind                 ## Its wind, on the world's clock.
 var streamer: WorldStreamer    ## Loads its chunks around every ship and player.
 
 var _came_from: Ship           ## The ship you were on before this one, while it's still here.
@@ -36,9 +37,11 @@ func _ready() -> void:
 	add_child(_sky)
 	add_child(Roil.new())
 	gen = WorldGen.new(session.world_seed)
+	wind = Wind.new(gen)
 	dock = Dock.create(START)
 	add_child(dock)
 	sync = WorldSync.new(session)
+	sync.wind = wind
 	sync.ship_added.connect(_on_ship_added)
 	sync.ship_removed.connect(_on_ship_removed)
 	for index in Dock.SLIPWAYS:
@@ -104,6 +107,7 @@ func board(target: Ship, spot := -1) -> void:
 		add_child(player)
 		sync.player = player
 		hud = Hud.new(player, session)
+		hud.wind = wind
 		add_child(hud)
 	else:
 		var here := sync.id_of(ship) != 0  # a ship on its way out can't be gone back to

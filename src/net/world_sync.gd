@@ -53,6 +53,7 @@ var player: PlayerController  ## This machine's player, whose crew it reports. N
 var berths: Array[Transform3D] = []       ## Where each slipway's ships are built. Set by the World.
 var test_berths: Array[Transform3D] = []  ## Where each slipway's test flights start. Likewise.
 var obstacles: Array[AABB] = []           ## What ships mustn't be built inside. Likewise.
+var wind: Wind                            ## The world's wind, which every ship feels. Likewise.
 
 var _time := 0.0            ## Seconds of physics since this world began.
 var _offset := 0.0          ## Client: the server's clock minus ours.
@@ -190,6 +191,7 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: in
 	ship.transform = at
 	ship.captain = captain
 	ship.test = test
+	ship.weather = wind
 	ships[id] = ship
 	get_parent().add_child(ship)
 	if ship.helm != null:
@@ -321,6 +323,8 @@ func _on_pilot_changed(id: int) -> void:
 func _physics_process(delta: float) -> void:
 	if session.mode == SessionScript.Mode.NONE:
 		return  # the session has just ended, and this world goes next
+	if wind != null:
+		wind.time = now()  # before the ships fly, so storms are where everyone sees them
 	var sending := _tick % SEND_EVERY == 0
 	_tick += 1
 	var mine := _my_crew() if sending else []

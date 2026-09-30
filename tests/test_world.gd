@@ -85,9 +85,10 @@ func test_the_helm_readout() -> void:
 	add_child(ship)
 	ship.throttle = 0.5
 	ship.rudder = -0.4
-	var text := Hud.readout(ship)
+	var text := Hud.readout(ship, Vector3(0, 0, -10))
 	assert_true(text.contains("50% ahead"), text)
 	assert_true(text.contains("40% port"), text)
 	assert_true(text.contains("Heading   000°"), text)
+	assert_true(text.contains("Wind      10 m/s from 180°"), text)
 	assert_true(text.contains("Altitude   877 m"), text)
 	assert_true(text.contains("Autopilot off"), text)

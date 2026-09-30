@@ -11,6 +11,7 @@ var player: PlayerController
 var session: Node
 var test_flight := false  ## You're on a test flight. Set by the World each frame.
 var at_dock := false      ## You're at the dock. Set by the World each frame.
+var wind: Wind            ## The world's wind, shown at the helm. Set by the World.
 
 var _status: Label
 var _crew: Label
@@ -116,7 +117,8 @@ func _process(delta: float) -> void:
 	_message.visible = _message_left > 0.0
 	_helm.visible = player.crew.station != null
 	if _helm.visible:
-		_readout.text = readout(player.ship)
+		var ship := player.ship
+		_readout.text = readout(ship, wind.at(ship.global_position, wind.now()) if wind != null else Vector3.ZERO)
 
 
 ## A player's name, from the session's roster.
@@ -124,8 +126,13 @@ func name_of(peer: int) -> String:
 	return session.players.get(peer, {}).get("name", "Someone")
 
 
-## The helm's instruments as text.
-static func readout(ship: Ship) -> String:
+## The compass bearing v points toward, 0 to 359: north is -Z, east is +X.
+static func bearing(v: Vector3) -> int:
+	return posmod(roundi(rad_to_deg(atan2(v.x, -v.z))), 360)
+
+
+## The helm's instruments as text, with the wind at the ship.
+static func readout(ship: Ship, wind := Vector3.ZERO) -> String:
 	var lines: PackedStringArray = []
 	lines.append("Throttle  %s" % ("%3d%% ahead" % roundi(ship.throttle * 100.0) if ship.throttle >= 0.0 else "%3d%% astern" % roundi(-ship.throttle * 100.0)))
 	lines.append("Rudder    %s" % ("centred" if absf(ship.rudder) < 0.05 else "%3d%% %s" % [roundi(absf(ship.rudder) * 100.0), "starboard" if ship.rudder > 0.0 else "port"]))
@@ -133,6 +140,7 @@ static func readout(ship: Ship) -> String:
 	lines.append("Speed     %3d m/s" % roundi(ship.linear_velocity.length()))
 	lines.append("Altitude  %4d m   %+.1f m/s" % [roundi(ship.global_position.y), ship.linear_velocity.y])
 	lines.append("Heading   %03d°" % posmod(roundi(-rad_to_deg(ship.heading())), 360))
+	lines.append("Wind      %2d m/s from %03d°" % [roundi(Vector2(wind.x, wind.z).length()), bearing(-wind)])
 	if ship.helm.autopilot:
 		lines.append("Autopilot %03d° at %d m" % [posmod(roundi(-rad_to_deg(ship.helm.target_heading)), 360), roundi(ship.helm.target_altitude)])
 	else:

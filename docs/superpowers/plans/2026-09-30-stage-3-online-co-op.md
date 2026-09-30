@@ -431,3 +431,32 @@ Build-log item: "Test: two game instances playing together on one machine".
 6. **Kill the host:** does the guest get "Lost the connection to the host." within about 8 s?
 7. **Dedicated server:** `godot --headless --path . -- --server`, then two copies join it by the LAN list.
 8. **Wi-Fi:** two laptops on the same Wi-Fi. Is it smooth? Does the LAN list find the game?
+
+---
+
+## Changes during execution and after the final review
+
+A fresh reviewer read the whole branch and gave the verdict "with fixes": no critical findings and one important one. Every fix below has a test that failed first:
+
+| Problem | Fix | Test |
+|---|---|---|
+| Guests hear of each other through the host's relay, and had no ENet connection to set a timeout on. | SceneMultiplayer's server relay is off: guests only ever talk to the host. | `test_two_players_asking_at_once_get_one_pilot` |
+| With exactly `max_players` ENet connections, a dedicated server's ENet refused the next joiner before the host could say "The game is full". | Servers open one spare connection. | `test_a_dedicated_server_has_no_player_of_its_own` |
+| Leaving and hosting again at once couldn't list the game: the old beacon held the discovery port until the end of the frame. | The beacon is freed at once. | `test_hosting_again_straight_after_leaving_is_found` |
+| A guest's world lives one frame past its session and sent an RPC to itself. | `WorldSync` does nothing once its session has ended. | the sync tests' error counts |
+| Two players leaving in one poll: telling others about the first sent to the second's dead connection (seen in the server's log in `test_two_games`). | The roster broadcast after a leave, and freeing the leaver's stations, wait for the end of the frame. | `test_guests_leaving_together_are_both_dropped_cleanly`, `test_a_pilot_and_a_guest_leaving_together_are_dropped_cleanly` |
+| Review: a pilot whose game hangs or whose Wi-Fi dies kept steering with their last keys until the connection counted as lost (8 s). | The server lets go of a remote pilot's keys after 0.25 s without any. | `test_a_pilot_who_goes_silent_stops_steering` |
+
+**Found about the test runner:** under `--fixed-fps 60`, Godot's frame cap does nothing, so frames run as fast as they can (spec §6 said otherwise; corrected). `NetCase.play()` and `play_until()` pace ticks in real time, which the two-process test needs.
+
+**Moved:** `ShipGrid.bounds()` and `Ship.crew_spawn(slot)` were built in Task 6, where they're first used. The server is started with `OS.execute_with_pipe` so the test can wait for it and check its log.
+
+**Deferred:**
+- A malicious host can send a degenerate ship basis. It passes `is_finite()` and logs one engine error.
+- The worst-case LAN answer is 254 of 256 bytes. A longer name or one more field would drop long-named games from lists without a word.
+- `--join=` ignores a failed join (no log for a mistyped host name).
+- Resolving a host name blocks the game on slow DNS, and Godot caches the answer for the whole run.
+- Full games can be clicked in the LAN list (the host then refuses), and rebuilding the list drops keyboard focus.
+- Pressing H twice within about 100 ms on a guest's machine sends "on" twice.
+- Truncated data after the LAN magic prefix logs an engine error.
+- `tests/run_tests.gd` sets `Engine.max_fps = 60`, which does nothing under `--fixed-fps`.

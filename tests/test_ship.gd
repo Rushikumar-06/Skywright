@@ -83,6 +83,18 @@ func test_an_overloaded_ship_sinks() -> void:
 	assert_true(ship.linear_velocity.y < -5.0, "and is still sinking")
 
 
+func test_a_propeller_pushes_the_way_it_faces() -> void:
+	var grid := StarterShip.build()
+	var aft := Blocks.rotation_of(Basis(Vector3.UP, PI))
+	for cell in grid.cells_of("propeller"):
+		grid.set_block(cell, "propeller", aft)
+	var ship := launch(grid)
+	assert_near(ship.max_thrust(), -5000.0, 0.01, "both propellers push astern")
+	ship.throttle = 1.0
+	await simulate(20.0)
+	assert_true(ship.global_position.z - START.z > 20.0, "she moves astern, toward +Z")
+
+
 func test_top_speed_is_within_ten_percent_of_the_estimate() -> void:
 	var ship := launch(StarterShip.build())
 	ship.throttle = 1.0

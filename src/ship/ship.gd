@@ -23,7 +23,10 @@ var simulated := true
 var _balloons: Array[Vector3] = []
 var _lift_stones: Array[Vector3] = []
 var _propellers: Array[Vector3] = []
+var _thrust_axes: Array[Vector3] = []   ## Each propeller's push direction, in ship space.
 var _rudders: Array[Vector3] = []
+var _rudder_sides: Array[Vector3] = []  ## Each rudder's flat-side normal, in ship space.
+var _rudder_chords: Array[Vector3] = [] ## The way air flows along each rudder, in ship space.
 var _zones: Array[Dictionary] = []
 var _power := 0.0  ## The share of full thrust the engines give each propeller.
 var _last_good := Transform3D.IDENTITY
@@ -60,10 +63,13 @@ func _ready() -> void:
 		_lift_stones.append(Vector3(cell))
 	for cell in grid.cells_of("propeller"):
 		_propellers.append(Vector3(cell))
+		_thrust_axes.append(Blocks.facing(grid.blocks[cell]["rotation"]))
 	for cell in grid.cells_of("rudder"):
 		_rudders.append(Vector3(cell))
-	if not _propellers.is_empty():
-		_power = minf(1.0, float(grid.cells_of("engine").size() * Tuning.PROPELLERS_PER_ENGINE) / _propellers.size())
+		var turn := Blocks.basis(grid.blocks[cell]["rotation"])
+		_rudder_sides.append(turn * Vector3.RIGHT)
+		_rudder_chords.append(turn * Vector3.FORWARD)
+	_power = ShipForces.propeller_power(grid)
 	_zones = grid.drag_zones()
 	bounds = grid.bounds()
 	_last_good = global_transform
@@ -100,7 +106,7 @@ func crew_spawn(slot := 0) -> Vector3:
 
 ## Full-throttle thrust in N.
 func max_thrust() -> float:
-	return _propellers.size() * _power * Tuning.PROPELLER_THRUST
+	return ShipForces.forward_thrust(grid)
 
 
 ## The trim at which lift equals weight at altitude (it may fall outside the trim limits).
@@ -153,10 +159,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if lift > 0.0:
 		state.apply_force(Vector3(0.0, lift, 0.0), lift_moment / lift)
 
-	# Thrust. Propellers push toward the bow until the shipyard can turn blocks.
-	var thrust := -basis.z * throttle * _power * Tuning.PROPELLER_THRUST
-	for cell in _propellers:
-		state.apply_force(thrust, basis * cell)
+	# Thrust: each propeller pushes the way it faces.
+	for i in _propellers.size():
+		state.apply_force(basis * _thrust_axes[i] * (throttle * _power * Tuning.PROPELLER_THRUST), basis * _propellers[i])
 
 	# Drag and the keel's push on each zone, from its own velocity through the air.
 	var to_ship := basis.transposed()
@@ -169,11 +174,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.apply_force(basis * force, offset)
 
 	# Rudders push the stern sideways, harder the faster air flows past them.
-	for cell in _rudders:
-		var offset := basis * cell
-		var flow := -basis.z.dot(state.get_velocity_at_local_position(offset) - wind)
+	# Each pushes along its flat side, and feels the air flowing along its chord.
+	for i in _rudders.size():
+		var offset := basis * _rudders[i]
+		var flow := (basis * _rudder_chords[i]).dot(state.get_velocity_at_local_position(offset) - wind)
 		var push := Tuning.RUDDER_FORCE * ShipForces.air_density(altitude + offset.y) * flow * absf(flow) * rudder
-		state.apply_force(-basis.x * push, offset)
+		state.apply_force(-(basis * _rudder_sides[i]) * push, offset)
 
 
 func _sane(state: PhysicsDirectBodyState3D) -> bool:

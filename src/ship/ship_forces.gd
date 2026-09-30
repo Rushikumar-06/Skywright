@@ -30,3 +30,22 @@ static func top_speed(thrust: float, forward_area: float, altitude: float) -> fl
 	if thrust <= 0.0 or forward_area <= 0.0:
 		return 0.0
 	return sqrt(thrust / (0.5 * Tuning.AIR_DENSITY * air_density(altitude) * Tuning.DRAG_COEFFICIENT * forward_area))
+
+
+## Each propeller's share of full thrust: every engine drives two propellers, so
+## with more propellers than that they share the power. 0 with no propellers.
+static func propeller_power(grid: ShipGrid) -> float:
+	var propellers := grid.cells_of("propeller").size()
+	if propellers == 0:
+		return 0.0
+	return minf(1.0, float(grid.cells_of("engine").size() * Tuning.PROPELLERS_PER_ENGINE) / propellers)
+
+
+## Full-throttle thrust along the bow, in N: each propeller pushes the way it faces,
+## so this is negative when they push astern.
+static func forward_thrust(grid: ShipGrid) -> float:
+	var power := propeller_power(grid)
+	var sum := 0.0
+	for cell in grid.cells_of("propeller"):
+		sum += power * Tuning.PROPELLER_THRUST * Blocks.facing(grid.blocks[cell]["rotation"]).dot(Vector3.FORWARD)
+	return sum

@@ -51,7 +51,7 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 - **Shipyard readouts:** weight, lift at the current altitude, thrust, estimated top speed and climb rate. Markers show the centre of mass against the centre of lift, with warnings such as "lists 8° to port" or "too heavy to hold altitude".
 - **Cargo:** crates are stowed in cargo bays, and their weight counts where they're stowed.
 - **Damage:** destroyed blocks are removed. Any section no longer connected to the helm's section breaks away as its own wreck, and a severed balloon floats away.
-- **Shipyard:** the shipyard opens within 150 m of any town's dock, which has a slipway for each player. A launch or test flight goes from the nearest town's slipways. Blocks are placed, removed, turned, tipped and mirrored, with undo and redo. Mirror mode makes every edit on both sides of the keel.
+- **Shipyard:** the shipyard opens within 150 m of any town's dock, which has a slipway for each player. A launch or test flight goes from the slipways of the town whose shipyard it was made in, even after you come back from a test flight somewhere else. Blocks are placed, removed, turned, tipped and mirrored, with undo and redo. Mirror mode makes every edit on both sides of the keel.
 - **Test flights:** a design can be flown at once from the shipyard, with the designer at the helm, and returned from instantly. A test flight is a real ship that's removed when it ends.
 - **Blueprints:** designs are saved as blueprints, which are shareable files.
 

@@ -50,7 +50,7 @@ The world is a disc 16 km across, centred on the Eye. The Roil, a storm sea, fil
 | The Eye | 0 to 1,600 m |
 
 - **Islands** stream in around you, up to 2.5 km away, in three levels of detail. Tops are grassy and undersides are rock. Some have trees and waterfalls.
-- **Towns.** Ten towns stand on big islands: four in the Calm Reaches (the first is where you start), three in the Shattered Belt, two in the Gale Expanse and one at the Stormwall. Each has a quay with a slipway for every player, a pier beside each slipway, houses and a beacon tower. The shipyard opens at any town's dock, and ships launch from the nearest one. Landmarks (spires, arches and ruins) and wrecks of old starter ships are scattered about.
+- **Towns.** Ten towns stand on big islands: four in the Calm Reaches (the first is where you start), three in the Shattered Belt, two in the Gale Expanse and one at the Stormwall. Each has a quay with a slipway for every player, a pier beside each slipway, houses and a beacon tower. The shipyard opens at any town's dock, and ships launch from that town. Landmarks (spires, arches and ruins) and wrecks of old starter ships are scattered about.
 - **Wind** circles the Eye and blows harder toward it. **Sky rivers** are fast currents, up to 35 m/s, that you can ride or fight. **Storm cells** are drifting circles of gusts and updrafts, with lightning. Sails push a ship along the way they face. The wind is the same for everyone, because it comes from the seed and the world clock.
 - **The Roil** is at the bottom of everything. Fog sheets lie over it, and lightning flickers in it.
 - **The map** (M) fills in as you fly. The compass shows your bearing, the towns you've seen, and the region you're in.
@@ -88,7 +88,7 @@ The panels show what your design will do: weight, lift, where she floats, thrust
 
 **Test flight.** F puts a copy of your design in the air with you at its helm. Fly it, then press B: you're back in the shipyard at once, with your design as you left it. You can have one test flight at a time.
 
-**Launching.** Launch sends your design down your slipway at the nearest town as a real ship, and you and anyone aboard sail on it. You can have one ship at a time, so launching again replaces your last one. A player who leaves takes their ships with them. Building, testing and launching are free.
+**Launching.** Launch sends your design down your slipway at the town whose shipyard you're in as a real ship, and you and anyone aboard sail on it. You can have one ship at a time, so launching again replaces your last one. A player who leaves takes their ships with them. Building, testing and launching are free.
 
 ## Blueprints
 

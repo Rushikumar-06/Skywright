@@ -139,6 +139,39 @@ func test_launching_at_another_town_uses_its_slipways() -> void:
 	assert_eq(world.town_at(world.ship.global_position), 3)
 
 
+func test_after_a_test_flight_launches_still_go_from_the_shipyards_town() -> void:
+	var world := solo_world()
+	await get_tree().process_frame
+	var dock := move_to_town(world, 3)
+	var home: Ship = world.ship
+	press_b(world)
+	assert_true(world.shipyard != null, "the shipyard opens at town 3")
+	world.test_flight(StarterShip.build())
+	assert_true(world.on_test_flight(), "on a test flight")
+	# Meanwhile the ship you came from is taken 2 km from every dock.
+	var away := Vector3.INF
+	for angle in 36:
+		var spot := Vector3(0.0, 900.0, -5000.0).rotated(Vector3.UP, angle * TAU / 36.0)
+		if world.gen.towns.all(func(town: Dictionary) -> bool: return spot.distance_to(town["dock"]) > 2000.0):
+			away = spot
+			break
+	assert_true(away.is_finite(), "somewhere 2 km from every dock")
+	home.global_position = away
+	home.reset_physics_interpolation()
+	press_b(world)
+	assert_eq(world.ship, home, "back aboard the ship you came from")
+	assert_true(world.shipyard != null, "the shipyard reopens")
+	if world.shipyard == null:
+		return
+	assert_eq((world.shipyard as Shipyard).stats.altitude, dock.y, "at town 3's altitude")
+	await play(1.1)
+	world.launch(StarterShip.build())
+	assert_true(world.ship != home, "a new ship")
+	var slipway := Dock.slipway(dock, 0)
+	assert_near((world.ship.global_position - slipway.origin).length(), 0.0, 40.0, "at town 3's slipway, not %s" % world.ship.global_position)
+	assert_eq(world.town_at(world.ship.global_position), 3)
+
+
 func test_a_wide_ship_is_raised_clear_of_the_piers() -> void:
 	var world := solo_world()
 	await get_tree().process_frame

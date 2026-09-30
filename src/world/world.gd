@@ -34,6 +34,7 @@ var map: MapView               ## The whole world, hidden until M. Made with the
 
 var _reveal_left := 0.0        ## Seconds until the next look around.
 var _came_from: Ship           ## The ship you were on before this one, while it's still here.
+var _yard_town := 0            ## The town whose dock the shipyard was last opened at.
 
 var _sky: WorldSky
 var _pause: PanelContainer
@@ -99,13 +100,14 @@ func town_at(p: Vector3) -> int:
 	return -1
 
 
-## Takes grid for a test flight from your test berth at the nearest town, at its helm.
+## Takes grid for a test flight from your test berth at the shipyard's town (with it
+## shut, the nearest), at its helm.
 func test_flight(grid: ShipGrid) -> void:
 	_launch(grid, true)
 
 
-## Launches grid as your ship, at your slipway at the nearest town and at its helm. It
-## replaces your old ship, whose crew come too.
+## Launches grid as your ship, at your slipway at the shipyard's town (with it shut, the
+## nearest) and at its helm. It replaces your old ship, whose crew come too.
 func launch(grid: ShipGrid) -> void:
 	_launch(grid, false)
 
@@ -189,16 +191,19 @@ func rescue() -> void:
 			return
 
 
-## Opens the shipyard on your design, when you're at a dock or dock_only is off.
+## Opens the shipyard on your design, when you're at a dock or dock_only is off. Off, it
+## stays with the town it was last opened at, as when you're back from a test flight.
 func open_shipyard(dock_only := true) -> void:
 	if shipyard != null or player == null:
 		return
 	if dock_only and not at_dock():
 		hud.show_message("The shipyard is at the dock.")
 		return
+	if dock_only:
+		_yard_town = _town_here()
 	if design == null:
 		design = ShipDesign.new(ship.grid if ship != null else StarterShip.build())
-	shipyard = Shipyard.new(design, (gen.towns[_town_here()]["dock"] as Vector3).y)
+	shipyard = Shipyard.new(design, (gen.towns[_yard_town]["dock"] as Vector3).y)
 	shipyard.layer = 3
 	shipyard.test_flight_requested.connect(test_flight)
 	shipyard.launch_requested.connect(launch)
@@ -229,8 +234,11 @@ func _swap_crew(crew: CrewMember) -> void:
 	old.queue_free()
 
 
-## The town you're at, or the first when you're not at one.
+## The shipyard's town while it's open, else the town you're at, or the first when
+## you're not at one.
 func _town_here() -> int:
+	if shipyard != null:
+		return _yard_town
 	return maxi(0, town_at(player.world_position())) if player != null else 0
 
 

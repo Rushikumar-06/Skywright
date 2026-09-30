@@ -5,12 +5,17 @@ extends Node
 ## checked.
 ##
 ## The server flies the ships. When a client's world has loaded it asks to enter;
-## the server sends every ship (compressed blocks, paint, transform, pilot, captain
-## and test flag) and from then on sends snapshots at 30 Hz. Clients keep frozen
-## copies of the ships and draw them DELAY seconds in the past on the server's
-## clock, along SnapshotBuffer curves, so late or lost packets don't show. Ships
+## the server sends every ship (compressed blocks, paint, transform, pilot, captain,
+## test flag, blueprint, pirate flag and spares) and from then on sends snapshots
+## at 30 Hz. Clients keep frozen copies of the ships and draw them DELAY seconds in
+## the past on the server's clock, along SnapshotBuffer curves, so late or lost
+## packets don't show. Ships
 ## the server adds or removes mid-game are sent to everyone in the world; the
 ## World moves its player off a ship before it goes.
+##
+## Damage belongs to the server too. It applies each change to a ship's blocks and
+## sends the same changes to everyone, who apply them to their copies; a ship with
+## no blocks left is taken away.
 ##
 ## Each player walks their own crew member and reports where it is in ship space
 ## at 30 Hz (spec §4.5), or in world space with ship id 0 while ashore. The server
@@ -110,11 +115,12 @@ func avatar_of(peer: int) -> CrewAvatar:
 
 
 ## Server: puts a new ship in the world, captain's (0 for nobody's), with pilot at
-## its helm, and tells everyone in the world.
-func add_ship(grid: ShipGrid, at: Transform3D, captain := 0, test := false, pilot := 0) -> Ship:
+## its helm, and tells everyone in the world. As she is now is her blueprint, made
+## whole. She carries a full load of spares, unless she's a pirate.
+func add_ship(grid: ShipGrid, at: Transform3D, captain := 0, test := false, pilot := 0, pirate := false) -> Ship:
 	var id := _next_id
 	_next_id += 1
-	var ship := _add(id, grid, at, true, captain, test, pilot)
+	var ship := _add(id, grid, at, true, captain, test, pilot, grid.whole(), pirate, 0 if pirate else Damage.SPARES_MAX)
 	ship_added.emit(ship)
 	var entry := _entry(id)
 	for peer: int in _in_world:
@@ -130,6 +136,20 @@ func remove_ship(ship: Ship, successor: Ship = null) -> void:
 	for peer: int in _in_world:
 		_ship_removed.rpc_id(peer, id, id_of(successor))
 	_remove(id, successor)
+
+
+## Server: puts hit-point changes (cell -> hit points, 0 for destroyed) into ship,
+## tells everyone in the world, and takes her away if no blocks are left.
+func damage_ship(ship: Ship, changes: Dictionary) -> void:
+	var id := id_of(ship)
+	if id == 0 or changes.is_empty():
+		return
+	ship.damage(changes)
+	var packed := Damage.pack(changes)
+	for peer: int in _in_world:
+		_blocks_changed.rpc_id(peer, id, packed)
+	if ship.grid.blocks.is_empty():
+		remove_ship(ship)
 
 
 ## ship's id, or 0 if it isn't in this world.
@@ -192,7 +212,8 @@ func home_ship() -> Ship:
 
 ## Adds a ship. The pilot is set before the helm's signals are connected, so it
 ## doesn't go out as a change.
-func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: int, test: bool, pilot: int) -> Ship:
+func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: int, test: bool, pilot: int,
+		blueprint: ShipGrid, pirate: bool, spares: int) -> Ship:
 	var ship := Ship.new(grid)
 	ship.name = "Ship%d" % id
 	ship.simulated = simulated
@@ -200,6 +221,10 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: in
 	ship.captain = captain
 	ship.test = test
 	ship.weather = wind
+	ship.blueprint = blueprint
+	ship.pirate = pirate
+	ship.spares = spares
+	ship.born = now()
 	ships[id] = ship
 	get_parent().add_child(ship)
 	if ship.helm != null:
@@ -261,11 +286,12 @@ func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array, town: int) ->
 	return at
 
 
-## A ship as the network carries it: [id, blocks, paint, transform, pilot, captain, test].
+## A ship as the network carries it: [id, blocks, paint, transform, pilot, captain,
+## test, blueprint, pirate, spares].
 func _entry(id: int) -> Array:
 	var ship: Ship = ships[id]
 	return [id, ship.grid.to_bytes(), ship.grid.paint_names(), ship.global_transform,
-			ship.helm.pilot if ship.helm else 0, ship.captain, ship.test]
+			ship.helm.pilot if ship.helm else 0, ship.captain, ship.test, ship.blueprint.to_bytes(), ship.pirate, ship.spares]
 
 
 ## Forgets everyone no longer on the roster, and frees the stations they held.
@@ -495,25 +521,40 @@ func _ship_removed(id: Variant, successor: Variant) -> void:
 ## Client: adds the ship an entry describes, drawn from time on, or returns null
 ## when the entry makes no sense.
 func _add_entry(entry: Variant, time: float) -> Ship:
-	if not entry is Array or entry.size() != 7 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
+	if not entry is Array or entry.size() != 10 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
 		return null
 	if not entry[3] is Transform3D or not (entry[3] as Transform3D).is_finite():
 		return null
 	var at: Transform3D = (entry[3] as Transform3D).orthonormalized()
 	if not is_equal_approx(at.basis.determinant(), 1.0):
 		return null  # squashed flat or mirrored: not a way to face
-	if not entry[4] is int or not entry[5] is int or not entry[6] is bool:
+	if not entry[4] is int or not entry[5] is int or not entry[6] is bool or not entry[8] is bool:
+		return null
+	if not entry[9] is int or entry[9] < 0 or entry[9] > Damage.SPARES_MAX:
 		return null
 	var grid := ShipGrid.from_bytes(entry[1])
 	var paint: Variant = ShipGrid.read_paint(entry[2])
-	if grid == null or paint == null:
+	var blueprint := ShipGrid.from_bytes(entry[7])
+	if grid == null or paint == null or blueprint == null:
 		push_warning("The host sent ship %d with blocks or paint that don't make a ship; leaving it out." % entry[0])
 		return null
 	grid.paint = paint
+	blueprint.paint = paint
 	var buffer := SnapshotBuffer.new()
 	buffer.push(time, at.origin, Vector3.ZERO, at.basis.get_rotation_quaternion())
 	_buffers[entry[0]] = buffer
-	return _add(entry[0], grid, at, false, entry[5], entry[6], entry[4])
+	return _add(entry[0], grid, at, false, entry[5], entry[6], entry[4], blueprint, entry[8], entry[9])
+
+
+## Server -> clients: hit-point changes to ship id (Damage.pack bytes: 0 is
+## destroyed, and a change for an empty cell restores the blueprint's block).
+@rpc("authority", "call_remote", "reliable", 0)
+func _blocks_changed(id: Variant, changes: Variant) -> void:
+	if session.is_server() or not id is int or not ships.has(id):
+		return
+	var unpacked: Variant = Damage.unpack(changes)
+	if unpacked != null:
+		(ships[id] as Ship).damage(unpacked)
 
 
 ## Server -> clients: a snapshot of every ship (see _ship_states), at time.

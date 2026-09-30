@@ -3,12 +3,22 @@ extends RigidBody3D
 ## A ship: one rigid body built from a ShipGrid, flying on the forces of spec §4.4.
 ## Each physics tick it applies lift, thrust, drag and the rudders' push; the
 ## engine adds gravity. Its crew walk in its interior, a separate physics world in
-## ship space (spec §4.5).
+## ship space (spec §4.5). Damage takes blocks away (or a repair brings them back),
+## and the ship rebuilds itself from what's left, at most once a frame.
+
+signal blocks_changed  ## After each rebuild.
 
 const MAX_SPEED := 400.0  ## m/s. Anything faster is a physics blow-up.
 const MAX_SPIN := 20.0    ## rad/s. Likewise.
 
 var grid: ShipGrid
+## The ship whole, as she was built: what repairs restore. Set before adding the
+## ship; without one she's her grid made whole.
+var blueprint: ShipGrid
+var spares := 0      ## Spare materials for repairs, 0 to Damage.SPARES_MAX.
+var pirate := false
+var born := 0.0      ## The server's clock when she was added.
+var lost := false    ## The Roil took her.
 var interior: ShipInterior  ## Where the crew walk.
 var helm: Helm              ## The ship's first helm, or null.
 var bounds: AABB            ## The box around its blocks, in ship space.
@@ -48,6 +58,9 @@ var _sail_normals: Array[Vector3] = []  ## Each sail's facing, in ship space.
 var _zones: Array[Dictionary] = []
 var _power := 0.0  ## The share of full thrust the engines give each propeller.
 var _last_good := Transform3D.IDENTITY
+var _shapes: Array[CollisionShape3D] = []
+var _mesh: MeshInstance3D
+var _rebuild_pending := false
 
 
 func _init(ship_grid: ShipGrid) -> void:
@@ -60,15 +73,48 @@ func _ready() -> void:
 		freeze = true
 	if weather == null:
 		weather = Wind.new()
+	can_sleep = false
+	linear_damp_mode = DAMP_MODE_REPLACE
+	angular_damp_mode = DAMP_MODE_REPLACE
+	angular_damp = Tuning.ANGULAR_DAMPING
+	if blueprint == null:
+		blueprint = grid.whole()
+	_last_good = global_transform
+	interior = ShipInterior.new()
+	rebuild()
+	add_child(interior)
+	var helms := grid.cells_of("helm")
+	if not helms.is_empty():
+		helm = Helm.new(self, helms[0])
+		add_child(helm)
+
+
+## Puts hit-point changes (cell -> hit points, 0 for destroyed) into the grid. When
+## blocks went or came back she rebuilds, once, at the end of the frame, and this
+## returns true.
+func damage(changes: Dictionary) -> bool:
+	var moved := Damage.apply(grid, changes, blueprint)
+	if moved and not _rebuild_pending:
+		_rebuild_pending = true
+		rebuild.call_deferred()
+	return moved
+
+
+## Rebuilds everything that comes from the blocks, now: mass, shapes, the parts
+## that fly her, the mesh and the interior's hull. A lost helm lets its pilot go,
+## and she drifts, a wreck.
+func rebuild() -> void:
+	_rebuild_pending = false
+	if grid.blocks.is_empty() or not is_inside_tree():
+		return  # she's on her way out
 	var props := grid.mass_properties()
 	mass = props["mass"]
 	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = props["center"]
 	inertia = props["inertia"]
-	can_sleep = false
-	linear_damp_mode = DAMP_MODE_REPLACE
-	angular_damp_mode = DAMP_MODE_REPLACE
-	angular_damp = Tuning.ANGULAR_DAMPING
+	for shape in _shapes:
+		shape.free()
+	_shapes.clear()
 	var boxes := grid.merged_boxes()
 	for box in boxes:
 		var cube := BoxShape3D.new()
@@ -77,6 +123,9 @@ func _ready() -> void:
 		shape.shape = cube
 		shape.position = box.get_center()
 		add_child(shape)
+		_shapes.append(shape)
+	for list: Array in [_balloons, _lift_stones, _propellers, _thrust_axes, _rudders, _rudder_sides, _rudder_chords, _sails, _sail_normals]:
+		list.clear()
 	for cell in grid.cells_of("balloon"):
 		_balloons.append(Vector3(cell))
 	for cell in grid.cells_of("lift_stone"):
@@ -95,14 +144,34 @@ func _ready() -> void:
 	_power = ShipForces.propeller_power(grid)
 	_zones = grid.drag_zones()
 	bounds = grid.bounds()
-	_last_good = global_transform
-	add_child(ShipMesh.build(grid))
-	interior = ShipInterior.new(boxes)
-	add_child(interior)
-	var helms := grid.cells_of("helm")
-	if not helms.is_empty():
-		helm = Helm.new(self, helms[0])
-		add_child(helm)
+	if _mesh != null:
+		_mesh.free()
+	_mesh = ShipMesh.build(grid)
+	add_child(_mesh)
+	interior.reshape(boxes)
+	if helm != null and grid.type_at(helm.cell) != "helm":
+		helm.autopilot = false
+		helm.leave(helm.pilot)
+		helm.queue_free()
+		helm = null
+		anchored = false
+	blocks_changed.emit()
+
+
+## Whether she has lost her helm, so nobody can steer her.
+func is_wreck() -> bool:
+	return helm == null
+
+
+## Her hit points over her blueprint's, 0 to 1.
+func condition() -> float:
+	var full := 0
+	for block: Dictionary in blueprint.blocks.values():
+		full += Tuning.BLOCKS[block["type"]]["hp"]
+	var left := 0
+	for block: Dictionary in grid.blocks.values():
+		left += block["hp"]
+	return clampf(float(left) / full, 0.0, 1.0) if full > 0 else 0.0
 
 
 ## Spots next to the helm, nearest first, as offsets from the cell just aft of it.

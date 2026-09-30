@@ -166,6 +166,7 @@ static func readout(ship: Ship, wind := Vector3.ZERO) -> String:
 		lines.append("Autopilot %03d° at %d m" % [posmod(roundi(-rad_to_deg(ship.helm.target_heading)), 360), roundi(ship.helm.target_altitude)])
 	else:
 		lines.append("Autopilot off")
+	lines.append("Hull      %3d%%" % roundi(ship.condition() * 100.0))
 	if ship.anchored:
 		lines.append("Anchored")
 	return "\n".join(lines)

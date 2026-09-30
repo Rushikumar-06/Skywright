@@ -143,6 +143,10 @@ func test_host_cleans_joiner_names() -> void:
 	assert_eq(host.players.get(client.multiplayer.get_unique_id()), {"name": "Ann Bob" + "x".repeat(17)})
 
 
+func test_the_protocol_is_version_5() -> void:
+	assert_eq(SessionScript.PROTOCOL_VERSION, 5, "stage 6: damage")
+
+
 func test_version_check_survives_new_rpcs() -> void:
 	# A later version adds RPCs to Session; an old client must still get the
 	# version message, not silence.

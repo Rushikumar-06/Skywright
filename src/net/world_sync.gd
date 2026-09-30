@@ -21,9 +21,16 @@ extends Node
 ## takes the helm for the asker only if they last said they were aboard and in
 ## reach, and tells everyone who has it. The pilot's keys come here at 30 Hz.
 ##
+## A player asks the server to launch a design, as a test flight or as their own
+## ship, at most once a second. The server builds it whole at their slipway (or its
+## test berth), raised clear of other ships, with them at its helm. There's one of
+## each a player: a new test flight replaces the last, and a new ship replaces the
+## old one, taking its crew.
+##
 ## When someone leaves the roster, everyone forgets their crew member, and the
-## server frees their stations. A dedicated server anchors its ships while nobody
-## is aboard, so they don't drift off in the wind for hours.
+## server takes their ships away and frees their stations. A dedicated server
+## anchors its ships while nobody is aboard, so they don't drift off in the wind
+## for hours.
 
 signal ship_added(ship: Ship)
 ## ship has left ships and is about to be freed. Its crew board successor, if not null.
@@ -37,10 +44,15 @@ const CREW_REACH := 35.0     ## m. Crew reported further than this from their sh
 const CREW_MAX_SPEED := 50.0 ## m/s. Likewise for crew reported moving faster.
 const REACH_SLACK := 0.5     ## m. Allowance on the helm's reach for where a client last said it was.
 const KEYS_GO_STALE := 0.25  ## s. A remote pilot's keys count as let go when none come for this long.
+const LAUNCH_COOLDOWN := 1.0 ## s. The least time between one player's launches.
+const CLEARANCE := 2.0       ## m. The least gap between a ship being launched and anything else.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
 var player: PlayerController  ## This machine's player, whose crew it reports. Null when there's none.
+var berths: Array[Transform3D] = []       ## Where each slipway's ships are built. Set by the World.
+var test_berths: Array[Transform3D] = []  ## Where each slipway's test flights start. Likewise.
+var obstacles: Array[AABB] = []           ## What ships mustn't be built inside. Likewise.
 
 var _time := 0.0            ## Seconds of physics since this world began.
 var _offset := 0.0          ## Client: the server's clock minus ours.
@@ -52,6 +64,7 @@ var _buffers: Dictionary = {}   ## Client: ship id -> SnapshotBuffer.
 var _crew: Dictionary = {}      ## Other players' crew: peer id -> {"ship": id, "buffer": SnapshotBuffer, "at": Vector3, "pitch": float}.
 var _avatars: Dictionary = {}   ## Peer id -> CrewAvatar.
 var _keys_heard: Dictionary = {}  ## Server: ship id -> _time its pilot's keys last came.
+var _launched_at: Dictionary = {}  ## Server: peer id -> _time of their last launch.
 
 
 func _init(world_session: Node) -> void:
@@ -105,6 +118,38 @@ func id_of(ship: Ship) -> int:
 	return id if id != null else 0
 
 
+## This machine's player launches grid: as a test flight when test, else as their
+## own ship in place of the old one. The server decides.
+func launch(grid: ShipGrid, test: bool) -> void:
+	if session.is_server():
+		_launch_for(multiplayer.get_unique_id(), grid, test)
+	else:
+		_launch.rpc_id(1, grid.to_bytes(), grid.paint_names(), test)
+
+
+## This machine's player ends their test flight.
+func end_test() -> void:
+	if session.is_server():
+		remove_ship(ship_of(multiplayer.get_unique_id(), true))
+	else:
+		_end_test.rpc_id(1)
+
+
+## peer's test flight when test, else their own ship; null when they have none.
+func ship_of(peer: int, test: bool) -> Ship:
+	for ship: Ship in ships.values():
+		if ship.captain == peer and ship.test == test:
+			return ship
+	return null
+
+
+## Where peer's test flights start when test, else where their ships are built: at
+## the slipway for their place in the roster, after a dedicated server's own.
+func berth_of(peer: int, test: bool) -> Transform3D:
+	var index: int = maxi(0, session.players.keys().find(peer)) + (1 if session.dedicated else 0)
+	return test_berths[index] if test else berths[index]
+
+
 ## The ship to board when there's no other reason to pick one: the host's (captain
 ## 1), else nobody's (a dedicated server's), else anyone's, a test flight last.
 func home_ship() -> Ship:
@@ -151,6 +196,40 @@ func _remove(id: int, successor: Ship) -> void:
 	ship.queue_free()
 
 
+## Server: builds grid for peer, whole, at their berth with them at its helm. It
+## replaces their test flight, and their own ship too unless it's a test flight.
+func _launch_for(peer: int, grid: ShipGrid, test: bool) -> void:
+	if _time - _launched_at.get(peer, -INF) < LAUNCH_COOLDOWN:
+		return
+	_launched_at[peer] = _time
+	var built := ShipDesign.new(grid).grid  # new ships are built whole
+	var trial := ship_of(peer, true)
+	var own := ship_of(peer, false)
+	# A test flight leaves your own ship where it is, so keep clear of it.
+	var at := _clear_spot(built, berth_of(peer, test), [trial] if test else [trial, own])
+	var ship := add_ship(built, at, peer, test, peer)
+	if trial != null:
+		remove_ship(trial, ship)
+	if own != null and not test:
+		remove_ship(own, ship)
+
+
+## at, raised until grid's box there is CLEARANCE clear of every obstacle and of
+## every ship but those in ignoring. After 20 spots it settles for the last.
+func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array) -> Transform3D:
+	var others: Array[AABB] = obstacles.duplicate()
+	for ship: Ship in ships.values():
+		if not ignoring.has(ship):
+			others.append(ship.global_transform * ship.bounds)
+	for _spot in 19:
+		var box := at * grid.bounds()
+		var near := box.grow(CLEARANCE)
+		if not others.any(func(other: AABB) -> bool: return near.intersects(other)):
+			break
+		at = at.translated(Vector3(0.0, box.size.y + CLEARANCE, 0.0))
+	return at
+
+
 ## A ship as the network carries it: [id, blocks, paint, transform, pilot, captain, test].
 func _entry(id: int) -> Array:
 	var ship: Ship = ships[id]
@@ -166,9 +245,10 @@ func _on_roster_changed() -> void:
 	for peer: int in _crew.keys():
 		if not session.players.has(peer):
 			_forget_crew(peer)
-	# Freeing stations tells everyone, so wait for the end of the frame: others may
-	# have left in the same poll, and their connections are already gone.
-	_free_stations.call_deferred()
+	# Taking ships away and freeing stations tell everyone, so wait for the end of
+	# the frame: others may have left in the same poll, and their connections are
+	# already gone.
+	_let_leavers_go.call_deferred()
 	_anchor_if_empty()
 
 
@@ -180,12 +260,15 @@ func _forget_crew(peer: int) -> void:
 		_avatars.erase(peer)
 
 
-## Server: frees the stations of anyone no longer on the roster.
-func _free_stations() -> void:
+## Server: takes away the ships of anyone no longer on the roster, and frees the
+## stations they held.
+func _let_leavers_go() -> void:
 	if not session.is_server():
 		return
 	for ship: Ship in ships.values():
-		if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
+		if ship.captain != 0 and not session.players.has(ship.captain):
+			remove_ship(ship)
+		elif ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
 			ship.helm.leave(ship.helm.pilot)
 
 
@@ -455,6 +538,29 @@ func _request(ship_id: Variant, what: Variant, on: Variant) -> void:
 			helm.take(peer)
 	elif what is String and what == "autopilot":
 		helm.ask_autopilot(peer, on)
+
+
+## Client -> server: launch these blocks with this paint, as a test flight or not.
+## Junk is refused before it counts as the sender's launch for the second.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _launch(blocks: Variant, paint: Variant, test: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if not session.is_server() or not _in_world.has(peer) or not test is bool:
+		return
+	var grid := ShipGrid.from_bytes(blocks)
+	var colours: Variant = ShipGrid.read_paint(paint)
+	if grid == null or colours == null:
+		return
+	grid.paint = colours
+	_launch_for(peer, grid, test)
+
+
+## Client -> server: end my test flight.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _end_test() -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if session.is_server() and _in_world.has(peer):
+		remove_ship(ship_of(peer, true))
 
 
 ## Client -> server: the pilot's keys at the helm of ship ship_id, each -1 to 1.

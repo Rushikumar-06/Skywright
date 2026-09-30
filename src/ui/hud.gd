@@ -1,13 +1,15 @@
 class_name Hud
 extends CanvasLayer
 ## Everything drawn over the world: the session and crew, a dot to aim with, what
-## E does, the helm's instruments while you steer, and short messages.
+## E does, the helm's instruments while you steer, a banner on a test flight, and
+## short messages.
 
 const MESSAGE_TIME := 4.0  ## Seconds a message stays up.
 const SessionScript := preload("res://src/net/session.gd")
 
 var player: PlayerController
 var session: Node
+var test_flight := false  ## You're on a test flight. Set by the World each frame.
 
 var _status: Label
 var _crew: Label
@@ -15,6 +17,7 @@ var _prompt: Label
 var _helm: PanelContainer
 var _readout: Label
 var _message: Label
+var _banner: PanelContainer
 var _message_left := 0.0
 var _crew_names: Dictionary = {}  ## The roster as last shown: peer id -> name.
 
@@ -61,6 +64,16 @@ func _ready() -> void:
 	_message.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	add_child(_message)
 
+	_banner = PanelContainer.new()
+	_banner.theme = theme
+	_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_banner.offset_top = 32
+	_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	var banner_text := Label.new()
+	banner_text.text = "Test flight: B returns to the shipyard"
+	_banner.add_child(banner_text)
+	add_child(_banner)
+
 	_helm = PanelContainer.new()
 	_helm.theme = theme
 	_helm.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -94,6 +107,7 @@ func _process(delta: float) -> void:
 		_prompt.text = "%s is at the helm" % name_of(holder)
 	else:
 		_prompt.text = ""
+	_banner.visible = test_flight
 	_message_left -= delta
 	_message.visible = _message_left > 0.0
 	_helm.visible = player.crew.station != null

@@ -3,9 +3,10 @@ extends Node3D
 ## starter ship at its first slipway with you aboard. Its Session is a sibling: the
 ## Session autoload in the game, or a test's own. The server builds the ships and
 ## flies them; clients get them through the world's WorldSync. You board the host's
-## ship when you arrive, and your own ship whenever one arrives. When the ship
-## you're on goes, you board its successor, or the ship you came from, or the
-## host's. A dedicated server's world has no player, HUD or pause menu.
+## ship when you arrive, and your own ship whenever one arrives: launch a design
+## and you're at its helm, and B brings you back from a test flight. When the ship
+## you're on goes, you board its successor, or the ship you came from, or your own,
+## or the host's. A dedicated server's world has no player, HUD or pause menu.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := Vector3(0.0, 880.0, 7000.0)
@@ -42,6 +43,10 @@ func _ready() -> void:
 	sync = WorldSync.new(session)
 	sync.ship_added.connect(_on_ship_added)
 	sync.ship_removed.connect(_on_ship_removed)
+	for index in Dock.SLIPWAYS:
+		sync.berths.append(Dock.slipway(START, index))
+		sync.test_berths.append(Dock.test_berth(START, index))
+	sync.obstacles = Dock.obstacles(START)
 	add_child(sync)
 	if session.is_server():
 		sync.add_ship(StarterShip.build(), Dock.slipway(START, 0), 0 if session.dedicated else 1)
@@ -52,12 +57,35 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_sky.hour = WorldSky.hour_at(sync.now())
+	if hud != null:
+		hud.test_flight = on_test_flight()
 
 
 ## Your place in the roster, which is where you stand when you board: crew board
 ## at different spots, in the order they joined.
 func my_slot() -> int:
 	return maxi(0, session.players.keys().find(multiplayer.get_unique_id()))
+
+
+## Takes grid for a test flight from your test berth, at its helm.
+func test_flight(grid: ShipGrid) -> void:
+	sync.launch(grid, true)
+
+
+## Launches grid as your ship, at your slipway and at its helm. It replaces your old
+## ship, whose crew come too.
+func launch(grid: ShipGrid) -> void:
+	sync.launch(grid, false)
+
+
+## Whether you're aboard your own test flight.
+func on_test_flight() -> bool:
+	return ship != null and ship.test and ship.captain == multiplayer.get_unique_id()
+
+
+## Whether your crew member, where the world draws them, is near the dock.
+func at_dock() -> bool:
+	return player != null and Dock.near(START, ship.global_transform * player.crew.position)
 
 
 ## Puts you aboard target at spot (-1 for your roster slot), with your controls.
@@ -71,7 +99,10 @@ func board(target: Ship, spot := -1) -> void:
 		hud = Hud.new(player, session)
 		add_child(hud)
 	else:
-		_came_from = ship if sync.id_of(ship) != 0 else null  # a ship on its way out can't be gone back to
+		var here := sync.id_of(ship) != 0  # a ship on its way out can't be gone back to
+		if here and player.crew.station != null:
+			ship.helm.ask_helm(player.peer, false)  # or nobody else could take her helm until you left
+		_came_from = ship if here else null
 		var old_crew := player.crew
 		player.board(crew)
 		old_crew.queue_free()
@@ -92,7 +123,7 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 		_came_from = null
 	if ship != removed:
 		return
-	for next: Ship in [successor, _came_from, sync.home_ship()]:
+	for next: Ship in [successor, _came_from, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
 		if next != null:
 			board(next)
 			return
@@ -105,6 +136,9 @@ func _exit_tree() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause") and _pause != null:
 		_toggle_pause()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("shipyard") and on_test_flight() and not _pause.visible:
+		sync.end_test()
 		get_viewport().set_input_as_handled()
 
 

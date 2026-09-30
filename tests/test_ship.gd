@@ -24,14 +24,6 @@ func pitch(ship: Ship) -> float:
 	return rad_to_deg(asin(-ship.global_basis.z.y))
 
 
-## Where the balloons' lift acts in ship space.
-func lift_center(grid: ShipGrid) -> Vector3:
-	var sum := Vector3.ZERO
-	for cell in grid.cells_of("balloon"):
-		sum += Vector3(cell)
-	return sum / grid.cells_of("balloon").size()
-
-
 func test_a_ship_takes_its_mass_and_shape_from_its_blocks() -> void:
 	var grid := StarterShip.build()
 	var ship := launch(grid)
@@ -61,10 +53,7 @@ func test_a_lopsided_ship_lists_toward_its_heavy_side() -> void:
 	var grid := StarterShip.build()
 	for z in range(-2, 4):
 		grid.set_block(Vector3i(3, 0, z), "iron")  # iron bolted along the starboard side
-	var props := grid.mass_properties()
-	var com: Vector3 = props["center"]
-	var lift := lift_center(grid)
-	var expected := rad_to_deg(atan2(com.x - lift.x, lift.y - com.y))  # the lift ends up straight above the weight
+	var expected := ShipStats.of(grid, START.y).list  # the lift ends up straight above the weight
 	var ship := launch(grid)
 	await simulate(60.0)
 	assert_true(expected > 2.0, "the test ship is lopsided enough to see (%.2f°)" % expected)
@@ -77,10 +66,24 @@ func test_an_overloaded_ship_sinks() -> void:
 		for x in [-1, 0, 1]:
 			grid.set_block(Vector3i(x, 1, z), "iron")
 	var ship := launch(grid)
+	assert_eq(ShipStats.of(grid, START.y).ceiling, -INF)
 	assert_true(ship.trim_to_float_at(Tuning.ROIL_ALTITUDE) > Tuning.TRIM_MAX, "too heavy to float anywhere")
 	await simulate(40.0)
 	assert_true(ship.global_position.y < Tuning.ROIL_ALTITUDE, "sank into the Roil (at %.0f m)" % ship.global_position.y)
 	assert_true(ship.linear_velocity.y < -5.0, "and is still sinking")
+
+
+func test_a_ship_floats_at_the_height_her_stats_give() -> void:
+	var grid := StarterShip.build()
+	var removed := 0
+	for cell in grid.cells_of("balloon"):
+		if cell.y == 10 and removed < 10:
+			grid.blocks.erase(cell)
+			removed += 1
+	var floats := ShipStats.of(grid, START.y).float_altitude
+	var ship := launch(grid)
+	await simulate(180.0)
+	assert_near(ship.global_position.y, floats, 20.0, "floats at %.0f m" % floats)
 
 
 func test_a_propeller_pushes_the_way_it_faces() -> void:

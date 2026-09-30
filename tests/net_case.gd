@@ -5,6 +5,7 @@ extends TestCase
 ## sessions talk over real ENet and their worlds don't share physics.
 
 const SessionScript := preload("res://src/net/session.gd")
+const WORLD_SCENE := "res://src/world/world.tscn"
 
 var _branches: Array[Node] = []
 
@@ -55,3 +56,34 @@ func host_and_join(host: SessionScript, client: SessionScript, guest_name := "Gu
 	if host.host("Host", port) != OK or client.join(guest_name, "127.0.0.1", port) != OK:
 		return false
 	return await wait_until(func() -> bool: return client.players.size() == 2 and host.players.size() == 2, 5.0)
+
+
+## A world for session, next to it in its branch, as Game loads one next to the
+## Session autoload.
+func add_world(session: SessionScript) -> Node3D:
+	var world: Node3D = (load(WORLD_SCENE) as PackedScene).instantiate()
+	session.get_parent().add_child(world)
+	return world
+
+
+## A solo game's world: the starter ship with Ann aboard.
+func solo_world() -> Node3D:
+	var session := make_session("Solo")
+	session.start_solo("Ann")
+	return add_world(session)
+
+
+## Runs seconds of physics ticks in real time, calling each_tick(tick) ahead of
+## each tick when given. Under --fixed-fps frames otherwise run as fast as they
+## can, and a game in another process, or ENet's own timers, wouldn't keep pace.
+## Use it as: await play(...)
+func play(seconds: float, each_tick := Callable()) -> void:
+	var start := Time.get_ticks_usec()
+	var tick_usec := 1000000.0 / Engine.physics_ticks_per_second
+	for tick in roundi(seconds * Engine.physics_ticks_per_second):
+		if each_tick.is_valid():
+			each_tick.call(tick)
+		await get_tree().physics_frame
+		var ahead := int(start + (tick + 1) * tick_usec) - Time.get_ticks_usec()
+		if ahead > 0:
+			OS.delay_usec(ahead)

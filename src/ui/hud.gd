@@ -7,6 +7,7 @@ const MESSAGE_TIME := 4.0  ## Seconds a message stays up.
 const SessionScript := preload("res://src/net/session.gd")
 
 var player: PlayerController
+var session: Node
 
 var _status: Label
 var _crew: Label
@@ -17,18 +18,19 @@ var _message: Label
 var _message_left := 0.0
 
 
-func _init(for_player: PlayerController) -> void:
+func _init(for_player: PlayerController, world_session: Node) -> void:
 	player = for_player
+	session = world_session
 
 
 func _ready() -> void:
 	var theme := UiTheme.build()
-	var session := PanelContainer.new()
-	session.theme = theme
-	session.position = Vector2(32, 32)
-	add_child(session)
+	var crew_panel := PanelContainer.new()
+	crew_panel.theme = theme
+	crew_panel.position = Vector2(32, 32)
+	add_child(crew_panel)
 	var column := VBoxContainer.new()
-	session.add_child(column)
+	crew_panel.add_child(column)
 	_status = Label.new()
 	column.add_child(_status)
 	_crew = UiTheme.caption("")
@@ -72,7 +74,7 @@ func _ready() -> void:
 	helm_column.add_child(_readout)
 	helm_column.add_child(UiTheme.caption("W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · V view · E leave"))
 
-	Session.players_changed.connect(_refresh_session)
+	session.players_changed.connect(_refresh_session)
 	player.crew.fell_overboard.connect(func() -> void: show_message("You fell overboard. Back aboard!"))
 	_refresh_session()
 
@@ -111,17 +113,17 @@ static func readout(ship: Ship) -> String:
 func _refresh_session() -> void:
 	_status.text = _status_text()
 	var names: PackedStringArray = []
-	for id: int in Session.players:
-		names.append(Session.players[id]["name"])
+	for id: int in session.players:
+		names.append(session.players[id]["name"])
 	_crew.text = "Crew (%d): %s" % [names.size(), ", ".join(names)]
 
 
 func _status_text() -> String:
-	if Session.mode == Session.Mode.SOLO:
+	if session.mode == SessionScript.Mode.SOLO:
 		return "Solo game"
-	if Session.mode == Session.Mode.HOST:
-		return "Hosting. " + invite_text(Session.port)
-	if Session.mode == Session.Mode.CLIENT:
+	if session.mode == SessionScript.Mode.HOST:
+		return "Hosting. " + invite_text(session.port)
+	if session.mode == SessionScript.Mode.CLIENT:
 		return "Connected to the host"
 	return ""
 

@@ -52,8 +52,8 @@ func set_autopilot(on: bool) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if pilot == null and not autopilot:
-		return
+	if not ship.simulated or (pilot == null and not autopilot):
+		return  # a client's copy of a ship is steered on the server
 	ship.throttle = clampf(ship.throttle + throttle_input * Tuning.THROTTLE_RATE * delta, Tuning.THROTTLE_MIN, 1.0)
 	if not autopilot:
 		ship.rudder = rudder_input

@@ -1,7 +1,8 @@
 extends Node3D
 ## The game world: sky, the Roil, a few placeholder islands, and the starter ship
-## with you aboard. In stage 2 every copy of the game flies its own ship; stage 3
-## shares one between the crew.
+## with you aboard. Its Session is a sibling: the Session autoload in the game, or
+## a test's own. The server builds the ship and flies it; clients get it through
+## the world's WorldSync, and you come aboard when it arrives.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := Vector3(0.0, 880.0, 7000.0)
@@ -12,30 +13,47 @@ const ISLANDS := [
 	[Vector3(-300, 80, 700), 70.0], [Vector3(600, -20, 900), 95.0],
 ]
 
-var ship: Ship
-var player: PlayerController
+var session: Node
+var sync: WorldSync
+var ship: Ship                 ## The ship you're aboard.
+var player: PlayerController   ## You, once the ship has arrived.
 var hud: Hud
 
+var _sky: WorldSky
 var _pause: PanelContainer
 var _resume: Button
 
 
 func _ready() -> void:
-	add_child(WorldSky.new())
+	session = get_node("../Session")
+	_sky = WorldSky.new()
+	add_child(_sky)
 	add_child(Roil.new())
 	for island: Array in ISLANDS:
 		add_child(Island.create(START + island[0], island[1]))
-	ship = Ship.new(StarterShip.build())
-	ship.position = START
-	add_child(ship)
+	sync = WorldSync.new(session)
+	sync.ship_added.connect(_on_ship_added)
+	add_child(sync)
+	if session.is_server():
+		sync.add_ship(StarterShip.build(), Transform3D(Basis.IDENTITY, START))
+	_build_pause_menu()
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func _process(_delta: float) -> void:
+	_sky.hour = WorldSky.hour_at(sync.now())
+
+
+func _on_ship_added(added: Ship) -> void:
+	if ship != null:
+		return
+	ship = added
 	var crew := CrewMember.new(ship, ship.crew_spawn())
 	ship.interior.add_child(crew)
 	player = PlayerController.new(crew)
 	add_child(player)
-	hud = Hud.new(player)
+	hud = Hud.new(player, session)
 	add_child(hud)
-	_build_pause_menu()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _exit_tree() -> void:
@@ -64,12 +82,13 @@ func _build_pause_menu() -> void:
 	_pause.add_child(column)
 	_resume = UiTheme.button("Resume", _toggle_pause)
 	column.add_child(_resume)
-	column.add_child(UiTheme.button("Leave game", Session.leave))
+	column.add_child(UiTheme.button("Leave game", session.leave))
 
 
 func _toggle_pause() -> void:
 	_pause.visible = not _pause.visible
-	player.enabled = not _pause.visible
+	if player != null:
+		player.enabled = not _pause.visible
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if _pause.visible else Input.MOUSE_MODE_CAPTURED
 	if _pause.visible:
 		_resume.grab_focus()

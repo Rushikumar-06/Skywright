@@ -4,6 +4,7 @@ extends Node3D
 ## day, sky colours that follow the sun, and haze toward the horizon.
 
 const DAY_LENGTH := 1200.0  ## Real seconds in a whole day.
+const START_HOUR := 10.0    ## The hour when a world begins.
 
 const DAY_TOP := Color("2f63a8")
 const DAY_HORIZON := Color("b7d0ea")
@@ -11,12 +12,17 @@ const DUSK_HORIZON := Color("e7a974")
 const NIGHT_TOP := Color("04070f")
 const NIGHT_HORIZON := Color("16203a")
 
-var hour := 10.0  ## Time of day, 0 to 24.
+var hour := START_HOUR  ## Time of day, 0 to 24. The world sets it from its clock.
 
 var _sun: DirectionalLight3D
 var _moon: DirectionalLight3D
 var _sky: ProceduralSkyMaterial
 var _environment: Environment
+
+
+## The hour of the day seconds after a world began.
+static func hour_at(seconds: float) -> float:
+	return fposmod(START_HOUR + seconds * 24.0 / DAY_LENGTH, 24.0)
 
 
 ## The sun's height above the horizon in degrees at a time of day: it rises at 6,
@@ -57,8 +63,7 @@ func _ready() -> void:
 	_apply()
 
 
-func _process(delta: float) -> void:
-	hour = fmod(hour + delta * 24.0 / DAY_LENGTH, 24.0)
+func _process(_delta: float) -> void:
 	_apply()
 
 

@@ -105,3 +105,43 @@ func test_the_starter_ship_balances_under_its_envelope() -> void:
 	var weight: float = props["mass"] * 9.81
 	var floats_at := Tuning.ROIL_ALTITUDE + Tuning.AIR_SCALE_HEIGHT * log(balloons.size() * Tuning.BALLOON_LIFT / weight)
 	assert_near(floats_at, 877.0, 5.0, "at trim 1 she floats at about 877 m")
+
+
+func test_to_blocks_and_back() -> void:
+	var grid := StarterShip.build()
+	grid.blocks[Vector3i(0, 0, 0)]["hp"] = 5  # damage comes through
+	grid.set_block(Vector3i(0, -2, 0), "frame", 7)  # and so does rotation
+	var sent: Variant = bytes_to_var(var_to_bytes(grid.to_blocks()))  # as the network carries it
+	var copy := ShipGrid.from_blocks(sent)
+	assert_true(copy != null, "it reads back")
+	if copy != null:
+		assert_eq(copy.blocks, grid.blocks)
+
+
+func test_from_blocks_refuses_bad_ships() -> void:
+	var good := StarterShip.build().to_blocks()
+	assert_true(ShipGrid.from_blocks(good) != null, "the starter ship is fine")
+	var too_many: Array = [[0, 0, 0, "helm", 0, 150]]
+	for i in ShipGrid.MAX_BLOCKS:
+		too_many.append([i % 100 - 50, i / 100 - 30, 1, "frame", 0, 100])
+	var no_helm := good.filter(func(block: Array) -> bool: return block[3] != "helm")
+	var cases := {
+		"not an array": "a ship",
+		"empty": [],
+		"too many": too_many,
+		"a block that isn't an array": good + ["frame"],
+		"a short block": good + [[0, 20, 0, "frame", 0]],
+		"an unknown type": good + [[0, 20, 0, "gold", 0, 100]],
+		"a type that isn't text": good + [[0, 20, 0, 3, 0, 100]],
+		"x past 63": good + [[64, 20, 0, "frame", 0, 100]],
+		"y below -64": good + [[0, -65, 0, "frame", 0, 100]],
+		"a float coordinate": good + [[0.5, 20, 0, "frame", 0, 100]],
+		"rotation 24": good + [[0, 20, 0, "frame", 24, 100]],
+		"rotation -1": good + [[0, 20, 0, "frame", -1, 100]],
+		"hp 0": good + [[0, 20, 0, "frame", 0, 0]],
+		"hp above the block's": good + [[0, 20, 0, "frame", 0, 101]],
+		"a duplicate cell": good + [good[0]],
+		"no helm": no_helm,
+	}
+	for problem: String in cases:
+		assert_eq(ShipGrid.from_blocks(cases[problem]), null, problem)

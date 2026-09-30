@@ -15,6 +15,9 @@ var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
 var trim := 1.0      ## Balloon trim, Tuning.TRIM_MIN to Tuning.TRIM_MAX.
 var calm := false    ## No wind. Flight tests fly in still air.
+## False on clients: the ship is then a frozen, kinematic copy that follows the
+## server's snapshots (spec §4.6), and no forces act on it. Set before adding it.
+var simulated := true
 
 var _balloons: Array[Vector3] = []
 var _lift_stones: Array[Vector3] = []
@@ -30,6 +33,9 @@ func _init(ship_grid: ShipGrid) -> void:
 
 
 func _ready() -> void:
+	if not simulated:
+		freeze_mode = FREEZE_MODE_KINEMATIC
+		freeze = true
 	var props := grid.mass_properties()
 	mass = props["mass"]
 	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
@@ -94,6 +100,8 @@ func heading() -> float:
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	if not simulated:
+		return
 	if not _sane(state):
 		push_warning("Ship %s blew up (speed %.0f m/s, spin %.1f rad/s); restoring its last good position." % [name, state.linear_velocity.length(), state.angular_velocity.length()])
 		state.linear_velocity = Vector3.ZERO

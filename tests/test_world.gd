@@ -1,25 +1,24 @@
-extends TestCase
+extends NetCase
 ## The world scene: the starter ship with you aboard, islands to fly between, the
 ## sky's day, and the helm's instruments.
 
 
-func test_you_start_aboard_the_starter_ship_by_the_helm() -> void:
-	var world: Node3D = (load("res://src/world/world.tscn") as PackedScene).instantiate()
-	add_child(world)
+func test_the_world_has_a_ship_and_you_aboard_in_solo() -> void:
+	var world := solo_world()
 	await get_tree().process_frame
 	var ship: Ship = world.ship
 	var player: PlayerController = world.player
+	assert_eq(world.sync.ships.values(), [ship], "one ship")
+	assert_true(ship.simulated, "flown here")
 	assert_eq(ship.global_position, world.START)
 	assert_eq(player.crew.get_parent(), ship.interior)
 	assert_eq(player.prompt(), "Take the helm")
 	assert_true(player.camera.is_current())
-	world.queue_free()
-	await get_tree().process_frame
+	assert_eq(world.hud.session, world.session)
 
 
 func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:
-	var world: Node3D = (load("res://src/world/world.tscn") as PackedScene).instantiate()
-	add_child(world)
+	var world := solo_world()
 	await get_tree().process_frame
 	var pause := InputEventAction.new()
 	pause.action = "pause"
@@ -28,8 +27,6 @@ func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:
 	assert_false(world.player.enabled, "keys and mouse stop while the menu is open")
 	world._unhandled_input(pause)
 	assert_true(world.player.enabled, "and work again after resuming")
-	world.queue_free()
-	await get_tree().process_frame
 
 
 func test_islands_are_solid() -> void:

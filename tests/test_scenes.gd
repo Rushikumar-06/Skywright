@@ -1,4 +1,4 @@
-extends TestCase
+extends NetCase
 ## The menu and world scenes build and run a few frames without engine errors.
 
 
@@ -7,7 +7,10 @@ func test_main_menu_builds() -> void:
 
 
 func test_world_builds() -> void:
-	await _run_scene("res://src/world/world.tscn")
+	var world := solo_world()
+	for i in 5:
+		await get_tree().process_frame
+	assert_true(world.ship != null)
 
 
 func test_esc_while_connecting_returns_to_a_fresh_menu() -> void:

@@ -103,6 +103,36 @@ func test_the_wind_is_continuous_through_a_rivers_bend() -> void:
 				last = here
 
 
+func test_the_wind_is_continuous_where_opposite_rivers_meet() -> void:
+	# Where two rivers blowing opposite ways overlap, the pushes cancel between their
+	# cores; the wind must pass through calm there, not flip round in a metre.
+	var walks := 0
+	for seed_value in range(1, 21):
+		var gen := WorldGen.new(seed_value)
+		var wind := Wind.new(gen)
+		for a in gen.rivers.size():
+			for b in range(a + 1, gen.rivers.size()):
+				var along_a: PackedVector3Array = gen.rivers[a]["points"]
+				var along_b: PackedVector3Array = gen.rivers[b]["points"]
+				var reach := 2.0 * minf(gen.rivers[a]["width"], gen.rivers[b]["width"])
+				for i in along_a.size() - 1:
+					var p := (along_a[i] + along_a[i + 1]) / 2.0
+					for j in along_b.size() - 1:
+						if (along_a[i + 1] - along_a[i]).normalized().dot((along_b[j + 1] - along_b[j]).normalized()) > -0.7:
+							continue
+						var q := Geometry3D.get_closest_point_to_segment(p, along_b[j], along_b[j + 1])
+						if p.distance_to(q) >= reach:
+							continue
+						walks += 1
+						var steps := ceili(p.distance_to(q))
+						var last := wind.river_at(p)
+						for step in range(1, steps + 1):
+							var here := wind.river_at(p.lerp(q, float(step) / steps))
+							assert_true((here - last).length() <= 3.0, "seed %d, rivers %d and %d: jumped %.1f m/s in a metre" % [seed_value, a, b, (here - last).length()])
+							last = here
+	assert_true(walks > 0, "some rivers overlap going opposite ways")
+
+
 func test_a_river_is_strong_in_its_core() -> void:
 	var gen := WorldGen.new(7)
 	var river: Dictionary = gen.rivers[0]

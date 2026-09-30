@@ -68,8 +68,9 @@ func at(p: Vector3, t: float) -> Vector3:
 
 ## The push of the sky rivers at p. Every segment within twice its river's width pulls
 ## with a weight that is full in the core and fades to nothing at twice the width and
-## at the river's two ends; the wind blows the way the weighted segments point, as
-## hard as the strongest weight, so it stays smooth at bends and where rivers cross.
+## at the river's two ends; the wind is the weighted segments' sum, no stronger than
+## the strongest weight, so it stays smooth at bends, where rivers cross, and where two
+## blowing opposite ways overlap (they cancel to calm rather than flip round).
 func river_at(p: Vector3) -> Vector3:
 	if _gen == null:
 		return Vector3.ZERO
@@ -97,9 +98,7 @@ func river_at(p: Vector3) -> Vector3:
 				weight *= smoothstep(0.0, 1.0, 1.0 - u)
 			sum += segment / sqrt(length_squared) * weight
 			strongest = maxf(strongest, weight)
-	if strongest <= 0.0 or sum.length() < 0.001:
-		return Vector3.ZERO
-	return sum.normalized() * strongest
+	return sum.limit_length(strongest)
 
 
 ## How much of a storm's strength p is in, 0 to 1: full in the core, fading out

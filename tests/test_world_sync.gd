@@ -2,31 +2,11 @@ extends NetCase
 ## WorldSync (spec §4.6): the server flies the ships and clients draw them 100 ms
 ## in the past, smoothly, from snapshots.
 
-var host: SessionScript
-var client: SessionScript
-var host_world: Node3D
-var client_world: Node3D
-
 
 func after_each() -> void:
 	for action in ["move_forward", "move_right"]:
 		Input.action_release(action)
 	super.after_each()
-
-
-## Host and Guest meet in the lobby, set sail, and each loads a world. True once
-## the guest's ship has arrived.
-func sail_together() -> bool:
-	host = make_session("Host")
-	client = make_session("Client")
-	if not await host_and_join(host, client):
-		return false
-	host.set_sail()
-	if not await wait_until(func() -> bool: return client.sailing, 5.0):
-		return false
-	host_world = add_world(host)
-	client_world = add_world(client)
-	return await wait_until(func() -> bool: return client_world.ship != null, 5.0)
 
 
 func test_a_joining_client_gets_the_ship() -> void:
@@ -376,9 +356,10 @@ func test_a_dedicated_world_has_a_ship_and_nobody_aboard() -> void:
 	host.host("Skyport", port, true)
 	host_world = add_world(host)
 	await get_tree().process_frame
-	var ship: Ship = host_world.ship
+	var ship: Ship = host_world.sync.home_ship()
 	assert_true(ship != null and ship.simulated, "the server flies a ship")
-	assert_true(host_world.player == null and host_world.hud == null, "but nobody plays here")
+	assert_eq(ship.captain, 0, "nobody's ship")
+	assert_true(host_world.ship == null and host_world.player == null and host_world.hud == null, "but nobody is aboard or plays here")
 	assert_true(ship.freeze, "anchored while nobody's aboard")
 	var anchored_at := ship.global_position
 	await play(0.5)

@@ -11,10 +11,30 @@ func test_the_world_has_a_ship_and_you_aboard_in_solo() -> void:
 	assert_eq(world.sync.ships.values(), [ship], "one ship")
 	assert_true(ship.simulated, "flown here")
 	assert_eq(ship.global_position, world.START)
+	assert_eq(ship.captain, 1, "yours")
 	assert_eq(player.crew.get_parent(), ship.interior)
 	assert_eq(player.prompt(), "Take the helm")
 	assert_true(player.camera.is_current())
 	assert_eq(world.hud.session, world.session)
+
+
+func test_boarding_another_ship_moves_you_and_your_controls() -> void:
+	var world := solo_world()
+	await get_tree().process_frame
+	var old_crew: CrewMember = world.player.crew
+	var other: Ship = world.sync.add_ship(StarterShip.build(), Dock.slipway(world.START, 1))
+	world.board(other)
+	var player: PlayerController = world.player
+	assert_eq(player.crew.get_parent(), other.interior, "aboard the other ship")
+	assert_eq(world.ship, other)
+	assert_eq(player.ship, other, "steering it")
+	assert_eq(player.prompt(), "Take the helm", "standing by its helm")
+	await get_tree().process_frame
+	assert_false(is_instance_valid(old_crew), "the old crew member is gone")
+	player.crew.position.y -= 100.0
+	await simulate(0.1)
+	assert_true(player.crew.position.distance_to(player.crew.home) < 0.2, "back aboard")
+	assert_true(world.hud._message.visible and world.hud._message.text == "You fell overboard. Back aboard!", world.hud._message.text)
 
 
 func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:

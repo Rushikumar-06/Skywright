@@ -1,9 +1,11 @@
 extends Node3D
-## The game world: sky, the Roil, a few placeholder islands, and the starter ship
-## with you aboard. Its Session is a sibling: the Session autoload in the game, or
-## a test's own. The server builds the ship and flies it; clients get it through
-## the world's WorldSync, and you come aboard when it arrives. A dedicated server's
-## world has no player, HUD or pause menu.
+## The game world: sky, the Roil, a few placeholder islands, the dock, and the
+## starter ship at its first slipway with you aboard. Its Session is a sibling: the
+## Session autoload in the game, or a test's own. The server builds the ships and
+## flies them; clients get them through the world's WorldSync. You board the host's
+## ship when you arrive, and your own ship whenever one arrives. When the ship
+## you're on goes, you board its successor, or the ship you came from, or the
+## host's. A dedicated server's world has no player, HUD or pause menu.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := Vector3(0.0, 880.0, 7000.0)
@@ -19,6 +21,9 @@ var sync: WorldSync
 var ship: Ship                 ## The ship you're aboard.
 var player: PlayerController   ## You, once the ship has arrived.
 var hud: Hud
+var dock: StaticBody3D
+
+var _came_from: Ship           ## The ship you were on before this one, while it's still here.
 
 var _sky: WorldSky
 var _pause: PanelContainer
@@ -32,11 +37,14 @@ func _ready() -> void:
 	add_child(Roil.new())
 	for island: Array in ISLANDS:
 		add_child(Island.create(START + island[0], island[1]))
+	dock = Dock.create(START)
+	add_child(dock)
 	sync = WorldSync.new(session)
 	sync.ship_added.connect(_on_ship_added)
+	sync.ship_removed.connect(_on_ship_removed)
 	add_child(sync)
 	if session.is_server():
-		sync.add_ship(StarterShip.build(), Transform3D(Basis.IDENTITY, START))
+		sync.add_ship(StarterShip.build(), Dock.slipway(START, 0), 0 if session.dedicated else 1)
 	if not session.dedicated:
 		_build_pause_menu()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -46,21 +54,48 @@ func _process(_delta: float) -> void:
 	_sky.hour = WorldSky.hour_at(sync.now())
 
 
+## Your place in the roster, which is where you stand when you board: crew board
+## at different spots, in the order they joined.
+func my_slot() -> int:
+	return maxi(0, session.players.keys().find(multiplayer.get_unique_id()))
+
+
+## Puts you aboard target at spot (-1 for your roster slot), with your controls.
+func board(target: Ship, spot := -1) -> void:
+	var crew := CrewMember.new(target, target.crew_spawn(my_slot() if spot < 0 else spot))
+	target.interior.add_child(crew)
+	if player == null:
+		player = PlayerController.new(crew)
+		add_child(player)
+		sync.player = player
+		hud = Hud.new(player, session)
+		add_child(hud)
+	else:
+		_came_from = ship if sync.id_of(ship) != 0 else null  # a ship on its way out can't be gone back to
+		var old_crew := player.crew
+		player.board(crew)
+		old_crew.queue_free()
+	ship = target
+
+
 func _on_ship_added(added: Ship) -> void:
-	if ship != null:
-		return
-	ship = added
 	if session.dedicated:
 		return
-	# Crew board at different spots, in the order they joined.
-	var slot := maxi(0, session.players.keys().find(multiplayer.get_unique_id()))
-	var crew := CrewMember.new(ship, ship.crew_spawn(slot))
-	ship.interior.add_child(crew)
-	player = PlayerController.new(crew)
-	add_child(player)
-	sync.player = player
-	hud = Hud.new(player, session)
-	add_child(hud)
+	if added.captain == multiplayer.get_unique_id():
+		board(added, 0)
+	elif player == null and added == sync.home_ship():
+		board(added)
+
+
+func _on_ship_removed(removed: Ship, successor: Ship) -> void:
+	if _came_from == removed:
+		_came_from = null
+	if ship != removed:
+		return
+	for next: Ship in [successor, _came_from, sync.home_ship()]:
+		if next != null:
+			board(next)
+			return
 
 
 func _exit_tree() -> void:

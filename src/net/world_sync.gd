@@ -5,10 +5,12 @@ extends Node
 ## checked.
 ##
 ## The server flies the ships. When a client's world has loaded it asks to enter;
-## the server sends every ship (blocks and transform) and from then on sends
-## snapshots at 30 Hz. Clients keep frozen copies of the ships and draw them DELAY
-## seconds in the past on the server's clock, along SnapshotBuffer curves, so late
-## or lost packets don't show.
+## the server sends every ship (compressed blocks, paint, transform, pilot, captain
+## and test flag) and from then on sends snapshots at 30 Hz. Clients keep frozen
+## copies of the ships and draw them DELAY seconds in the past on the server's
+## clock, along SnapshotBuffer curves, so late or lost packets don't show. Ships
+## the server adds or removes mid-game are sent to everyone in the world; the
+## World moves its player off a ship before it goes.
 ##
 ## Each player walks their own crew member and reports where it is in ship space
 ## at 30 Hz (spec §4.5). The server checks each report, stamps it with its own
@@ -24,6 +26,8 @@ extends Node
 ## is aboard, so they don't drift off in the wind for hours.
 
 signal ship_added(ship: Ship)
+## ship has left ships and is about to be freed. Its crew board successor, if not null.
+signal ship_removed(ship: Ship, successor: Ship)
 
 const SessionScript := preload("res://src/net/session.gd")
 const SEND_EVERY := 2  ## Physics ticks between snapshots: 30 Hz at 60 ticks a second.
@@ -72,27 +76,86 @@ func avatar_of(peer: int) -> CrewAvatar:
 	return _avatars.get(peer)
 
 
-## Server: puts a new ship in the world.
-func add_ship(grid: ShipGrid, at: Transform3D) -> Ship:
-	# ponytail: ships added after peers have entered aren't sent to them. Stage 4's
-	# shipyard spawns ships mid-game and will send them.
-	var ship := _add(_next_id, grid, at, true)
+## Server: puts a new ship in the world, captain's (0 for nobody's), with pilot at
+## its helm, and tells everyone in the world.
+func add_ship(grid: ShipGrid, at: Transform3D, captain := 0, test := false, pilot := 0) -> Ship:
+	var id := _next_id
 	_next_id += 1
+	var ship := _add(id, grid, at, true, captain, test, pilot)
+	ship_added.emit(ship)
+	var entry := _entry(id)
+	for peer: int in _in_world:
+		_ship_added.rpc_id(peer, _time, entry)
 	return ship
 
 
-func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool) -> Ship:
+## Server: takes ship out of the world, and tells everyone. Its crew board successor.
+func remove_ship(ship: Ship, successor: Ship = null) -> void:
+	var id := id_of(ship)
+	if id == 0:
+		return
+	for peer: int in _in_world:
+		_ship_removed.rpc_id(peer, id, id_of(successor))
+	_remove(id, successor)
+
+
+## ship's id, or 0 if it isn't in this world.
+func id_of(ship: Ship) -> int:
+	var id: Variant = ships.find_key(ship)
+	return id if id != null else 0
+
+
+## The ship to board when there's no other reason to pick one: the host's (captain
+## 1), else nobody's (a dedicated server's), else anyone's, a test flight last.
+func home_ship() -> Ship:
+	var home: Ship = null
+	var best := 4
+	for ship: Ship in ships.values():
+		var rank := 3 if ship.test else 0 if ship.captain == 1 else 1 if ship.captain == 0 else 2
+		if rank < best:
+			home = ship
+			best = rank
+	return home
+
+
+## Adds a ship. The pilot is set before the helm's signals are connected, so it
+## doesn't go out as a change.
+func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: int, test: bool, pilot: int) -> Ship:
 	var ship := Ship.new(grid)
 	ship.name = "Ship%d" % id
 	ship.simulated = simulated
 	ship.transform = at
+	ship.captain = captain
+	ship.test = test
 	ships[id] = ship
 	get_parent().add_child(ship)
 	if ship.helm != null:
+		ship.helm.pilot = pilot
 		ship.helm.asked.connect(_on_asked.bind(id))
 		ship.helm.pilot_changed.connect(_on_pilot_changed.bind(id))
-	ship_added.emit(ship)
 	return ship
+
+
+## Takes ship id out of the world, with everyone's crew on it, after the World has
+## moved its player off.
+func _remove(id: int, successor: Ship) -> void:
+	var ship: Ship = ships[id]
+	ships.erase(id)
+	_buffers.erase(id)
+	_keys_heard.erase(id)
+	for peer: int in _crew.keys():
+		if _crew[peer]["ship"] == id:
+			_forget_crew(peer)
+	ship_removed.emit(ship, successor if id_of(successor) != 0 else null)
+	get_parent().remove_child(ship)
+	ship.queue_free()
+
+
+## A ship as the network carries it: [id, blocks, paint, transform, pilot, captain, test].
+func _entry(id: int) -> Array:
+	var ship: Ship = ships[id]
+	return [id, ship.grid.to_bytes(), ship.grid.paint_names(), ship.global_transform,
+			ship.helm.pilot if ship.helm else 0, ship.captain, ship.test]
 
 
 ## Forgets everyone no longer on the roster, and frees the stations they held.
@@ -102,14 +165,19 @@ func _on_roster_changed() -> void:
 			_in_world.erase(peer)
 	for peer: int in _crew.keys():
 		if not session.players.has(peer):
-			_crew.erase(peer)
-			if _avatars.has(peer):
-				(_avatars[peer] as CrewAvatar).queue_free()
-				_avatars.erase(peer)
+			_forget_crew(peer)
 	# Freeing stations tells everyone, so wait for the end of the frame: others may
 	# have left in the same poll, and their connections are already gone.
 	_free_stations.call_deferred()
 	_anchor_if_empty()
+
+
+## Stops drawing peer's crew member.
+func _forget_crew(peer: int) -> void:
+	_crew.erase(peer)
+	if _avatars.has(peer):
+		(_avatars[peer] as CrewAvatar).queue_free()
+		_avatars.erase(peer)
 
 
 ## Server: frees the stations of anyone no longer on the roster.
@@ -210,8 +278,8 @@ func _my_crew() -> Array:
 	if player == null:
 		return []
 	var crew := player.crew
-	var id: Variant = ships.find_key(crew.ship)
-	if id == null:
+	var id := id_of(crew.ship)
+	if id == 0:
 		return []
 	return [id, crew.position, crew.velocity, crew.look_yaw, player.look_pitch]
 
@@ -265,35 +333,65 @@ func _enter_world() -> void:
 	if not session.is_server() or not session.players.has(peer) or _in_world.has(peer):
 		return
 	_in_world[peer] = true
-	var entries := []
-	for id: int in ships:
-		var ship: Ship = ships[id]
-		entries.append([id, ship.grid.to_blocks(), ship.global_transform, ship.helm.pilot if ship.helm else 0])
-	_world.rpc_id(peer, _time, entries)
+	_world.rpc_id(peer, _time, ships.keys().map(_entry))
 
 
-## Server -> client: the server's clock and every ship, as [id, blocks, transform, pilot].
+## Server -> client: the server's clock and every ship, as entries (see _entry).
+## Every ship is added before ship_added fires for any, so home_ship() is right.
 @rpc("authority", "call_remote", "reliable", 0)
 func _world(time: Variant, entries: Variant) -> void:
 	if session.is_server() or not _is_time(time) or not entries is Array:
 		return
 	_hear_clock(time)
+	var added: Array[Ship] = []
 	for entry: Variant in entries:
-		if not entry is Array or entry.size() != 4 or not entry[0] is int or not entry[3] is int or ships.has(entry[0]):
-			continue
-		if not entry[2] is Transform3D or not (entry[2] as Transform3D).is_finite():
-			continue
-		var grid := ShipGrid.from_blocks(entry[1])
-		if grid == null:
-			push_warning("The host sent ship %d with blocks that don't make a ship; leaving it out." % entry[0])
-			continue
-		var at: Transform3D = (entry[2] as Transform3D).orthonormalized()
-		var buffer := SnapshotBuffer.new()
-		buffer.push(time, at.origin, Vector3.ZERO, at.basis.get_rotation_quaternion())
-		_buffers[entry[0]] = buffer
-		var ship := _add(entry[0], grid, at, false)
-		if ship.helm != null:
-			ship.helm.pilot = entry[3]
+		var ship := _add_entry(entry, time)
+		if ship != null:
+			added.append(ship)
+	for ship in added:
+		ship_added.emit(ship)
+
+
+## Server -> clients: a ship added mid-game, as an entry (see _entry), at time.
+@rpc("authority", "call_remote", "reliable", 0)
+func _ship_added(time: Variant, entry: Variant) -> void:
+	if session.is_server() or not _is_time(time):
+		return
+	var ship := _add_entry(entry, time)
+	if ship != null:
+		ship_added.emit(ship)
+
+
+## Server -> clients: ship id is gone. Its crew board ship successor (0 for none).
+@rpc("authority", "call_remote", "reliable", 0)
+func _ship_removed(id: Variant, successor: Variant) -> void:
+	if session.is_server() or not id is int or not successor is int or not ships.has(id):
+		return
+	_remove(id, ships.get(successor))
+
+
+## Client: adds the ship an entry describes, drawn from time on, or returns null
+## when the entry makes no sense.
+func _add_entry(entry: Variant, time: float) -> Ship:
+	if not entry is Array or entry.size() != 7 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
+		return null
+	if not entry[3] is Transform3D or not (entry[3] as Transform3D).is_finite():
+		return null
+	var at: Transform3D = (entry[3] as Transform3D).orthonormalized()
+	if not is_equal_approx(at.basis.determinant(), 1.0):
+		return null  # squashed flat or mirrored: not a way to face
+	if not entry[4] is int or not entry[5] is int or not entry[6] is bool:
+		return null
+	var grid := ShipGrid.from_bytes(entry[1])
+	var paint: Variant = ShipGrid.read_paint(entry[2])
+	if grid == null or paint == null:
+		push_warning("The host sent ship %d with blocks or paint that don't make a ship; leaving it out." % entry[0])
+		return null
+	grid.paint = paint
+	var buffer := SnapshotBuffer.new()
+	buffer.push(time, at.origin, Vector3.ZERO, at.basis.get_rotation_quaternion())
+	_buffers[entry[0]] = buffer
+	return _add(entry[0], grid, at, false, entry[5], entry[6], entry[4])
 
 
 ## Server -> clients: a snapshot of every ship (see _ship_states), at time.

@@ -4,6 +4,8 @@ extends Node3D
 ## crew member or steers from the helm, and places the camera: first person, or a
 ## chase view behind the ship while at the helm (spec §3.4).
 
+signal fell_overboard  ## Your crew member fell overboard and was put back aboard.
+
 const MOUSE_TURN := 0.0025     ## Radians per pixel of mouse movement at sensitivity 1.
 const CHASE_DISTANCE := 40.0   ## Metres from the chase camera to the ship.
 
@@ -34,8 +36,20 @@ func _ready() -> void:
 	_avatar = CrewAvatar.new()
 	add_child(_avatar)
 	peer = multiplayer.get_unique_id()
+	board(crew)
+
+
+## Makes new_crew yours, aboard its ship: the keys, E and the camera follow it.
+func board(new_crew: CrewMember) -> void:
+	if ship.helm != null and ship.helm.pilot_changed.is_connected(_on_pilot_changed):
+		ship.helm.pilot_changed.disconnect(_on_pilot_changed)
+	crew = new_crew
+	ship = crew.ship
 	if ship.helm != null:
 		ship.helm.pilot_changed.connect(_on_pilot_changed)
+	crew.fell_overboard.connect(fell_overboard.emit)
+	_on_pilot_changed()
+	chase = false
 
 
 ## What E does right now, for the HUD, or "" when it does nothing.
@@ -111,7 +125,7 @@ func _interact() -> void:
 
 ## You're at the helm exactly while it says you're its pilot.
 func _on_pilot_changed() -> void:
-	var at_helm := ship.helm.pilot == peer
+	var at_helm := ship.helm != null and ship.helm.pilot == peer
 	crew.station = ship.helm if at_helm else null
 	if not at_helm:
 		chase = false

@@ -7,6 +7,11 @@ extends TestCase
 const SessionScript := preload("res://src/net/session.gd")
 const WORLD_SCENE := "res://src/world/world.tscn"
 
+var host: SessionScript           ## Set by sail_together, like the three below.
+var client: SessionScript
+var host_world: Node3D
+var client_world: Node3D
+
 var _branches: Array[Node] = []
 
 
@@ -56,6 +61,21 @@ func host_and_join(host: SessionScript, client: SessionScript, guest_name := "Gu
 	if host.host("Host", port) != OK or client.join(guest_name, "127.0.0.1", port) != OK:
 		return false
 	return await wait_until(func() -> bool: return client.players.size() == 2 and host.players.size() == 2, 5.0)
+
+
+## Host and Guest meet in the lobby, set sail, and each loads a world. True once
+## the guest's ship has arrived.
+func sail_together() -> bool:
+	host = make_session("Host")
+	client = make_session("Client")
+	if not await host_and_join(host, client):
+		return false
+	host.set_sail()
+	if not await wait_until(func() -> bool: return client.sailing, 5.0):
+		return false
+	host_world = add_world(host)
+	client_world = add_world(client)
+	return await wait_until(func() -> bool: return client_world.ship != null, 5.0)
 
 
 ## A world for session, next to it in its branch, as Game loads one next to the

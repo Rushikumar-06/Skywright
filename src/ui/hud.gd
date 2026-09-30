@@ -76,7 +76,7 @@ func _ready() -> void:
 	helm_column.add_child(UiTheme.caption("W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · V view · E leave"))
 
 	session.players_changed.connect(_refresh_session)
-	player.crew.fell_overboard.connect(func() -> void: show_message("You fell overboard. Back aboard!"))
+	player.fell_overboard.connect(func() -> void: show_message("You fell overboard. Back aboard!"))
 	_refresh_session()
 
 

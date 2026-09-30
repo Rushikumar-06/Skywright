@@ -42,6 +42,26 @@ func test_crew_board_at_free_spots_around_the_helm() -> void:
 	assert_eq(ship.crew_spawn(5), spots[0], "more crew than spots share them")
 
 
+func test_crew_can_board_in_front_of_the_helm() -> void:
+	var grid := ShipGrid.new()
+	for x in range(-1, 2):
+		for z in range(-4, 0):
+			grid.set_block(Vector3i(x, 0, z), "deck")
+	grid.set_block(Vector3i(0, 1, 0), "helm")  # on the deck's aft edge, with no deck behind it
+	var bow_deck := Ship.new(grid)
+	bow_deck.simulated = false  # held still
+	bow_deck.position = Vector3(0, 877, 7100)
+	add_child(bow_deck)
+	var spot := bow_deck.crew_spawn()
+	assert_true(spot.z < bow_deck.helm.cell.z, "in front of the helm (at %s)" % spot)
+	assert_true(bow_deck.helm.in_reach(spot), "in reach of it")
+	var member := CrewMember.new(bow_deck, spot)
+	bow_deck.interior.add_child(member)
+	await simulate(0.5)
+	assert_true(member.is_on_floor(), "standing on the deck")
+	assert_true(member.position.distance_to(spot) < 0.1, "and staying put")
+
+
 func test_one_pilot_at_a_time() -> void:
 	var changes := [0]
 	ship.helm.pilot_changed.connect(func() -> void: changes[0] += 1)

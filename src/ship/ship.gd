@@ -16,6 +16,8 @@ var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
 var trim := 1.0      ## Balloon trim, Tuning.TRIM_MIN to Tuning.TRIM_MAX.
 var calm := false    ## No wind. Flight tests fly in still air.
+var captain := 0     ## The peer id of the player whose ship it is, or 0 for nobody's.
+var test := false    ## A test flight from the dock.
 ## False on clients: the ship is then a frozen, kinematic copy that follows the
 ## server's snapshots (spec §4.6), and no forces act on it. Set before adding it.
 var simulated := true
@@ -83,9 +85,11 @@ func _ready() -> void:
 
 
 ## Spots next to the helm, nearest first, as offsets from the cell just aft of it.
+## The last three are in front of it, for a helm with deck only ahead.
 const SPAWN_SPOTS: Array[Vector3i] = [
 	Vector3i(0, 0, 0), Vector3i(-1, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, -1), Vector3i(0, 0, 1),
 	Vector3i(-1, 0, -1), Vector3i(1, 0, -1), Vector3i(-1, 0, 1), Vector3i(1, 0, 1),
+	Vector3i(0, 0, -2), Vector3i(-1, 0, -2), Vector3i(1, 0, -2),
 ]
 
 

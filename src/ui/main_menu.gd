@@ -1,12 +1,17 @@
 extends Node3D
 ## The main menu: play solo, host, join, settings and quit, over a drifting sky.
 ## Hosting or joining opens the lobby, where the crew wait until the host sets sail.
+## The join panel lists the games on the local network as they answer.
+
+var lan_port := LanBeacon.DISCOVERY_PORT  ## Where to look for games. Tests change it.
 
 var _message: Label
 var _menu: VBoxContainer
 var _join_panel: VBoxContainer
 var _address: LineEdit
 var _join_button: Button
+var _games: VBoxContainer
+var _browser: LanBrowser = null
 var _lobby: VBoxContainer
 var _crew_list: VBoxContainer
 var _invite: Label
@@ -73,7 +78,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_join_panel() -> VBoxContainer:
 	var panel := VBoxContainer.new()
 	panel.add_theme_constant_override("separation", 12)
-	panel.add_child(UiTheme.caption("Host's address"))
+	panel.add_child(UiTheme.caption("Games on your network"))
+	_games = VBoxContainer.new()
+	panel.add_child(_games)
+	panel.add_child(UiTheme.gap(12))
+	panel.add_child(UiTheme.caption("Or type the host's address"))
 	_address = LineEdit.new()
 	_address.placeholder_text = "192.168.0.10 or 192.168.0.10:24650"
 	_address.text_submitted.connect(func(_text: String) -> void: _join())
@@ -108,6 +117,7 @@ func _build_lobby() -> VBoxContainer:
 
 
 func _show_menu() -> void:
+	_stop_browsing()
 	_menu.visible = true
 	_join_panel.visible = false
 	_lobby.visible = false
@@ -121,6 +131,38 @@ func _open_join() -> void:
 	_address.text = Settings.last_address
 	_address.grab_focus()
 	_address.caret_column = _address.text.length()
+	_browser = LanBrowser.new(lan_port)
+	_browser.changed.connect(_show_games)
+	add_child(_browser)
+	_show_games()
+
+
+func _stop_browsing() -> void:
+	if _browser != null:
+		_browser.queue_free()
+		_browser = null
+
+
+## One button per game that answered; games on another version can't be joined.
+func _show_games() -> void:
+	for child in _games.get_children():
+		_games.remove_child(child)
+		child.queue_free()
+	if _browser == null or _browser.games.is_empty():
+		_games.add_child(UiTheme.caption("Looking for games…"))
+		return
+	for game: Dictionary in _browser.games.values():
+		var entry := UiTheme.button("%s   %d/%d" % [game["name"], game["players"], game["max"]], _join_game.bind(game))
+		if game["version"] != Session.protocol_version:
+			entry.text += "   needs version %d" % game["version"]
+			entry.disabled = true
+		_games.add_child(entry)
+
+
+func _join_game(game: Dictionary) -> void:
+	var address: String = game["address"]
+	_address.text = ("[%s]:%d" if address.contains(":") else "%s:%d") % [address, game["port"]]
+	_join()
 
 
 ## Hosting began or the host accepted us. Solo and late joiners sail straight on.
@@ -128,6 +170,7 @@ func _open_lobby() -> void:
 	if Session.sailing:
 		return
 	var hosting := Session.mode == Session.Mode.HOST
+	_stop_browsing()
 	_menu.visible = false
 	_join_panel.visible = false
 	_settings.visible = false

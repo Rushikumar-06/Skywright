@@ -80,3 +80,39 @@ func crew_names() -> Array[String]:
 	for label: Label in (menu.get("_crew_list") as Node).get_children():
 		names.append(label.text)
 	return names
+
+
+func test_the_join_panel_lists_games_on_the_network() -> void:
+	var host := make_session("Host")
+	host.host("Ann", free_port())
+	menu.set("lan_port", host.discovery_port)
+	menu.call("_open_join")
+	assert_true(await wait_until(func() -> bool: return game_buttons().size() == 1, 3.0), "Ann's game is listed")
+	var ann := game_buttons()[0]
+	assert_eq(ann.text, "Ann's game   1/8")
+	assert_false(ann.disabled)
+
+	# A game on another version: sent straight to the menu's browser, since only
+	# one program here can answer on the discovery port.
+	var browser: LanBrowser = menu.get("_browser")
+	var other := PacketPeerUDP.new()
+	other.set_dest_address("127.0.0.1", browser._udp.get_local_port())
+	other.put_packet(LanBeacon.answer({"id": 99, "name": "Cy's game", "players": 3, "max": 8, "version": SessionScript.PROTOCOL_VERSION + 1, "port": 24650}))
+	assert_true(await wait_until(func() -> bool: return game_buttons().size() == 2, 3.0), "Cy's game is listed")
+	var cy: Button = game_buttons().filter(func(b: Button) -> bool: return b.text.begins_with("Cy"))[0]
+	assert_eq(cy.text, "Cy's game   3/8   needs version %d" % (SessionScript.PROTOCOL_VERSION + 1))
+	assert_true(cy.disabled, "can't be joined")
+	other.close()
+
+	game_buttons().filter(func(b: Button) -> bool: return b.text.begins_with("Ann"))[0].pressed.emit()
+	assert_true(await wait_until(func() -> bool: return (menu.get("_lobby") as Control).visible, 5.0), "pressing a game joins it")
+	assert_eq(host.players.size(), 2)
+	assert_eq(menu.get("_browser"), null, "and stops looking")
+
+
+func game_buttons() -> Array[Button]:
+	var buttons: Array[Button] = []
+	for child in (menu.get("_games") as Node).get_children():
+		if child is Button and not child.is_queued_for_deletion():
+			buttons.append(child)
+	return buttons

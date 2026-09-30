@@ -36,12 +36,15 @@ var protocol_version := PROTOCOL_VERSION  ## The version this game speaks. Tests
 var connect_timeout := 8.0                ## Seconds a client waits to be accepted.
 var drop_after := DROP_AFTER              ## Seconds of silence before a peer is dropped. Tests shorten it.
 var log_enabled := true                   ## Prints "[session] ..." lines; tests turn it off.
+var discovery_port := LanBeacon.DISCOVERY_PORT  ## Where a host answers LAN queries. Tests change it.
+var game_name := ""                       ## Host: what the LAN list calls this game.
 
 var _accepted := false
 var _pending_name := ""
 var _joining: Dictionary = {}             ## Host: accepted peer id -> name, until connected.
 var _timeout: Timer
 var _lingering: MultiplayerPeer = null    ## The last session's socket, while its goodbye goes out.
+var _beacon: LanBeacon = null             ## Host: answers LAN queries.
 
 
 func _ready() -> void:
@@ -85,7 +88,12 @@ func host(player_name: String, host_port := DEFAULT_PORT) -> Error:
 	multiplayer.multiplayer_peer = peer
 	mode = Mode.HOST
 	port = host_port
-	_set_players({1: {"name": SettingsScript.clean_name(player_name)}})
+	var cleaned := SettingsScript.clean_name(player_name)
+	game_name = "%s's game" % cleaned
+	_beacon = LanBeacon.new(discovery_port)
+	_beacon.info["id"] = randi()
+	add_child(_beacon)
+	_set_players({1: {"name": cleaned}})
 	_log("hosting on port %d" % port)
 	started.emit()
 	return OK
@@ -359,6 +367,9 @@ func _reset(linger := false) -> void:
 	sailing = false
 	_accepted = false
 	_joining.clear()
+	if _beacon != null:
+		_beacon.free()  # now, not at the end of the frame, so hosting again can listen
+		_beacon = null
 	if _lingering != null:
 		_lingering.close()
 		_lingering = null
@@ -380,6 +391,8 @@ func _reset(linger := false) -> void:
 
 func _set_players(roster: Dictionary) -> void:
 	players = roster
+	if _beacon != null:
+		_beacon.info.merge({"name": game_name, "players": players.size(), "max": max_players, "version": protocol_version, "port": port}, true)
 	players_changed.emit()
 
 

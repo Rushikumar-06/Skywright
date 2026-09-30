@@ -1,7 +1,7 @@
 # Skywright: design spec
 
 - **Date:** 2026-09-29
-- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stages 2 and 3 settled.
+- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stages 2, 3 and 4 settled.
 - **Tracker:** [Skywright Build Log](https://claude.ai/artifact/N8W3J8xUU77JcdYdhcSZCx)
 
 ## 1. Summary
@@ -49,6 +49,8 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 - **Shipyard readouts:** weight, lift at the current altitude, thrust, estimated top speed and climb rate. Markers show the centre of mass against the centre of lift, with warnings such as "lists 8° to port" or "too heavy to hold altitude".
 - **Cargo:** crates are stowed in cargo bays, and their weight counts where they're stowed.
 - **Damage:** destroyed blocks are removed. Any section no longer connected to the helm's section breaks away as its own wreck, and a severed balloon floats away.
+- **Shipyard:** until towns arrive (stage 5), the shipyard opens within 150 m of a placeholder dock at the start, which has a slipway for each player. Blocks are placed, removed, turned, tipped and mirrored, with undo and redo. Mirror mode makes every edit on both sides of the keel.
+- **Test flights:** a design can be flown at once from the shipyard, with the designer at the helm, and returned from instantly. A test flight is a real ship that's removed when it ends.
 - **Blueprints:** designs are saved as blueprints, which are shareable files.
 
 ### 3.4 Crew and stations
@@ -83,7 +85,7 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 
 ### 3.8 Multiplayer
 
-- **Co-op:** friends join the host's world and either crew the host's ship or fly their own alongside it (from stage 4, which brings ships of your own; in stage 3 everyone crews the host's ship). The world is saved on the host's machine.
+- **Co-op:** friends join the host's world and either crew the host's ship or fly their own alongside it (from stage 4, which brings ships of your own; in stage 3 everyone crews the host's ship). Each player has one ship and one test flight at a time, and a leaver's ships go with them. The world is saved on the host's machine.
 - **Lobby:** the host's crew gather in a lobby until the host sets sail. Anyone who joins after that goes straight aboard.
 - **Skirmish:** team ship battles on arena maps using your own blueprints, and sky-river races with checkpoints. Players can board enemy ships with grapple lines and fight with cutlass and pistol.
 - **Size:** up to 8 players.
@@ -158,7 +160,7 @@ Player names are trimmed and capped at 24 characters. An empty name becomes "Cap
 
 ### 4.4 Ships
 
-**Data.** A ship is a `ShipGrid`: a dictionary from cell (`Vector3i`) to block `{type, rotation (0–23), hp}`. There is one rigid body per ship (Jolt).
+**Data.** A ship is a `ShipGrid`: a dictionary from cell (`Vector3i`) to block `{type, rotation (0–23), hp}`, plus `paint`. There is one rigid body per ship (Jolt). Rotations are Godot's orthogonal index (the one GridMap uses), so 0 is the block as modelled, facing the bow.
 
 **Starting catalogue values** (tuned in stages 2 and 4):
 
@@ -196,15 +198,15 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 
 **Forces each physics tick** (at world position `p`, air density factor `ρ(h) = exp(−(h − 200) / 2500)` for h ≥ 200, and 1 below). Every constant is in `src/ship/tuning.gd`:
 - **Balloon lift:** `900 N × ρ × trim` per cell. The pilot sets trim between 0.8 and 1.1, and trim above 1.0 burns fuel once fuel exists (stage 7). Lift stones give a fixed 6,000 N.
-- **Thrust:** `throttle × engine power share × 2,500 N` per propeller, along its axis. One engine drives up to two propellers at full power. Until the shipyard can turn blocks (stage 4), propellers push toward the bow.
+- **Thrust:** `throttle × engine power share × 2,500 N` per propeller, along its facing. One engine drives up to two propellers at full power. A propeller facing aft pushes the ship astern.
 - **Drag:** cells are grouped into 4 × 4 × 4 zones. Each zone stores its exposed face area per local axis and its centre. Zone drag is `−½ × 1.2 × ρ × Cd × A_axis × |v_axis| × v_axis`, per local axis, with Cd 0.45. It uses the air-relative velocity at the zone centre: body velocity at that point minus the wind. Rotational damping falls out of this, and the body adds spin damping of 0.5 per second.
 - **Keel:** each zone also pushes back against slipping sideways while it moves forward: `−½ × 1.2 × ρ × 8 × A_x × |v_forward| × v_side`, along the ship's x axis. It works the way a keel does in water. Without it a ship skids instead of turning. With it the starter ship turns at about 6°/s and keeps about two-thirds of its speed through a hard turn. It needs forward speed, so a hovering ship still drifts with the wind.
-- **Control surfaces:** side force `k × ρ × v_forward × |v_forward| × deflection`, where `v_forward` is the airflow along the ship, so a rudder works backwards going astern.
+- **Control surfaces:** a rudder acts along its facing too. Side force `k × ρ × v_forward × |v_forward| × deflection`, where `v_forward` is the airflow along the ship, so a rudder works backwards going astern.
 - **Gravity** is applied by the engine, at 9.81 m/s².
 
 **Collision:** cells are merged into boxes with greedy meshing and added as box shapes on the body. A hit's shape index plus its local hit point identify the cell.
 
-**Rendering:** one mesh per ship per material, built in 16³ sections so a hit only rebuilds its section.
+**Rendering:** one mesh per ship, with one surface per material. Stage 6 may split it into 16³ sections so a hit only rebuilds its section. Shaped blocks (propeller, rudder, sail, cannon, helm) are drawn as shapes but still collide and drag as cubes. Balloons are drawn as one cloth envelope.
 
 **Break-apart:** after blocks are destroyed, a flood fill finds the connected components.
 - The largest component that still contains a helm stays the ship.
@@ -237,7 +239,9 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 - **Ship snapshots (30 Hz):** each carries `{ship id, position, rotation, linear velocity, angular velocity, throttle, rudder, trim, autopilot, target heading, target altitude}` at a server time. Clients render ships 100 ms in the past with Hermite interpolation between snapshots, and extrapolate up to 250 ms when packets are late.
 - **Crew (30 Hz):** each client sends `{ship id, local position, velocity, yaw, pitch}` to the server. The server checks it (finite, at most 50 m/s, within 35 m of the ship's blocks), stamps it with its own clock and relays it to everyone else. Clients draw other crew 100 ms in the past, on their ship as it's drawn.
 - **Stations:** a client asks the server for the helm. The server grants it only if the asker last reported standing aboard that ship within reach (1.8 m, plus 0.5 m of slack), and tells everyone who holds it. Only the pilot's helm keys are applied (clamped to −1…1), and only the pilot can switch the autopilot.
-- **Events (reliable):** ship spawned (with compressed blueprint and damage), ship removed, blocks destroyed, ship split, projectile fired (`origin`, `velocity`, `type`, `server time`), projectile hit, station claimed or released, and economy changes. Every machine simulates a projectile's arc from its launch data, and only the server decides hits. In stage 3 a ship's blocks are sent uncompressed, as `[x, y, z, type, rotation, hp]` (18 KB for the starter ship). Compression comes when stage 4 allows 4,000-block ships.
+- **Events (reliable):** ship spawned (with compressed blocks, paint and damage), ship removed, blocks destroyed, ship split, projectile fired (`origin`, `velocity`, `type`, `server time`), projectile hit, station claimed or released, and economy changes. Every machine simulates a projectile's arc from its launch data, and only the server decides hits. 
+- **Protocol 3 (stage 4):** `_ship_added` and `_ship_removed` carry ships that come and go mid-game, and `_world` sends every ship's entry `[id, blocks, paint, transform, pilot, captain, test]`. A client asks with `_launch(blocks, paint, test)` (at most one a second; the server checks the bytes) and ends a test with `_end_test`. A launch or a test replaces the player's last ship or test, and `_ship_removed` names the ship that takes over its crew. The server trusts a client to be at the dock until launching costs money (stage 7).
+- **Block bytes:** two bytes of block count (`encode_u16`), then a zstd-compressed body of 7 bytes per block: `x + 64`, `y + 64`, `z + 64`, the type's index in `Tuning.BLOCKS`' key order, the rotation, and the hit points as `u16`. Reordering `Tuning.BLOCKS` changes the protocol.
 - **Joining mid-game:** only peers whose world has loaded get world traffic. A client's world asks to enter when it's ready, and receives the world clock and every ship (blocks, damage, transform and pilot). Later stages add the world seed and the list of changes to the world. The crew roster comes with the handshake.
 - **Budget:** at most 64 KB/s down per client. Twelve ships at 30 Hz is about 22 KB/s.
 
@@ -279,8 +283,9 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 ### 4.10 Persistence
 
 - **Settings:** `user://settings.cfg` (ConfigFile). Values are clamped on load, and a missing or broken file falls back to defaults.
-- **Blueprints:** `user://blueprints/<name>.skyship.json`, stored as `{"format": "skywright-blueprint", "version": 1, "name", "blocks": [[x, y, z, type, rotation], …], "paint": {…}}`.
+- **Blueprints:** `user://blueprints/<name>.skyship.json`, stored as `{"format": "skywright-blueprint", "version": 1, "name", "blocks": [[x, y, z, type, rotation], …], "paint": {…}}`. `paint` maps a block type to a hex colour (`"balloon": "c83c3c"`), and every block of that type takes it.
   - Validation happens on load: known format and version, 1 to 4,000 blocks, coordinates in −64…63, known block types, rotation 0–23, and at least one helm.
+  - Numbers may be whole floats (`3.0` is 3). Files over 1 MB are refused.
   - Other players' blueprints are untrusted input.
 - **Saves:** `user://saves/<slot>/world.json`, `ships.json` and `player.json`, each with a `version`.
   - The game autosaves every 5 minutes and when docking, and keeps the last three autosaves.
@@ -345,7 +350,7 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | Port in use when hosting | "Port 24650 is already in use. Is another game running?" |
 | Broken settings file | Defaults are used and the file is rewritten on the next save. |
 | Broken save | The previous autosave loads, and the player is told. |
-| Invalid blueprint | It's refused with the first problem found, and nothing is loaded. |
+| Invalid blueprint | It's refused with the first problem found, and nothing is loaded. The checks are in `Blueprint.parse` and `ShipGrid.read_blocks`. |
 | Physics blow-up | The physics guard in §4.4 applies. |
 
 ## 8. Risks
@@ -376,3 +381,8 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-30 | A connection silent for 8 s counts as lost (ENet's default is 30 s) |
 | 2026-09-30 | One world clock, seconds since the server's world began, drives the sky and client interpolation |
 | 2026-09-30 | In stage 3 everyone crews the host's one ship; each machine walks only its own crew member, and crew don't collide |
+| 2026-09-30 | Block rotations are Godot's orthogonal basis index (0–23) |
+| 2026-09-30 | Propellers and rudders act along their facing |
+| 2026-09-30 | Each player has one ship and one test flight at a time; a leaver's ships go with them |
+| 2026-09-30 | A blueprint is refused with the first problem found, and nothing is loaded |
+| 2026-09-30 | The shipyard opens only at the dock until towns arrive in stage 5 |

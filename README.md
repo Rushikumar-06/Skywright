@@ -6,14 +6,16 @@ Built with Godot 4.7.2. The design is in [`docs/superpowers/specs/2026-09-29-sky
 
 ## Status
 
-**Stage 3 of 10 (Online co-op).** You can:
+**Stage 4 of 10 (The shipyard).** You can:
 - walk the deck of the starter ship while it rolls in the wind, and climb its ladders;
 - take the helm and fly between floating islands, with an autopilot and a chase view;
 - watch day turn to night over the Roil, the storm below 200 m;
 - crew one ship with up to 7 friends: one at the helm, the rest walking the deck, everyone in sync;
-- find games on your network in a list, or join by address, or run a dedicated server.
+- find games on your network in a list, or join by address, or run a dedicated server;
+- design ships block by block in the shipyard at the dock, read what they'll do before flying, test-fly them, and launch them;
+- save designs as blueprints and share the files.
 
-Everyone crews the host's ship. Ships of your own arrive with the shipyard in stage 4.
+Everyone starts aboard the host's starter ship, and can launch a ship of their own from the dock.
 
 ## Controls
 
@@ -27,9 +29,43 @@ Everyone crews the host's ship. Ships of your own arrive with the shipyard in st
 | H | | Autopilot on or off |
 | V | | Chase view |
 | Mouse | Look | Look, or orbit in the chase view |
+| B | Shipyard, at the dock | |
 | Esc | Menu | Menu |
 
 On a ladder, W climbs too. Throttle and trim stay where you leave them. The autopilot holds the heading and height it was switched on at, and A, D, Space and Ctrl adjust those.
+
+## The shipyard
+
+The dock is where you start. Each player has a slipway there. Stand within 150 m of the dock and press B to open the shipyard. B or Esc closes it.
+
+| Key | Shipyard |
+|---|---|
+| Left click | Place a block |
+| Right click | Remove a block |
+| Right-drag, or W A S D | Orbit |
+| Mouse wheel | Zoom |
+| R | Turn the block |
+| T | Tip the block |
+| M | Mirror mode: edits happen on both sides of the keel |
+| Ctrl+Z | Undo |
+| Ctrl+Y, or Ctrl+Shift+Z | Redo |
+| F | Test flight |
+| B | Back from a test flight |
+
+The panels show what your design will do: weight, lift, where she floats, thrust, top speed and climb rate. Two markers show the centre of mass and the centre of lift. If they don't line up, she lists or trims that way. Warnings say what's wrong before you fly: "Lists 8° to port", "Too heavy to fly", "Every ship needs a helm".
+
+**Test flight.** F puts a copy of your design in the air with you at its helm. Fly it, then press B: you're back in the shipyard at once, with your design as you left it. You can have one test flight at a time.
+
+**Launching.** Launch sends your design down your slipway as a real ship, and you and anyone aboard sail on it. You can have one ship at a time, so launching again replaces your last one. A player who leaves takes their ships with them. Building, testing and launching are free.
+
+## Blueprints
+
+A design is saved as a blueprint: a small text file, `<name>.skyship.json`. They live here:
+
+- Linux: `~/.local/share/godot/app_userdata/Skywright/blueprints`
+- Windows: `%APPDATA%\Godot\app_userdata\Skywright\blueprints`
+
+To share a ship, send the file. To use one, copy it into that folder. **Open folder** in the shipyard opens it. A blueprint that's broken, too big (over 1 MB) or missing a helm is refused with the first problem found, and nothing is loaded.
 
 ## Run it
 
@@ -47,7 +83,7 @@ godot --path . --editor       # open in the editor
 2. Everyone else chooses **Join game**. Games on your network appear in a list, like `Ann's game   1/8`; pick one, or type the host's address.
 3. When everyone's in the lobby, the host chooses **Set sail**. Anyone who joins later goes straight aboard.
 
-On deck, E at the helm takes it if nobody has it; everyone else sees who's steering. Up to 8 players crew one ship.
+On deck, E at the helm takes it if nobody has it; everyone else sees who's steering. Up to 8 players crew one ship, or everyone can launch their own ship at their own slipway and fly alongside each other.
 
 Games use UDP port 24650, and the network list uses UDP port 24651. Over the internet, the host must forward UDP 24650 on their router, and friends join by address.
 
@@ -89,7 +125,8 @@ A test fails when an assert fails, or when the engine logs an error the test did
 ```
 src/core/     Settings and Game autoloads, launch options
 src/net/      Session autoload (solo, host, join, lobby, dedicated server), LAN discovery, WorldSync and snapshot interpolation
-src/ship/     blocks and the tuning file, the ship grid, the starter ship, flight forces, the ship body and mesh
+src/ship/     blocks and the tuning file, the ship grid, blueprints, ship stats, the starter ship, flight forces, the ship body and mesh
+src/builder/  the shipyard: the design and its undo, the 3D build view, the panels
 src/crew/     each ship's interior world, crew members and how others see them, the helm, the player's controls and camera
 src/ui/       menus, the HUD and the shared UI theme
 src/world/    the world scene, sky, the Roil, islands, wind, the menu backdrop

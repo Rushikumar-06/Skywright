@@ -9,8 +9,16 @@ var client_world: Node3D
 
 
 func after_each() -> void:
-	Input.action_release("move_forward")
+	for action in ["move_forward", "move_right"]:
+		Input.action_release(action)
 	super.after_each()
+
+
+func press(player: PlayerController, action: String) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = true
+	player._unhandled_input(event)
 
 
 ## Host and Guest meet in the lobby, set sail, and each loads a world. True once
@@ -198,3 +206,123 @@ func _in_ship_space(world: Node3D, avatar: CrewAvatar) -> Vector3:
 	if avatar == null:
 		return Vector3.INF
 	return world.ship.global_transform.affine_inverse() * avatar.global_position
+
+
+func test_one_pilot_at_a_time_and_a_clean_handover() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var client_id := client.multiplayer.get_unique_id()
+	var ours: Ship = host_world.ship
+	var theirs: Ship = client_world.ship
+	await play(0.2)  # where the guest stands reaches the host
+	press(client_world.player, "interact")
+	assert_true(await wait_until(func() -> bool: return client_world.player.crew.station == theirs.helm, 2.0), "the guest takes the helm")
+	assert_eq(ours.helm.pilot, client_id)
+	press(host_world.player, "interact")
+	assert_eq(ours.helm.pilot, client_id, "the host is refused")
+	assert_eq(host_world.player.crew.station, null)
+	await get_tree().process_frame
+	assert_eq(host_world.hud._prompt.text, "Guest is at the helm")
+
+	host_world.player.enabled = false  # the keys below are the guest's
+	Input.action_press("move_forward")
+	Input.action_press("move_right")
+	assert_true(await wait_until(func() -> bool: return ours.throttle > 0.2 and ours.rudder == 1.0, 2.0), "the guest's keys steer the host's ship")
+	Input.action_release("move_forward")
+	Input.action_release("move_right")
+	press(client_world.player, "interact")
+	assert_true(await wait_until(func() -> bool: return ours.helm.pilot == 0, 2.0), "the guest lets go")
+	assert_eq(ours.rudder, 0.0, "the rudder centres")
+	assert_true(ours.throttle > 0.2, "the throttle stays")
+	assert_eq(client_world.player.crew.station, null)
+
+	host_world.player.enabled = true
+	press(host_world.player, "interact")
+	assert_eq(ours.helm.pilot, 1, "the host takes over")
+	assert_true(await wait_until(func() -> bool: return theirs.helm.pilot == 1, 2.0), "and the guest hears so")
+	await get_tree().process_frame
+	assert_eq(client_world.hud._prompt.text, "Host is at the helm")
+
+
+func test_two_players_asking_at_once_get_one_pilot() -> void:
+	host = make_session("Host")
+	var ann := make_session("Ann")
+	var bob := make_session("Bob")
+	var port := free_port()
+	host.host("Host", port)
+	ann.join("Ann", "127.0.0.1", port)
+	bob.join("Bob", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return ann.players.size() == 3 and bob.players.size() == 3, 5.0), "all aboard")
+	host.set_sail()
+	assert_true(await wait_until(func() -> bool: return ann.sailing and bob.sailing, 5.0), "set sail")
+	host_world = add_world(host)
+	var ann_world := add_world(ann)
+	var bob_world := add_world(bob)
+	assert_true(await wait_until(func() -> bool: return ann_world.ship != null and bob_world.ship != null, 5.0), "the ship arrives")
+	await play(0.2)
+	press(ann_world.player, "interact")
+	press(bob_world.player, "interact")
+	await play(0.3)  # both asked; the server decided and everyone heard
+	var pilot: int = host_world.ship.helm.pilot
+	assert_true(pilot == ann.multiplayer.get_unique_id() or pilot == bob.multiplayer.get_unique_id(), "one of them has it")
+	assert_eq(ann_world.ship.helm.pilot, pilot, "Ann knows who")
+	assert_eq(bob_world.ship.helm.pilot, pilot, "Bob knows who")
+	var at_helm := [ann_world, bob_world].filter(func(world: Node3D) -> bool: return world.player.crew.station != null)
+	assert_eq(at_helm.size(), 1, "exactly one is at the helm")
+
+
+func test_a_client_out_of_reach_cant_take_the_helm() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var client_id := client.multiplayer.get_unique_id()
+	var walker: CrewMember = client_world.player.crew
+	walker.position = Vector3(0, 1.45, -2)  # down on the main deck
+	await play(0.3)  # the host hears where the guest is
+	assert_eq(client_world.player.prompt(), "", "nothing in reach")
+	client_world.ship.helm.ask_helm(client_id, true)  # as a modified client could
+	await play(0.3)
+	assert_eq(host_world.ship.helm.pilot, 0, "refused")
+	walker.position = client_world.ship.crew_spawn(1)
+	await play(0.3)
+	client_world.ship.helm.ask_helm(client_id, true)
+	assert_true(await wait_until(func() -> bool: return host_world.ship.helm.pilot == client_id, 2.0), "back in reach, it's granted")
+
+
+func test_helm_keys_from_anyone_but_the_pilot_are_ignored() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var client_id := client.multiplayer.get_unique_id()
+	var ours: Ship = host_world.ship
+	var keys := func(throttle: Variant, rudder: Variant, climb: Variant) -> void:
+		client_world.sync._helm_keys.rpc_id(1, 1, throttle, rudder, climb)
+	press(host_world.player, "interact")
+	keys.call(1.0, 1.0, 1.0)
+	await play(0.3)
+	assert_eq(ours.throttle, 0.0, "a guest can't steer from the host's helm")
+
+	press(host_world.player, "interact")
+	press(client_world.player, "interact")
+	assert_true(await wait_until(func() -> bool: return ours.helm.pilot == client_id, 2.0), "the guest takes the helm")
+	client_world.sync.player = null  # from here, only the keys below are sent
+	await play(0.1)
+	keys.call(NAN, 0.0, 0.0)
+	keys.call("full", 0.0, 0.0)
+	await play(0.3)
+	assert_eq(ours.helm.throttle_input, 0.0, "junk keys are ignored")
+	keys.call(5.0, -7.0, 0.5)
+	assert_true(await wait_until(func() -> bool: return ours.helm.throttle_input == 1.0, 2.0), "the pilot's keys are taken")
+	assert_eq(ours.helm.rudder_input, -1.0, "clamped")
+	assert_eq(ours.helm.climb_input, 0.5)
+
+
+func test_the_autopilot_answers_only_the_pilot() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var client_id := client.multiplayer.get_unique_id()
+	var ours: Ship = host_world.ship
+	client_world.ship.helm.ask_autopilot(client_id, true)
+	await play(0.3)
+	assert_false(ours.helm.autopilot, "not the pilot, so no")
+	press(client_world.player, "interact")
+	assert_true(await wait_until(func() -> bool: return client_world.player.crew.station != null, 2.0), "the guest takes the helm")
+	press(client_world.player, "autopilot")
+	assert_true(await wait_until(func() -> bool: return ours.helm.autopilot, 2.0), "the pilot switches it on")
+	assert_true(await wait_until(func() -> bool: return client_world.ship.helm.autopilot, 2.0), "and sees it on")
+	ours.helm.ask_autopilot(1, false)
+	assert_true(ours.helm.autopilot, "the host isn't the pilot, so it stays on")

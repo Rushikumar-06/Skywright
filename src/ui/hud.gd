@@ -86,12 +86,23 @@ func show_message(text: String) -> void:
 
 func _process(delta: float) -> void:
 	var action := player.prompt()
-	_prompt.text = "" if action.is_empty() else "E   " + action
+	var holder: int = player.ship.helm.pilot if player.ship.helm != null else 0
+	if not action.is_empty():
+		_prompt.text = "E   " + action
+	elif holder != 0 and holder != player.peer and player.helm_in_reach():
+		_prompt.text = "%s is at the helm" % name_of(holder)
+	else:
+		_prompt.text = ""
 	_message_left -= delta
 	_message.visible = _message_left > 0.0
 	_helm.visible = player.crew.station != null
 	if _helm.visible:
 		_readout.text = readout(player.ship)
+
+
+## A player's name, from the session's roster.
+func name_of(peer: int) -> String:
+	return session.players.get(peer, {}).get("name", "Someone")
 
 
 ## The helm's instruments as text.

@@ -1,6 +1,6 @@
 extends TestCase
-## The helm: one pilot at a time, throttle and trim that stay set, a rudder that
-## centres, and an autopilot that holds course (spec §3.4).
+## The helm: one pilot at a time (players by peer id), throttle and trim that stay
+## set, a rudder that centres, and an autopilot that holds course (spec §3.4).
 
 var ship: Ship
 var crew: CrewMember
@@ -43,21 +43,53 @@ func test_crew_board_at_free_spots_around_the_helm() -> void:
 
 
 func test_one_pilot_at_a_time() -> void:
-	var other := CrewMember.new(ship, ship.crew_spawn())
-	ship.interior.add_child(other)
-	assert_true(ship.helm.take(crew))
-	assert_eq(crew.station, ship.helm)
-	assert_false(ship.helm.take(other), "taken")
-	assert_eq(other.station, null)
-	ship.helm.leave(other)
-	assert_eq(ship.helm.pilot, crew, "only the pilot can let go")
-	ship.helm.leave(crew)
-	assert_eq(ship.helm.pilot, null)
-	assert_eq(crew.station, null)
+	var changes := [0]
+	ship.helm.pilot_changed.connect(func() -> void: changes[0] += 1)
+	assert_eq(ship.helm.pilot, 0, "nobody at first")
+	assert_true(ship.helm.take(1))
+	assert_eq(ship.helm.pilot, 1)
+	assert_false(ship.helm.take(2), "taken")
+	ship.helm.leave(2)
+	assert_eq(ship.helm.pilot, 1, "only the pilot can let go")
+	ship.helm.leave(1)
+	assert_eq(ship.helm.pilot, 0)
+	assert_eq(changes[0], 2, "pilot_changed for each change")
+
+
+func test_the_server_decides_at_once_and_a_client_asks_it() -> void:
+	var asked: Array = []
+	ship.helm.asked.connect(func(what: String, on: bool) -> void: asked.append([what, on]))
+	ship.helm.ask_helm(1, true)
+	assert_eq(ship.helm.pilot, 1, "a ship flown here answers at once")
+	ship.helm.ask_autopilot(2, true)
+	assert_false(ship.helm.autopilot, "only the pilot sets the autopilot")
+	ship.helm.ask_autopilot(1, true)
+	assert_true(ship.helm.autopilot)
+	ship.helm.ask_helm(1, false)
+	assert_eq(ship.helm.pilot, 0)
+	assert_eq(asked, [], "nothing to send")
+
+	var copy := Ship.new(StarterShip.build())
+	copy.simulated = false
+	add_child(copy)
+	var sent: Array = []
+	copy.helm.asked.connect(func(what: String, on: bool) -> void: sent.append([what, on]))
+	copy.helm.ask_helm(2, true)
+	copy.helm.ask_autopilot(2, true)
+	assert_eq(sent, [["helm", true], ["autopilot", true]], "a client's copy asks the server")
+	assert_eq(copy.helm.pilot, 0, "and waits for its answer")
+	assert_false(copy.helm.autopilot)
+
+
+func test_reach() -> void:
+	var at := Vector3(ship.helm.cell)
+	assert_true(ship.helm.in_reach(at + Vector3(0, 0, Helm.REACH - 0.01)))
+	assert_false(ship.helm.in_reach(at + Vector3(0, 0, Helm.REACH + 0.1)))
+	assert_true(ship.helm.in_reach(at + Vector3(0, 0, Helm.REACH + 0.1), 0.5), "with some slack")
 
 
 func test_throttle_and_trim_stay_set_and_the_rudder_centres() -> void:
-	ship.helm.take(crew)
+	ship.helm.take(1)
 	ship.helm.throttle_input = 1.0
 	ship.helm.rudder_input = -1.0
 	ship.helm.climb_input = 1.0
@@ -68,7 +100,7 @@ func test_throttle_and_trim_stay_set_and_the_rudder_centres() -> void:
 	await simulate(3.0)
 	assert_eq(ship.throttle, 1.0, "full ahead at most")
 	assert_eq(ship.trim, Tuning.TRIM_MAX)
-	ship.helm.leave(crew)
+	ship.helm.leave(1)
 	await simulate(0.1)
 	assert_eq(ship.throttle, 1.0, "throttle stays")
 	assert_eq(ship.trim, Tuning.TRIM_MAX, "trim stays")
@@ -98,9 +130,9 @@ func test_the_autopilot_holds_course_through_gusts_and_follows_a_new_one() -> vo
 
 
 func test_the_autopilot_keeps_flying_when_the_pilot_leaves() -> void:
-	ship.helm.take(crew)
+	ship.helm.take(1)
 	ship.helm.set_autopilot(true)
-	ship.helm.leave(crew)
+	ship.helm.leave(1)
 	ship.helm.target_heading = wrapf(ship.helm.target_heading + 0.5, -PI, PI)
 	ship.throttle = 1.0
 	await simulate(20.0)

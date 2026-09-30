@@ -5,10 +5,24 @@ extends Node
 ## autopilot holds the heading and altitude it was switched on at (A, D, climb and
 ## descend move those targets instead), so a solo player can leave the helm. An
 ## empty helm with the autopilot off leaves the controls alone.
+##
+## The pilot is a player's peer id. The server's helm decides who gets it; a
+## client's copy passes each ask on through asked, and WorldSync sets its pilot
+## from the server's answer.
+
+signal pilot_changed                   ## pilot changed.
+signal asked(what: String, on: bool)   ## A client's copy: "helm" or "autopilot" was asked for, for the server.
+
+const REACH := 1.8  ## Metres from the helm's block that it can be used from.
 
 var ship: Ship
 var cell: Vector3i               ## Where the helm block is, in ship space.
-var pilot: CrewMember = null     ## Who is at the helm, if anyone.
+## The peer id of the player at the helm, or 0 for nobody.
+var pilot := 0:
+	set(peer):
+		if peer != pilot:
+			pilot = peer
+			pilot_changed.emit()
 var throttle_input := 0.0        ## -1 to 1: S to W, held this tick.
 var rudder_input := 0.0          ## -1 to 1: A to D.
 var climb_input := 0.0           ## -1 to 1: descend to climb.
@@ -22,26 +36,48 @@ func _init(helm_ship: Ship, helm_cell: Vector3i) -> void:
 	cell = helm_cell
 
 
-## Puts crew at the helm. Returns false when someone else has it.
-func take(crew: CrewMember) -> bool:
-	if pilot != null:
+## Puts peer at the helm. Returns false when someone else has it.
+func take(peer: int) -> bool:
+	if pilot != 0:
 		return false
-	pilot = crew
-	crew.station = self
+	pilot = peer
 	return true
 
 
-## Lets go of the helm. The rudder centres; throttle and trim stay as they are.
-func leave(crew: CrewMember) -> void:
-	if pilot != crew:
+## Lets go of the helm, if peer has it. The rudder centres; throttle and trim stay.
+func leave(peer: int) -> void:
+	if peer == 0 or pilot != peer:
 		return
-	pilot = null
-	crew.station = null
+	pilot = 0
 	throttle_input = 0.0
 	rudder_input = 0.0
 	climb_input = 0.0
 	if not autopilot:
 		ship.rudder = 0.0
+
+
+## peer asks to take the helm (on) or leave it. Decided at once on the ship that
+## flies here; a client's copy asks the server.
+func ask_helm(peer: int, on: bool) -> void:
+	if not ship.simulated:
+		asked.emit("helm", on)
+	elif on:
+		take(peer)
+	else:
+		leave(peer)
+
+
+## peer asks to switch the autopilot on or off. Only the pilot may.
+func ask_autopilot(peer: int, on: bool) -> void:
+	if not ship.simulated:
+		asked.emit("autopilot", on)
+	elif pilot == peer:
+		set_autopilot(on)
+
+
+## Whether someone standing at where (in ship space) can use the helm.
+func in_reach(where: Vector3, slack := 0.0) -> bool:
+	return where.distance_to(Vector3(cell)) <= REACH + slack
 
 
 ## Switches the autopilot on, holding the present heading and altitude, or off.
@@ -52,7 +88,7 @@ func set_autopilot(on: bool) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not ship.simulated or (pilot == null and not autopilot):
+	if not ship.simulated or (pilot == 0 and not autopilot):
 		return  # a client's copy of a ship is steered on the server
 	ship.throttle = clampf(ship.throttle + throttle_input * Tuning.THROTTLE_RATE * delta, Tuning.THROTTLE_MIN, 1.0)
 	if not autopilot:

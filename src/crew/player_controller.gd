@@ -5,7 +5,6 @@ extends Node3D
 ## chase view behind the ship while at the helm (spec §3.4).
 
 const MOUSE_TURN := 0.0025     ## Radians per pixel of mouse movement at sensitivity 1.
-const REACH := 1.8             ## Metres from a helm's block that you can use it from.
 const CHASE_DISTANCE := 40.0   ## Metres from the chase camera to the ship.
 
 var crew: CrewMember
@@ -14,6 +13,7 @@ var camera: Camera3D
 var chase := false             ## The chase view is showing.
 var enabled := true            ## Off while a menu is open: keys and mouse do nothing.
 var look_pitch := 0.0          ## Radians; positive looks up.
+var peer := 1                  ## This player's peer id.
 
 var _avatar: CrewAvatar
 var _chase_yaw := 0.0
@@ -33,15 +33,23 @@ func _ready() -> void:
 	camera.make_current()
 	_avatar = CrewAvatar.new()
 	add_child(_avatar)
+	peer = multiplayer.get_unique_id()
+	if ship.helm != null:
+		ship.helm.pilot_changed.connect(_on_pilot_changed)
 
 
 ## What E does right now, for the HUD, or "" when it does nothing.
 func prompt() -> String:
 	if crew.station != null:
 		return "Leave the helm"
-	if _helm_in_reach():
+	if helm_in_reach() and ship.helm.pilot == 0:
 		return "Take the helm"
 	return ""
+
+
+## Whether you're standing close enough to the helm to use it.
+func helm_in_reach() -> bool:
+	return ship.helm != null and ship.helm.in_reach(crew.position)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -60,7 +68,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("toggle_camera") and crew.station != null:
 		chase = not chase
 	elif event.is_action_pressed("autopilot") and crew.station != null:
-		ship.helm.set_autopilot(not ship.helm.autopilot)
+		ship.helm.ask_autopilot(peer, not ship.helm.autopilot)
 
 
 func _physics_process(_delta: float) -> void:
@@ -96,11 +104,14 @@ func _process(_delta: float) -> void:
 
 func _interact() -> void:
 	if crew.station != null:
-		ship.helm.leave(crew)
+		ship.helm.ask_helm(peer, false)
+	elif helm_in_reach():
+		ship.helm.ask_helm(peer, true)
+
+
+## You're at the helm exactly while it says you're its pilot.
+func _on_pilot_changed() -> void:
+	var at_helm := ship.helm.pilot == peer
+	crew.station = ship.helm if at_helm else null
+	if not at_helm:
 		chase = false
-	elif _helm_in_reach():
-		ship.helm.take(crew)
-
-
-func _helm_in_reach() -> bool:
-	return ship.helm != null and crew.position.distance_to(Vector3(ship.helm.cell)) <= REACH

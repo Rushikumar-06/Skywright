@@ -14,6 +14,10 @@ extends Node
 ## at 30 Hz (spec §4.5). The server checks each report, stamps it with its own
 ## clock and passes it on. Everyone draws everyone else as a CrewAvatar, DELAY
 ## behind, on their ship as it's drawn.
+##
+## Stations belong to the server. A client's helm passes asks on here; the server
+## takes the helm for the asker only if they last said they were aboard and in
+## reach, and tells everyone who has it. The pilot's keys come here at 30 Hz.
 
 signal ship_added(ship: Ship)
 
@@ -23,6 +27,7 @@ const DELAY := 0.1     ## Seconds in the past that clients draw what the server 
 const CLOCK_EASE := 0.1  ## How far a client's clock moves toward each snapshot's time.
 const CREW_REACH := 35.0     ## m. Crew reported further than this from their ship's blocks are refused.
 const CREW_MAX_SPEED := 50.0 ## m/s. Likewise for crew reported moving faster.
+const REACH_SLACK := 0.5     ## m. Allowance on the helm's reach for where a client last said it was.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
@@ -35,7 +40,7 @@ var _tick := 0
 var _next_id := 1
 var _in_world: Dictionary = {}  ## Server: peers whose world has loaded (peer id -> true).
 var _buffers: Dictionary = {}   ## Client: ship id -> SnapshotBuffer.
-var _crew: Dictionary = {}      ## Other players' crew: peer id -> {"ship": id, "buffer": SnapshotBuffer, "pitch": float}.
+var _crew: Dictionary = {}      ## Other players' crew: peer id -> {"ship": id, "buffer": SnapshotBuffer, "at": Vector3, "pitch": float}.
 var _avatars: Dictionary = {}   ## Peer id -> CrewAvatar.
 
 
@@ -76,8 +81,23 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool) -> Ship:
 	ship.transform = at
 	ships[id] = ship
 	get_parent().add_child(ship)
+	if ship.helm != null:
+		ship.helm.asked.connect(_on_asked.bind(id))
+		ship.helm.pilot_changed.connect(_on_pilot_changed.bind(id))
 	ship_added.emit(ship)
 	return ship
+
+
+## Client: a helm here was asked for something; the server decides.
+func _on_asked(what: String, on: bool, id: int) -> void:
+	_request.rpc_id(1, id, what, on)
+
+
+## Server: tell everyone who has the helm now.
+func _on_pilot_changed(id: int) -> void:
+	if session.is_server():
+		for peer: int in _in_world:
+			_pilot.rpc_id(peer, id, (ships[id] as Ship).helm.pilot)
 
 
 func _physics_process(delta: float) -> void:
@@ -99,6 +119,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if not mine.is_empty():
 		_crew_report.rpc_id(1, mine[0], mine[1], mine[2], mine[3], mine[4])
+		var helm := player.ship.helm
+		if helm != null and helm.pilot == multiplayer.get_unique_id():
+			_helm_keys.rpc_id(1, mine[0], helm.throttle_input, helm.rudder_input, helm.climb_input)
 	_time += delta
 	var shown_at := now() - DELAY
 	for id: int in _buffers:
@@ -133,11 +156,12 @@ func _my_crew() -> Array:
 func _hear_crew(peer: int, ship_id: int, time: float, position: Vector3, velocity: Vector3, yaw: float, pitch: float) -> void:
 	var heard: Dictionary = _crew.get(peer, {})
 	if heard.get("ship") != ship_id:
-		heard = {"ship": ship_id, "buffer": SnapshotBuffer.new(), "pitch": 0.0}
+		heard = {"ship": ship_id, "buffer": SnapshotBuffer.new(), "at": position, "pitch": 0.0}
 		_crew[peer] = heard
 	# ponytail: two reports heard in one frame share a time, and the second is
 	# dropped. The next comes 33 ms later; stamp on the sender's clock if it shows.
 	(heard["buffer"] as SnapshotBuffer).push(time, position, velocity, Quaternion(Vector3.UP, wrapf(yaw, -PI, PI)))
+	heard["at"] = position
 	heard["pitch"] = clampf(pitch, -1.5, 1.5)
 	if not _avatars.has(peer):
 		var avatar := CrewAvatar.new(session.players[peer]["name"])
@@ -180,18 +204,18 @@ func _enter_world() -> void:
 	var entries := []
 	for id: int in ships:
 		var ship: Ship = ships[id]
-		entries.append([id, ship.grid.to_blocks(), ship.global_transform])
+		entries.append([id, ship.grid.to_blocks(), ship.global_transform, ship.helm.pilot if ship.helm else 0])
 	_world.rpc_id(peer, _time, entries)
 
 
-## Server -> client: the server's clock and every ship, as [id, blocks, transform].
+## Server -> client: the server's clock and every ship, as [id, blocks, transform, pilot].
 @rpc("authority", "call_remote", "reliable", 0)
 func _world(time: Variant, entries: Variant) -> void:
 	if session.is_server() or not _is_time(time) or not entries is Array:
 		return
 	_hear_clock(time)
 	for entry: Variant in entries:
-		if not entry is Array or entry.size() != 3 or not entry[0] is int or ships.has(entry[0]):
+		if not entry is Array or entry.size() != 4 or not entry[0] is int or not entry[3] is int or ships.has(entry[0]):
 			continue
 		if not entry[2] is Transform3D or not (entry[2] as Transform3D).is_finite():
 			continue
@@ -203,7 +227,9 @@ func _world(time: Variant, entries: Variant) -> void:
 		var buffer := SnapshotBuffer.new()
 		buffer.push(time, at.origin, Vector3.ZERO, at.basis.get_rotation_quaternion())
 		_buffers[entry[0]] = buffer
-		_add(entry[0], grid, at, false)
+		var ship := _add(entry[0], grid, at, false)
+		if ship.helm != null:
+			ship.helm.pilot = entry[3]
 
 
 ## Server -> clients: a snapshot of every ship (see _ship_states), at time.
@@ -249,6 +275,51 @@ func _crew_moved(peer: Variant, ship_id: Variant, time: Variant, position: Varia
 	if not _is_time(time) or not _is_crew_state(ship_id, position, velocity, yaw, pitch):
 		return
 	_hear_crew(peer, ship_id, time, position, velocity, yaw, pitch)
+
+
+## Client -> server: peer asks for "helm" or "autopilot" on ship ship_id, on or off.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _request(ship_id: Variant, what: Variant, on: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if not session.is_server() or not _in_world.has(peer) or not ship_id is int or not ships.has(ship_id) or not on is bool:
+		return
+	var helm: Helm = (ships[ship_id] as Ship).helm
+	if helm == null:
+		return
+	if what is String and what == "helm":
+		if not on:
+			helm.leave(peer)
+		elif _crew.has(peer) and _crew[peer]["ship"] == ship_id and helm.in_reach(_crew[peer]["at"], REACH_SLACK):
+			helm.take(peer)
+	elif what is String and what == "autopilot":
+		helm.ask_autopilot(peer, on)
+
+
+## Client -> server: the pilot's keys at the helm of ship ship_id, each -1 to 1.
+@rpc("any_peer", "call_remote", "unreliable_ordered", 2)
+func _helm_keys(ship_id: Variant, throttle: Variant, rudder: Variant, climb: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if not session.is_server() or not ship_id is int or not ships.has(ship_id):
+		return
+	var helm: Helm = (ships[ship_id] as Ship).helm
+	if helm == null or helm.pilot != peer:
+		return
+	for key: Variant in [throttle, rudder, climb]:
+		if not key is float or not is_finite(key):
+			return
+	helm.throttle_input = clampf(throttle, -1.0, 1.0)
+	helm.rudder_input = clampf(rudder, -1.0, 1.0)
+	helm.climb_input = clampf(climb, -1.0, 1.0)
+
+
+## Server -> clients: peer (0 for nobody) now has the helm of ship ship_id.
+@rpc("authority", "call_remote", "reliable", 0)
+func _pilot(ship_id: Variant, peer: Variant) -> void:
+	if session.is_server() or not ship_id is int or not ships.has(ship_id) or not peer is int:
+		return
+	var helm: Helm = (ships[ship_id] as Ship).helm
+	if helm != null:
+		helm.pilot = peer
 
 
 func _is_crew_state(ship_id: Variant, position: Variant, velocity: Variant, yaw: Variant, pitch: Variant) -> bool:

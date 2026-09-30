@@ -31,13 +31,32 @@ func press(action: String) -> void:
 func test_e_takes_the_helm_in_reach_and_lets_go_again() -> void:
 	assert_eq(player.prompt(), "Take the helm")
 	press("interact")
+	assert_eq(player.ship.helm.pilot, player.peer)
 	assert_eq(player.crew.station, player.ship.helm)
 	assert_eq(player.prompt(), "Leave the helm")
 	press("toggle_camera")
 	assert_true(player.chase)
 	press("interact")
+	assert_eq(player.ship.helm.pilot, 0)
 	assert_eq(player.crew.station, null)
 	assert_false(player.chase, "leaving the helm ends the chase view")
+
+
+func test_e_does_nothing_while_someone_else_has_the_helm() -> void:
+	player.ship.helm.take(2)
+	assert_true(player.helm_in_reach())
+	assert_eq(player.prompt(), "", "nothing to take")
+	press("interact")
+	assert_eq(player.ship.helm.pilot, 2)
+	assert_eq(player.crew.station, null)
+
+
+func test_being_put_off_the_helm_frees_you() -> void:
+	press("interact")
+	press("toggle_camera")
+	player.ship.helm.leave(player.peer)  # as when the server says so
+	assert_eq(player.crew.station, null)
+	assert_false(player.chase)
 
 
 func test_e_does_nothing_out_of_reach() -> void:

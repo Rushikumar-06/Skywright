@@ -274,9 +274,11 @@ func _on_peer_authentication_failed(id: int) -> void:
 
 func _on_peer_connected(id: int) -> void:
 	# A host that crashes or is killed sends no goodbye, so notice silence sooner
-	# than ENet's default 30 s. Hosts drop silent guests the same way.
-	var ms := int(drop_after * 1000.0)
-	(multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(id).set_timeout(32, ms, ms)
+	# than ENet's default 30 s. Hosts drop silent guests the same way. Guests hear
+	# of each other too, but through the host: their only connection is to it.
+	if mode == Mode.HOST or id == 1:
+		var ms := int(drop_after * 1000.0)
+		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(id).set_timeout(32, ms, ms)
 	if mode != Mode.HOST or not _joining.has(id):
 		return
 	var roster := players.duplicate(true)

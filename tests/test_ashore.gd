@@ -98,8 +98,8 @@ func test_you_dont_bounce_straight_back_aboard() -> void:
 	assert_true(await simulate_until(func() -> bool: return world.ship == ship, 0.5), "aboard again after a moment")
 
 
-func test_walking_on_an_island() -> void:
-	assert_true(await start(), "settled")
+## The middle of the top of the plain island nearest the start.
+func island_top() -> Vector3:
 	var island := {}
 	var best := INF
 	for chunk in WorldGen.chunks_near(world.START, 2000.0):
@@ -109,8 +109,14 @@ func test_walking_on_an_island() -> void:
 				island = each
 				best = gap
 	assert_false(island.is_empty(), "an island nearby")
-	var top: float = island["at"].y + IslandMesh.height(island, 0.0, 0.0)
-	var crew := ashore_at(Vector3(island["at"].x, top + 2.0 + CrewMember.HEIGHT / 2.0, island["at"].z))
+	return island["at"] + Vector3(0.0, IslandMesh.height(island, 0.0, 0.0), 0.0)
+
+
+func test_walking_on_an_island() -> void:
+	assert_true(await start(), "settled")
+	var spot := island_top()
+	var top := spot.y
+	var crew := ashore_at(spot + Vector3(0.0, 2.0 + CrewMember.HEIGHT / 2.0, 0.0))
 	await simulate(3.0)
 	assert_true(crew.is_on_floor(), "standing")
 	assert_near(crew.position.y - CrewMember.HEIGHT / 2.0, top, 1.0, "on the island")
@@ -141,6 +147,32 @@ func test_gliding_goes_far_and_falls_slowly() -> void:
 		fastest[0] = maxf(fastest[0], -crew.velocity.y))
 	assert_true(from.y - crew.position.y >= 250.0, "without gliding, fell %.1f m" % (from.y - crew.position.y))
 	assert_true(fastest[0] <= CrewMember.FALL_LIMIT + 0.01, "no faster than %.0f m/s (%.1f)" % [CrewMember.FALL_LIMIT, fastest[0]])
+
+
+func test_an_ordinary_jump_ashore_doesnt_glide() -> void:
+	# Space held from the jump: the glide may only open once you're falling.
+	assert_true(await start(), "settled")
+	var crew := ashore_at(island_top() + Vector3(0.0, 1.0 + CrewMember.HEIGHT / 2.0, 0.0))
+	await simulate(2.0)
+	assert_true(crew.is_on_floor(), "standing")
+	var from := crew.position
+	Input.action_press("jump")
+	crew.jump = true
+	var seen := {"rose": false, "glided rising": false, "prompt rising": false, "landed": false}
+	var hud: Hud = world.hud
+	await simulate(3.0, func(_tick: int) -> void:
+		if crew.velocity.y > 0.0 and not crew.is_on_floor():
+			seen["rose"] = true
+			seen["glided rising"] = seen["glided rising"] or crew.gliding
+			seen["prompt rising"] = seen["prompt rising"] or hud._prompt.text == "Hold Space   Glide"
+		if seen["rose"] and crew.is_on_floor():
+			seen["landed"] = true)
+	assert_true(seen["rose"], "jumped")
+	assert_false(seen["glided rising"], "no glide on the way up")
+	assert_false(seen["prompt rising"], "and no glide prompt either")
+	assert_true(seen["landed"], "came down again")
+	var travelled := Vector2(crew.position.x - from.x, crew.position.z - from.z).length()
+	assert_true(travelled < 2.0, "no lunge forward (%.1f m)" % travelled)
 
 
 func test_falling_fast_stays_within_what_the_server_takes() -> void:

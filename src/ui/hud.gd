@@ -123,7 +123,7 @@ func _process(delta: float) -> void:
 		_prompt.text = "E   " + action
 	elif holder != 0 and holder != player.peer:
 		_prompt.text = "%s is at the helm" % name_of(holder)
-	elif player.ship == null and not player.crew.is_on_floor() and not player.crew.gliding:
+	elif player.ship == null and not player.crew.is_on_floor() and player.crew.velocity.y < 0.0 and not player.crew.gliding:
 		_prompt.text = "Hold Space   Glide"
 	elif at_dock and player.crew.station == null and not test_flight:
 		_prompt.text = "B   Shipyard"

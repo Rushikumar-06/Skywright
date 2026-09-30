@@ -36,6 +36,7 @@ var station: Node = null     ## The station being used. Nobody walks while at on
 var gliding := false         ## Gliding this tick. Read-only.
 
 var _air_time := 0.0         ## s since the floor was last under your feet.
+var _fall_time := 0.0        ## s spent falling (not rising) since then.
 var _pressed_in_air := false ## glide was pressed again after leaving the floor.
 var _glide_was := false
 var _ashore_time := 0.0
@@ -69,12 +70,13 @@ func _physics_process(delta: float) -> void:
 	var holding_on := ship != null and on_ladder()
 	var jumping := false
 	_air_time = 0.0 if is_on_floor() or holding_on else _air_time + delta
+	_fall_time = _fall_time + delta if _air_time > 0.0 and velocity.dot(up_direction) < 0.0 else 0.0
 	if glide and not _glide_was and _air_time > 0.0:
 		_pressed_in_air = true
 	if not glide or _air_time == 0.0:
 		_pressed_in_air = false
 	_glide_was = glide
-	gliding = ship == null and glide and _air_time > 0.0 and (_air_time >= GLIDE_AFTER or _pressed_in_air)
+	gliding = ship == null and glide and _air_time > 0.0 and (_fall_time >= GLIDE_AFTER or _pressed_in_air)
 	if holding_on:
 		# Hold on: no gravity, and climb along the ship's up.
 		velocity = wish + Vector3.UP * rise

@@ -87,6 +87,10 @@ tip_block={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":84)]
 }
+map={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":77)]
+}
 mirror={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":77)]

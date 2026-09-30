@@ -31,6 +31,7 @@ func test_input_actions_have_their_default_keys() -> void:
 		"turn_block": [KEY_R],
 		"tip_block": [KEY_T],
 		"mirror": [KEY_M],
+		"map": [KEY_M],
 		"undo": [KEY_Z],
 		"redo": [KEY_Y, KEY_Z],
 		"test_flight": [KEY_F],

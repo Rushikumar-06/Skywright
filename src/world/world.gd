@@ -15,6 +15,7 @@ extends Node3D
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := WorldGen.START
+const REVEAL_EVERY := 0.5  ## Seconds between looks around, for the map.
 
 var session: Node
 var sync: WorldSync
@@ -28,7 +29,10 @@ var design: ShipDesign         ## Your design, kept for the whole game.
 var gen: WorldGen              ## The world made from the session's seed.
 var wind: Wind                 ## Its wind, on the world's clock.
 var streamer: WorldStreamer    ## Loads its chunks around every ship and player.
+var exploration := Exploration.new()  ## What you have seen of it, on this machine only.
+var map: MapView               ## The whole world, hidden until M. Made with the HUD.
 
+var _reveal_left := 0.0        ## Seconds until the next look around.
 var _came_from: Ship           ## The ship you were on before this one, while it's still here.
 
 var _sky: WorldSky
@@ -70,11 +74,15 @@ func _ready() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_sky.hour = WorldSky.hour_at(sync.now())
 	if hud != null:
 		hud.test_flight = on_test_flight()
 		hud.at_dock = at_dock()
+	_reveal_left -= delta
+	if player != null and _reveal_left <= 0.0:
+		_reveal_left = REVEAL_EVERY
+		exploration.reveal(player.world_position())
 
 
 ## Your place in the roster, which is where you stand when you board: crew board
@@ -136,7 +144,13 @@ func come_aboard(target: Ship, local: Vector3) -> void:
 		player.lost.connect(rescue)
 		hud = Hud.new(player, session)
 		hud.wind = wind
+		hud.gen = gen
+		hud.exploration = exploration
 		add_child(hud)
+		map = MapView.new(gen, exploration, sync, _you)
+		map.visible = false
+		hud.add_child(map)
+		map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	else:
 		var from := ship if ship != null else left
 		var here := sync.id_of(from) != 0  # a ship on its way out can't be gone back to
@@ -258,8 +272,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		if shipyard != null:
 			close_shipyard()
+		elif map != null and map.visible:
+			_toggle_map()
 		else:
 			_toggle_pause()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("map") and shipyard == null and not _pause.visible and map != null:
+		_toggle_map()  # M is the shipyard's mirror key too
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("shipyard") and not _pause.visible:
 		if shipyard != null:
@@ -269,6 +288,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			open_shipyard()
 		get_viewport().set_input_as_handled()
+
+
+func _toggle_map() -> void:
+	map.visible = not map.visible
+	hud.map_open = map.visible
+
+
+## Where you are and which way you face, for the map: your ship's heading aboard,
+## the way you look ashore.
+func _you() -> Array:
+	var facing := -player.camera.global_basis.z
+	var heading := ship.heading() if ship != null else atan2(-facing.x, -facing.z)
+	return [player.world_position(), heading]
 
 
 func _build_pause_menu() -> void:

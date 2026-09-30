@@ -12,6 +12,14 @@ var session: Node
 var test_flight := false  ## You're on a test flight. Set by the World each frame.
 var at_dock := false      ## You're at the dock. Set by the World each frame.
 var wind: Wind            ## The world's wind, shown at the helm. Set by the World.
+var gen: WorldGen         ## The world's shape, for the compass. Set by the World, with exploration.
+var exploration: Exploration
+var compass: Compass      ## Made in _ready when the World gave gen and exploration.
+var map_open := false:    ## The map is showing, which hides the compass. Set by the World.
+	set(value):
+		map_open = value
+		if compass != null:
+			compass.visible = not value
 
 var _status: Label
 var _crew: Label
@@ -77,6 +85,14 @@ func _ready() -> void:
 	_banner.add_child(banner_text)
 	add_child(_banner)
 
+	if gen != null and exploration != null:
+		compass = Compass.new(gen, exploration)
+		compass.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_KEEP_SIZE)
+		compass.offset_top = 16
+		compass.offset_bottom = 60
+		compass.visible = not map_open
+		add_child(compass)
+
 	_helm = PanelContainer.new()
 	_helm.theme = theme
 	_helm.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -113,6 +129,10 @@ func _process(delta: float) -> void:
 		_prompt.text = "B   Shipyard"
 	else:
 		_prompt.text = ""
+	if compass != null and is_instance_valid(player.camera):
+		compass.bearing = bearing(-player.camera.global_basis.z)
+		compass.origin = player.world_position()
+		compass.region = WorldGen.REGION_NAMES[WorldGen.region_at(compass.origin)]
 	_banner.visible = test_flight
 	_message_left -= delta
 	_message.visible = _message_left > 0.0

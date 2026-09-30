@@ -48,10 +48,13 @@ func _on_ship_added(added: Ship) -> void:
 	if ship != null:
 		return
 	ship = added
-	var crew := CrewMember.new(ship, ship.crew_spawn())
+	# Crew board at different spots, in the order they joined.
+	var slot := maxi(0, session.players.keys().find(multiplayer.get_unique_id()))
+	var crew := CrewMember.new(ship, ship.crew_spawn(slot))
 	ship.interior.add_child(crew)
 	player = PlayerController.new(crew)
 	add_child(player)
+	sync.player = player
 	hud = Hud.new(player, session)
 	add_child(hud)
 

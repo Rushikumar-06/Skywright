@@ -8,6 +8,11 @@ var host_world: Node3D
 var client_world: Node3D
 
 
+func after_each() -> void:
+	Input.action_release("move_forward")
+	super.after_each()
+
+
 ## Host and Guest meet in the lobby, set sail, and each loads a world. True once
 ## the guest's ship has arrived.
 func sail_together() -> bool:
@@ -120,3 +125,76 @@ func test_everyone_sees_the_same_time_of_day() -> void:
 	assert_near(client_world.sync.now(), host_world.sync.now(), 0.1, "one clock")
 	assert_near(host_world._sky.hour, 22.0, 0.05, "the host's sky")
 	assert_near(client_world._sky.hour, host_world._sky.hour, 0.01, "the same sky")
+
+
+func test_crew_walk_where_everyone_sees_them() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	host_world.ship.calm = true
+	var client_id := client.multiplayer.get_unique_id()
+	# The guest walks forward along the main deck while the host stands still.
+	var walker: CrewMember = client_world.player.crew
+	walker.position = Vector3(0, 1.45, 2)
+	host_world.player.enabled = false
+	Input.action_press("move_forward")
+	await play(1.0)
+	Input.action_release("move_forward")
+	await play(0.3)  # others see you WorldSync.DELAY behind
+	assert_true(walker.position.z < -1.0, "the guest walked (to z %.2f)" % walker.position.z)
+	var seen := _in_ship_space(host_world, host_world.sync.avatar_of(client_id))
+	assert_true(seen.distance_to(walker.position) < 0.15, "the host sees the guest at %s, really at %s" % [seen, walker.position])
+
+	# And the other way round.
+	var host_walker: CrewMember = host_world.player.crew
+	host_walker.position = Vector3(1, 1.45, 2)
+	host_world.player.enabled = true
+	client_world.player.enabled = false
+	Input.action_press("move_forward")
+	await play(1.0)
+	Input.action_release("move_forward")
+	await play(0.3)
+	assert_true(host_walker.position.z < -1.0, "the host walked (to z %.2f)" % host_walker.position.z)
+	seen = _in_ship_space(client_world, client_world.sync.avatar_of(1))
+	assert_true(seen.distance_to(host_walker.position) < 0.15, "the guest sees the host at %s, really at %s" % [seen, host_walker.position])
+
+
+func test_players_board_at_different_spots() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var ours: CrewMember = host_world.player.crew
+	var theirs: CrewMember = client_world.player.crew
+	assert_eq(ours.home, host_world.ship.crew_spawn(0), "the host takes the first spot")
+	assert_eq(theirs.home, client_world.ship.crew_spawn(1), "the guest the next")
+
+
+func test_the_server_ignores_crew_reports_that_make_no_sense() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var client_id := client.multiplayer.get_unique_id()
+	await play(0.3)
+	client_world.sync.player = null  # the guest stops reporting, so only junk arrives
+	await play(0.2)
+	var heard: SnapshotBuffer = host_world.sync._crew[client_id]["buffer"]
+	var before: Vector3 = heard._samples[-1]["position"]
+	var send := func(args: Array) -> void: client_world.sync._crew_report.rpc_id.callv([1] + args)
+	var here := Vector3(0, 1.45, 0)
+	send.call([1, Vector3(NAN, 0, 0), Vector3.ZERO, 0.0, 0.0])
+	send.call([1, Vector3(0, 0, 100), Vector3.ZERO, 0.0, 0.0])
+	send.call([1, here, Vector3(500, 0, 0), 0.0, 0.0])
+	send.call([1, here, Vector3.ZERO, INF, 0.0])
+	send.call([99, here, Vector3.ZERO, 0.0, 0.0])
+	send.call(["1", here, Vector3.ZERO, 0.0, 0.0])
+	send.call([1, "here", Vector3.ZERO, 0.0, 0.0])
+	await play(0.3)
+	assert_eq(heard._samples[-1]["position"], before, "none of that was taken")
+	host_world.sync._in_world.erase(client_id)  # as if the guest's world hadn't loaded
+	send.call([1, here, Vector3.ZERO, 0.0, 0.0])
+	await play(0.3)
+	assert_eq(heard._samples[-1]["position"], before, "nor a report from outside the world")
+	host_world.sync._in_world[client_id] = true
+	send.call([1, here, Vector3.ZERO, 0.0, 0.0])
+	assert_true(await wait_until(func() -> bool: return heard._samples[-1]["position"] == here, 2.0), "a sensible report is taken")
+
+
+func _in_ship_space(world: Node3D, avatar: CrewAvatar) -> Vector3:
+	assert_true(avatar != null, "there's an avatar")
+	if avatar == null:
+		return Vector3.INF
+	return world.ship.global_transform.affine_inverse() * avatar.global_position

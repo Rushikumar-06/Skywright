@@ -11,6 +11,7 @@ const MAX_SPIN := 20.0    ## rad/s. Likewise.
 var grid: ShipGrid
 var interior: ShipInterior  ## Where the crew walk.
 var helm: Helm              ## The ship's first helm, or null.
+var bounds: AABB            ## The box around its blocks, in ship space.
 var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
 var trim := 1.0      ## Balloon trim, Tuning.TRIM_MIN to Tuning.TRIM_MAX.
@@ -64,6 +65,7 @@ func _ready() -> void:
 	if not _propellers.is_empty():
 		_power = minf(1.0, float(grid.cells_of("engine").size() * Tuning.PROPELLERS_PER_ENGINE) / _propellers.size())
 	_zones = grid.drag_zones()
+	bounds = grid.bounds()
 	_last_good = global_transform
 	add_child(ShipMesh.build(grid))
 	interior = ShipInterior.new(boxes)
@@ -74,9 +76,26 @@ func _ready() -> void:
 		add_child(helm)
 
 
-## Where crew come aboard, in ship space: standing just aft of the helm.
-func crew_spawn() -> Vector3:
-	return Vector3(helm.cell) + Vector3(0.0, 0.45, 1.0)
+## Spots next to the helm, nearest first, as offsets from the cell just aft of it.
+const SPAWN_SPOTS: Array[Vector3i] = [
+	Vector3i(0, 0, 0), Vector3i(-1, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, -1), Vector3i(0, 0, 1),
+	Vector3i(-1, 0, -1), Vector3i(1, 0, -1), Vector3i(-1, 0, 1), Vector3i(1, 0, 1),
+]
+
+
+## Where crew come aboard, in ship space. Slot 0 stands just aft of the helm; later
+## slots stand on the free spots around it, and share them when there are more
+## crew than spots (crew don't collide with each other).
+func crew_spawn(slot := 0) -> Vector3:
+	var aft := helm.cell + Vector3i(0, 0, 1)
+	var free: Array[Vector3i] = []
+	for offset in SPAWN_SPOTS:
+		var cell := aft + offset
+		var below := grid.type_at(cell + Vector3i.DOWN)
+		if grid.type_at(cell) == "" and grid.type_at(cell + Vector3i.UP) == "" and below != "" and below != "ladder":
+			free.append(cell)
+	var spot := free[slot % free.size()] if not free.is_empty() else aft
+	return Vector3(spot) + Vector3(0.0, 0.45, 0.0)
 
 
 ## Full-throttle thrust in N.

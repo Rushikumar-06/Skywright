@@ -145,3 +145,8 @@ func test_from_blocks_refuses_bad_ships() -> void:
 	}
 	for problem: String in cases:
 		assert_eq(ShipGrid.from_blocks(cases[problem]), null, problem)
+
+
+func test_bounds_hold_every_block() -> void:
+	var grid := grid_of({Vector3i(0, 0, 0): "deck", Vector3i(2, 1, -3): "frame"})
+	assert_eq(grid.bounds(), AABB(Vector3(-0.5, -0.5, -3.5), Vector3(3, 2, 4)))

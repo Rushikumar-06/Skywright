@@ -15,7 +15,7 @@ var chase := false             ## The chase view is showing.
 var enabled := true            ## Off while a menu is open: keys and mouse do nothing.
 var look_pitch := 0.0          ## Radians; positive looks up.
 
-var _avatar: MeshInstance3D
+var _avatar: CrewAvatar
 var _chase_yaw := 0.0
 var _chase_pitch := -0.3
 
@@ -31,15 +31,7 @@ func _ready() -> void:
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(camera)
 	camera.make_current()
-	var body := CapsuleMesh.new()
-	body.radius = CrewMember.RADIUS
-	body.height = CrewMember.HEIGHT
-	var cloth := StandardMaterial3D.new()
-	cloth.albedo_color = Color("2f4f6f")
-	_avatar = MeshInstance3D.new()
-	_avatar.mesh = body
-	_avatar.material_override = cloth
-	_avatar.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	_avatar = CrewAvatar.new()
 	add_child(_avatar)
 
 
@@ -89,6 +81,7 @@ func _process(_delta: float) -> void:
 	var ship_place := ship.get_global_transform_interpolated()
 	var body := crew.get_global_transform_interpolated().origin
 	_avatar.global_transform = ship_place * Transform3D(Basis(Vector3.UP, crew.look_yaw), body)
+	_avatar.look(look_pitch)
 	_avatar.visible = chase
 	if chase:
 		var center := ship_place * ship.center_of_mass

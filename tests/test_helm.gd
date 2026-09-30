@@ -23,6 +23,25 @@ func test_crew_come_aboard_just_aft_of_the_helm() -> void:
 	assert_eq(crew.station, null)
 
 
+func test_crew_board_at_free_spots_around_the_helm() -> void:
+	var spots: Array[Vector3] = []
+	for slot in 5:
+		spots.append(ship.crew_spawn(slot))
+	assert_eq(spots[0], ship.crew_spawn(), "slot 0 is just aft of the helm")
+	for slot in 5:
+		for other in slot:
+			assert_true(spots[slot] != spots[other], "slots %d and %d differ" % [other, slot])
+		if slot > 0:  # the fixture's crew member already stands at slot 0
+			ship.interior.add_child(CrewMember.new(ship, spots[slot]))
+		assert_true(spots[slot].distance_to(Vector3(ship.helm.cell)) < 1.8, "slot %d is in reach of the helm" % slot)
+	await simulate(0.5)
+	for member in ship.interior.get_children():
+		if member is CrewMember:
+			assert_true(member.is_on_floor(), "standing at %s" % member.home)
+			assert_true(member.position.distance_to(member.home) < 0.1, "and staying put")
+	assert_eq(ship.crew_spawn(5), spots[0], "more crew than spots share them")
+
+
 func test_one_pilot_at_a_time() -> void:
 	var other := CrewMember.new(ship, ship.crew_spawn())
 	ship.interior.add_child(other)

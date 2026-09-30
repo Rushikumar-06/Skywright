@@ -104,6 +104,15 @@ func drag_zones() -> Array[Dictionary]:
 	return zones
 
 
+## The box around every block, in ship space.
+func bounds() -> AABB:
+	var box := AABB()
+	for cell: Vector3i in blocks:
+		var cube := AABB(Vector3(cell) - Vector3(0.5, 0.5, 0.5), Vector3.ONE)
+		box = cube if box.size == Vector3.ZERO else box.merge(cube)
+	return box
+
+
 ## The blocks as plain data for sending: [[x, y, z, type, rotation, hp], …].
 func to_blocks() -> Array:
 	var data := []

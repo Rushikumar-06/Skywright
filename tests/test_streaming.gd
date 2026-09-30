@@ -69,6 +69,22 @@ func test_chunks_far_away_are_freed_and_come_back_the_same() -> void:
 	assert_false(before.is_empty(), "there was some")
 
 
+func test_a_chunk_wanted_again_before_its_freed_is_kept() -> void:
+	var world := solo_world()
+	assert_true(await settle(world), "settled")
+	var streamer: WorldStreamer = world.streamer
+	var home := WorldGen.chunk_of(world.START)
+	var node: Node3D = streamer.chunks[home]
+	world.ship.global_position = world.START + Vector3(6000.0, 0.0, 0.0)
+	streamer.replan()
+	assert_false(streamer.chunks.has(home), "far away now")
+	world.ship.global_position = world.START
+	streamer.replan()
+	assert_eq(streamer.chunks.get(home), node, "back before it was freed: kept, not made again")
+	assert_true(await settle(world), "settled again")
+	assert_true(is_instance_valid(node), "and never freed")
+
+
 func test_a_fast_ship_never_outruns_the_collision() -> void:
 	var world := solo_world()
 	assert_true(await settle(world), "settled")
@@ -88,6 +104,36 @@ func test_a_fast_ship_never_outruns_the_collision() -> void:
 						missing.append("%s at tick %d" % [home + Vector2i(dx, dz), tick]))
 	assert_true(ship.global_position.x < -3000.0, "flew 3 km (to x %.0f)" % ship.global_position.x)
 	assert_eq(missing, [] as Array[String], "the chunks around the ship were always there")
+
+
+func test_replanning_around_many_ships_is_quick() -> void:
+	# Twenty ships and players spread over the disc, with everything they want loaded:
+	# working out what's wanted every quarter second mustn't stall the frame.
+	var streamer := WorldStreamer.new(WorldGen.new(NetCase.SEED), false)
+	var points: Array[Vector3] = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	for i in 20:
+		points.append(Vector3(0.0, 800.0, -rng.randf() * 7000.0).rotated(Vector3.UP, rng.randf() * TAU))
+	streamer.focus = func() -> Array[Vector3]: return points
+	for p in points:
+		for chunk in WorldGen.chunks_near(p, WorldStreamer.LOAD_RADIUS):
+			if not streamer.chunks.has(chunk):
+				streamer.chunks[chunk] = Node3D.new()
+	var loaded := streamer.chunks.size()
+	var times: Array[int] = []
+	for i in 7:
+		var start := Time.get_ticks_usec()
+		streamer.replan()
+		times.append(Time.get_ticks_usec() - start)
+	times.sort()
+	assert_true(streamer.settled(), "nothing more wanted")
+	assert_eq(streamer._wanted.size(), loaded, "and just what chunks_near says")
+	assert_eq(streamer.chunks.size(), loaded, "nothing freed")
+	assert_true(times[3] < 4000, "a replan took %.1f ms (%d chunks)" % [times[3] / 1000.0, loaded])
+	for node: Node3D in streamer.chunks.values():
+		node.free()
+	streamer.free()
 
 
 func test_islands_are_solid() -> void:

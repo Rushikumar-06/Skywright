@@ -2,22 +2,26 @@ class_name WorldStreamer
 extends Node3D
 ## Loads the world's chunks around its focus points and frees them again once
 ## they're far behind (spec §4.7). Chunks are generated on WorkerThreadPool and
-## added a few a frame, within a time budget, nearest first. It runs in _process,
-## which on a dedicated server keeps pace with the physics.
+## added a few a frame, within a time budget, nearest first; far chunks are freed
+## a few a frame, within what's left of it. It runs in _process, which on a
+## dedicated server keeps pace with the physics.
 
 const LOAD_RADIUS := 2500.0    ## m: chunks this near a focus point are loaded.
 const UNLOAD_RADIUS := 2800.0  ## m: chunks further than this from every focus point are freed.
-const BUDGET_USEC := 3000      ## Time a frame may spend adding chunks (at least one is added).
+const BUDGET_USEC := 3000      ## Time a frame may spend adding and freeing chunks (at least one of each).
 const MAX_JOBS := 8            ## Chunks generating, or generated and waiting to be added, at once.
 const REPLAN_EVERY := 0.25     ## s between working out what's wanted.
+const MERGE := 64.0            ## m: focus points this close together count as one (the first), which moves the edge at most this far.
+const RING := 64.0             ## m: wanted chunks are loaded in rings this wide, nearest first.
 
 var gen: WorldGen
 var visuals := true    ## Meshes, trees and waterfalls, or only collision.
 var focus: Callable    ## Returns Array[Vector3]: where the world must be loaded around.
 var chunks: Dictionary = {}  ## Vector2i -> Node3D, the loaded chunks.
 
-var _wanted: Dictionary = {}       ## Chunk -> distance to the nearest focus point, from the last replan.
-var _order: Array[Vector2i] = []   ## _wanted's chunks, nearest first.
+var _wanted: Dictionary = {}       ## Chunk -> distance to the nearest focus point (0 if loaded), from the last replan.
+var _order: Array[Vector2i] = []   ## _wanted's chunks that weren't loaded at the last replan, nearest first.
+var _freeing: Dictionary = {}      ## Vector2i -> Node3D: far chunks waiting to be freed.
 var _jobs: Dictionary = {}         ## Chunk -> task id, until its result is added or dropped.
 var _collect: Array[int] = []      ## Task ids whose results are used, to wait for.
 var _done: Array[Dictionary] = []  ## Finished results, pushed by workers under _lock.
@@ -44,30 +48,76 @@ func pending() -> int:
 	return count
 
 
-## Whether every wanted chunk is loaded.
+## Whether every wanted chunk is loaded and every far one freed.
 func settled() -> bool:
-	return pending() == 0
+	return pending() == 0 and _freeing.is_empty()
 
 
-## Works out which chunks are wanted now, frees the far ones and starts generating.
+## Works out which chunks are wanted now (WorldGen.chunks_near's for each focus point),
+## queues the far ones for freeing and starts generating.
 func replan() -> void:
 	_since_plan = 0.0
 	var points: Array[Vector3] = []
 	if focus.is_valid():
-		points = focus.call()
+		for p: Vector3 in focus.call():
+			var near := false
+			for q in points:
+				near = near or q.distance_to(p) < MERGE
+			if not near:
+				points.append(p)
+	# One pass over each point's circle of chunks, a row at a time: the chunks within
+	# LOAD_RADIUS (and the disc) are wanted, the rest within UNLOAD_RADIUS are kept.
 	_wanted = {}
+	var keep := {}
+	var missing: Array[Vector2i] = []  # wanted and not loaded
+	var size := WorldGen.CHUNK
+	var disc_squared := (WorldGen.RADIUS + size) ** 2  # chunks_near's limit on a chunk's centre
 	for p in points:
-		for chunk in WorldGen.chunks_near(p, LOAD_RADIUS):
-			_wanted[chunk] = minf(_wanted.get(chunk, INF), _distance(chunk, p))
-	_order.assign(_wanted.keys())
-	_order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return _wanted[a] < _wanted[b])
+		for cz in range(floori((p.z - UNLOAD_RADIUS) / size), floori((p.z + UNLOAD_RADIUS) / size) + 1):
+			var z0 := cz * size
+			var dz := maxf(0.0, maxf(z0 - p.z, p.z - z0 - size))
+			var reach := sqrt(maxf(0.0, UNLOAD_RADIUS ** 2 - dz * dz))
+			var first := floori((p.x - reach) / size)
+			var last := floori((p.x + reach) / size)
+			var load_first := last + 1  # none, unless the row comes within LOAD_RADIUS
+			var load_last := last
+			if dz <= LOAD_RADIUS:
+				var load_reach := sqrt(LOAD_RADIUS ** 2 - dz * dz)
+				load_first = floori((p.x - load_reach) / size)
+				load_last = floori((p.x + load_reach) / size)
+				var disc := sqrt(maxf(0.0, disc_squared - (z0 + size / 2.0) ** 2))
+				for cx in range(maxi(load_first, ceili((-disc - size / 2.0) / size)), mini(load_last, floori((disc - size / 2.0) / size)) + 1):
+					var chunk := Vector2i(cx, cz)
+					if chunks.has(chunk):
+						_wanted[chunk] = 0.0  # loaded: how near no longer matters
+						continue
+					if not _wanted.has(chunk):
+						missing.append(chunk)
+					var dx := maxf(0.0, maxf(cx * size - p.x, p.x - cx * size - size))
+					_wanted[chunk] = minf(_wanted.get(chunk, INF), sqrt(dx * dx + dz * dz))
+			for cx in range(first, load_first):
+				keep[Vector2i(cx, cz)] = true
+			for cx in range(load_last + 1, last + 1):
+				keep[Vector2i(cx, cz)] = true
+	for chunk: Vector2i in _freeing.keys():
+		if _wanted.has(chunk) or keep.has(chunk):  # near again before it was freed: keep it
+			chunks[chunk] = _freeing[chunk]
+			_freeing.erase(chunk)
 	for chunk: Vector2i in chunks.keys():
-		var near := false
-		for p in points:
-			near = near or _distance(chunk, p) <= UNLOAD_RADIUS
-		if not near:
-			(chunks[chunk] as Node3D).queue_free()
+		if not _wanted.has(chunk) and not keep.has(chunk):
+			_freeing[chunk] = chunks[chunk]
 			chunks.erase(chunk)
+	# Nearest first, a ring at a time, with no sorting.
+	var rings: Array[Array] = []
+	for i in ceili(LOAD_RADIUS / RING) + 1:
+		rings.append([])
+	for chunk in missing:
+		if not chunks.has(chunk):
+			rings[int(_wanted[chunk] / RING)].append(chunk)
+	_order.clear()
+	for ring in rings:
+		for chunk: Vector2i in ring:
+			_order.append(chunk)
 	_start_jobs()
 
 
@@ -97,6 +147,14 @@ func _process(delta: float) -> void:
 			added += 1
 		_collect.append(_jobs[chunk])
 		_jobs.erase(chunk)
+	# Far chunks go with what's left of the budget, at least one a frame.
+	var freed := 0
+	for chunk: Vector2i in _freeing.keys():
+		if freed > 0 and Time.get_ticks_usec() - start > BUDGET_USEC:
+			break
+		(_freeing[chunk] as Node3D).free()
+		_freeing.erase(chunk)
+		freed += 1
 	# The tasks whose results were used have pushed them and are ending, if not ended.
 	for id in _collect.duplicate():
 		if WorkerThreadPool.is_task_completed(id):
@@ -129,10 +187,3 @@ func _generate(world_gen: WorldGen, chunk: Vector2i, with_visuals: bool) -> void
 	_lock.lock()
 	_done.append(data)
 	_lock.unlock()
-
-
-## The horizontal distance from p to chunk's square.
-static func _distance(chunk: Vector2i, p: Vector3) -> float:
-	var origin := WorldGen.chunk_origin(chunk)
-	var nearest := Vector2(clampf(p.x, origin.x, origin.x + WorldGen.CHUNK), clampf(p.z, origin.z, origin.z + WorldGen.CHUNK))
-	return nearest.distance_to(Vector2(p.x, p.z))

@@ -88,15 +88,17 @@ func _physics_process(delta: float) -> void:
 		var up := up_direction
 		velocity = wish - up * wish.dot(up) + up * velocity.dot(up) + gravity * delta
 	else:
-		# Ashore in the air you keep going, falling no faster than FALL_LIMIT. A glide
-		# eases you toward GLIDE_SPEED where you look, A and D bending the way.
-		velocity.y = maxf(velocity.y + gravity.y * delta, -FALL_LIMIT)
+		# Ashore in the air you keep going, never faster than FALL_LIMIT (which the
+		# server's crew reports allow). A glide eases you toward GLIDE_SPEED where you
+		# look, A and D bending the way.
+		velocity.y += gravity.y * delta
 		if gliding:
 			var aim := Basis(Vector3.UP, look_yaw) * Vector3(move.x, 0.0, -1.0).normalized() * GLIDE_SPEED
 			var blend := 1.0 - exp(-2.0 * delta)
 			velocity.x = lerpf(velocity.x, aim.x, blend)
 			velocity.z = lerpf(velocity.z, aim.z, blend)
 			velocity.y = maxf(velocity.y, -GLIDE_SINK)
+		velocity = velocity.limit_length(FALL_LIMIT)
 	jump = false
 	var was_on_floor := is_on_floor()
 	move_and_slide()

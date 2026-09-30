@@ -143,6 +143,17 @@ func test_gliding_goes_far_and_falls_slowly() -> void:
 	assert_true(fastest[0] <= CrewMember.FALL_LIMIT + 0.01, "no faster than %.0f m/s (%.1f)" % [CrewMember.FALL_LIMIT, fastest[0]])
 
 
+func test_falling_fast_stays_within_what_the_server_takes() -> void:
+	assert_true(await start(), "settled")
+	var crew := ashore_at(Vector3(0, 1200, 8500))  # beyond the rim, where nothing floats
+	crew.velocity = Vector3(20, 0, 0)  # as off a ship at 20 m/s
+	var fastest := [0.0]
+	await simulate(10.0, func(_tick: int) -> void:
+		fastest[0] = maxf(fastest[0], crew.velocity.length()))
+	assert_true(fastest[0] <= CrewMember.FALL_LIMIT + 0.01, "no faster than %.0f m/s (%.1f)" % [CrewMember.FALL_LIMIT, fastest[0]])
+	assert_true(WorldSync.crew_speed_ok(crew.velocity), "so the server keeps taking your reports (%.4f m/s)" % crew.velocity.length())
+
+
 func test_landing_on_a_deck_boards_that_ship() -> void:
 	assert_true(await start(), "settled")
 	var other: Ship = world.sync.add_ship(StarterShip.build(), Dock.slipway(world.START, 1))

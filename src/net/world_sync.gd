@@ -544,7 +544,7 @@ func _crew_report(ship_id: Variant, position: Variant, velocity: Variant, yaw: V
 	var peer := multiplayer.get_remote_sender_id()
 	if not session.is_server() or not _in_world.has(peer) or not _is_crew_state(ship_id, position, velocity, yaw, pitch):
 		return
-	if (velocity as Vector3).length() > CREW_MAX_SPEED:
+	if not crew_speed_ok(velocity):
 		return
 	var p: Vector3 = position
 	if ship_id == 0:
@@ -648,6 +648,12 @@ func _is_crew_state(ship_id: Variant, position: Variant, velocity: Variant, yaw:
 	return ship_id is int and (ship_id == 0 or ships.has(ship_id)) and position is Vector3 and (position as Vector3).is_finite() \
 			and velocity is Vector3 and (velocity as Vector3).is_finite() \
 			and yaw is float and is_finite(yaw) and pitch is float and is_finite(pitch)
+
+
+## Whether a crew report's velocity is no faster than CREW_MAX_SPEED, allowing for
+## float rounding: crew capped at exactly that speed must still be taken.
+static func crew_speed_ok(velocity: Vector3) -> bool:
+	return velocity.length() <= CREW_MAX_SPEED + 0.01
 
 
 static func _is_time(value: Variant) -> bool:

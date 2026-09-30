@@ -9,7 +9,8 @@ const SLIPWAYS := 9                      ## One for each player, and one more fo
 const TEST_OFFSET := Vector3(0, 0, -90)  ## From a slipway to its test berth.
 const REACH := 150.0                     ## m from the dock's area that count as at the dock.
 const QUAY := AABB(Vector3(-30, -6.5, 30), Vector3(540, 5, 14))  ## Its top is 1.5 m below the deck of a ship at a slipway.
-const PIER := AABB(Vector3(3, -6.5, -12), Vector3(4, 5, 42))  ## Beside slipway 0, from the quay forward. Its top is the quay's.
+const PIER := AABB(Vector3(4, -6.5, -12), Vector3(4, 5, 42))  ## Beside slipway 0, from the quay forward. Its top is the quay's.
+const ROCK_REACH := 1.12                 ## Of the town island's radius, how far its underside rings reach out (see IslandMesh.arrays).
 const ABOVE_TOWN := 40.0                 ## m over the town island's top that obstacles reach: the houses and the beacon.
 
 
@@ -19,6 +20,10 @@ static func create(at: Vector3, visuals := true) -> StaticBody3D:
 	var dock := StaticBody3D.new()
 	dock.name = "Dock"
 	dock.position = at
+	var slide := PhysicsMaterial.new()  # a ship blown against a pier slides along it
+	slide.friction = 0.0
+	slide.bounce = 0.0
+	dock.physics_material_override = slide
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color("8d8578")
 	material.roughness = 0.95
@@ -59,13 +64,13 @@ static func area(at: Vector3) -> AABB:
 
 
 ## What ships mustn't be put inside: the quay, the piers (in that order) and the
-## town island, from its rock up to over its beacon.
+## town island (out to where its rock reaches), from its rock up to over its beacon.
 static func obstacles(at: Vector3) -> Array[AABB]:
 	var found: Array[AABB] = [AABB(at + QUAY.position, QUAY.size)]
 	for index in SLIPWAYS:
 		found.append(AABB(at + PIER.position + Vector3(index * SPACING, 0, 0), PIER.size))
-	var radius := WorldGen.TOWN_RADIUS
-	var depth := radius * WorldGen.TOWN_DEPTH
+	var radius := WorldGen.TOWN_RADIUS * ROCK_REACH
+	var depth := WorldGen.TOWN_RADIUS * WorldGen.TOWN_DEPTH
 	var top := at + WorldGen.TOWN_ISLAND
 	found.append(AABB(top + Vector3(-radius, -depth, -radius), Vector3(2.0 * radius, depth + ABOVE_TOWN, 2.0 * radius)))
 	return found

@@ -63,8 +63,7 @@ func test_two_players_share_a_ship_on_a_dedicated_server() -> void:
 	await play(4.0)
 	assert_true(ship.throttle > 0.9, "Ann opened the throttle (%.2f)" % ship.throttle)
 	var ahead := (ship.global_position - from).dot(bow)
-	# The wind blows her into the pier beside her slipway, which rubs her speed away.
-	assert_true(ahead > 1.0, "the ship flew forward (%.1f m)" % ahead)
+	assert_true(ahead > 2.0, "the ship flew forward (%.1f m)" % ahead)
 	var apart := ship.global_position.distance_to((bob_world.ship as Ship).global_position)
 	assert_true(apart < 0.5, "Ann and Bob see her in the same place (%.2f m apart)" % apart)
 	var bob_seen := ship.global_transform.affine_inverse() * (ann_world.sync.avatar_of(bob_id) as CrewAvatar).global_position

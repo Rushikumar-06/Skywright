@@ -45,7 +45,8 @@ const CREW_MAX_SPEED := 50.0 ## m/s. Likewise for crew reported moving faster.
 const REACH_SLACK := 0.5     ## m. Allowance on the helm's reach for where a client last said it was.
 const KEYS_GO_STALE := 0.25  ## s. A remote pilot's keys count as let go when none come for this long.
 const LAUNCH_COOLDOWN := 1.0 ## s. The least time between one player's launches.
-const CLEARANCE := 2.0       ## m. The least gap between a ship being launched and anything else.
+const CLEARANCE := 2.0       ## m. The least gap between a ship being launched and another ship.
+const OBSTACLE_CLEARANCE := 1.0  ## m. Likewise between it and a dock or a town island.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
@@ -234,9 +235,9 @@ func _launch_for(peer: int, grid: ShipGrid, test: bool, town: int) -> void:
 		remove_ship(own, ship)
 
 
-## at, raised until grid's box there is clear of town's dock and island, and
-## CLEARANCE clear of every ship but those in ignoring. After 20 spots it settles for
-## the last.
+## at, raised until grid's box there is OBSTACLE_CLEARANCE clear of town's dock and
+## island, and CLEARANCE clear of every ship but those in ignoring. After 20 spots it
+## settles for the last.
 func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array, town: int) -> Transform3D:
 	var fixed := Dock.obstacles(docks[town])
 	var ships: Array[AABB] = []
@@ -246,7 +247,7 @@ func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array, town: int) ->
 	for _spot in 19:
 		var box := at * grid.bounds()
 		var near := box.grow(CLEARANCE)
-		if not fixed.any(func(other: AABB) -> bool: return box.intersects(other)) \
+		if not fixed.any(func(other: AABB) -> bool: return box.grow(OBSTACLE_CLEARANCE).intersects(other)) \
 				and not ships.any(func(other: AABB) -> bool: return near.intersects(other)):
 			break
 		at = at.translated(Vector3(0.0, box.size.y + CLEARANCE, 0.0))

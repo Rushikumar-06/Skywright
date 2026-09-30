@@ -29,7 +29,7 @@ func test_the_dock_has_slipways_and_a_reach() -> void:
 		if mesh.name == "Waterfall":
 			continue  # it hangs far below its island, in the open air
 		var box := mesh.global_transform * mesh.get_aabb()
-		assert_true(obstacles.any(func(obstacle: AABB) -> bool: return obstacle.grow(2.0).encloses(box)), "the obstacles cover %s" % box)
+		assert_true(obstacles.any(func(obstacle: AABB) -> bool: return obstacle.grow(0.01).encloses(box)), "the obstacles cover %s" % box)
 
 
 func test_a_ship_added_mid_game_reaches_everyone() -> void:

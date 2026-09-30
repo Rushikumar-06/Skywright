@@ -96,8 +96,8 @@ func test_you_can_walk_from_a_pier_to_the_town() -> void:
 	var top := dock.y - 1.5
 	var points: Array[Vector2] = []
 	for z in range(-10, 31, 2):  # down the pier
-		points.append(Vector2(dock.x + 5.0, dock.z + z))
-	for x in range(5, 241, 5):  # along the quay
+		points.append(Vector2(dock.x + 6.0, dock.z + z))
+	for x in range(6, 241, 6):  # along the quay
 		points.append(Vector2(dock.x + x, dock.z + 37.0))
 	for z in range(37, 65, 3):  # onto the island and 20 m in
 		points.append(Vector2(dock.x + 240.0, dock.z + z))

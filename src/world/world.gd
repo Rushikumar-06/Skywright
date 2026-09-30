@@ -11,8 +11,9 @@ extends Node3D
 ## a wreck), and with none of those you step off into the air. Stepping off a deck
 ## puts you ashore, on foot in this world; landing on a deck (a wreck's too), or E
 ## next to a hull (not a wreck's), puts you aboard; and falling into the Roil puts
-## you back aboard (not on a wreck). A dedicated server's world has no
-## player, HUD, pause menu or Weather.
+## you back aboard (not on a wreck). Its Projectiles fly and draw every shot. A shot
+## that hits you knocks you down for a few seconds, and you come to at a bunk. A
+## dedicated server's world has no player, HUD, pause menu or Weather.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := WorldGen.START
@@ -29,6 +30,7 @@ var shipyard: Shipyard         ## Null while closed.
 var design: ShipDesign         ## Your design, kept for the whole game.
 var gen: WorldGen              ## The world made from the session's seed.
 var wind: Wind                 ## Its wind, on the world's clock.
+var projectiles: Projectiles   ## Its shots and harpoon ropes.
 var streamer: WorldStreamer    ## Loads its chunks around every ship and player.
 var exploration := Exploration.new()  ## What you have seen of it, on this machine only.
 var map: MapView               ## The whole world, hidden until M. Made with the HUD.
@@ -36,6 +38,7 @@ var map: MapView               ## The whole world, hidden until M. Made with the
 var _reveal_left := 0.0        ## Seconds until the next look around.
 var _came_from: Ship           ## The ship you were on before this one, while it's still here.
 var _yard_town := 0            ## The town whose dock the shipyard was last opened at.
+var _down_left := 0.0          ## s until you come to, while knocked down.
 
 var _sky: WorldSky
 var _pause: PanelContainer
@@ -64,6 +67,10 @@ func _ready() -> void:
 	for town: Dictionary in gen.towns:
 		sync.docks.append(town["dock"])
 	add_child(sync)
+	projectiles = Projectiles.new(sync, not session.dedicated)
+	sync.projectiles = projectiles
+	add_child(projectiles)  # after the Sync, so shots fly on this tick's clock
+	sync.knocked_out.connect(knock_out)
 	if not session.dedicated:
 		add_child(Weather.new(gen, sync.now))
 	if session.is_server():
@@ -85,6 +92,13 @@ func _process(delta: float) -> void:
 	if player != null and _reveal_left <= 0.0:
 		_reveal_left = REVEAL_EVERY
 		exploration.reveal(player.world_position())
+
+
+func _physics_process(delta: float) -> void:
+	if _down_left > 0.0:
+		_down_left -= delta
+		if _down_left <= 0.0:
+			_come_to()
 
 
 ## Your place in the roster, which is where you stand when you board: crew board
@@ -159,7 +173,7 @@ func come_aboard(target: Ship, local: Vector3) -> void:
 		var here := sync.id_of(from) != 0  # a ship on its way out can't be gone back to
 		if ship != null and here and player.crew.station != null:
 			ship.helm.ask_helm(player.peer, false)  # or nobody else could take her helm until you left
-		if not on_test_flight():  # from a second test flight, B still goes back where the first came from
+		if not on_test_flight() and target != from:  # from a second test flight, B still goes back where the first came from
 			_came_from = from if here else null
 		_swap_crew(crew)
 	ship = target
@@ -191,6 +205,46 @@ func rescue() -> void:
 			board(next)
 			hud.show_message("The Roil nearly took you. Back aboard!")
 			return
+
+
+## A shot knocked you down: your controls stop until you come to, KNOCKOUT_TIME later.
+func knock_out() -> void:
+	if player == null:
+		return
+	_down_left = WorldSync.KNOCKOUT_TIME
+	player.enabled = false
+	hud.show_message("You're hit! Back on your feet in %d s." % roundi(WorldSync.KNOCKOUT_TIME))
+
+
+## You come to at a bunk of the ship you're on (ashore, wherever recover finds),
+## with your controls unless a menu is open.
+func _come_to() -> void:
+	recover(ship, true)
+	player.enabled = shipyard == null and not _pause.visible
+
+
+## Puts you aboard the first of prefer, your own ship and the home ship that's still
+## here and not a wreck, at its respawn spot when at_bunk, else at your roster slot,
+## and returns it. With none, you stand on the quay of the town nearest you, and
+## get null.
+func recover(prefer: Ship, at_bunk := false) -> Ship:
+	for next: Variant in [prefer, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
+		if is_instance_valid(next) and sync.id_of(next) != 0 and not (next as Ship).is_wreck():
+			var on: Ship = next
+			come_aboard(on, on.respawn_spot() if at_bunk else on.crew_spawn(my_slot()))
+			return on
+	var here := player.world_position()
+	var dock: Vector3 = gen.towns[0]["dock"]
+	for town: Dictionary in gen.towns:
+		if (town["dock"] as Vector3).distance_to(here) < dock.distance_to(here):
+			dock = town["dock"]
+	if ship != null and sync.id_of(ship) != 0 and player.crew.station != null:
+		ship.helm.ask_helm(player.peer, false)
+	var crew := CrewMember.new(null, Dock.quay_spot(dock))
+	add_child(crew)
+	ship = null
+	_swap_crew(crew)
+	return null
 
 
 ## Opens the shipyard on your design, when you're at a dock or dock_only is off. Off, it
@@ -225,7 +279,7 @@ func close_shipyard() -> void:
 		return
 	shipyard.queue_free()
 	shipyard = null
-	player.enabled = true
+	player.enabled = _down_left <= 0.0
 	hud.visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	get_viewport().disable_3d = false
@@ -338,7 +392,7 @@ func _build_pause_menu() -> void:
 func _toggle_pause() -> void:
 	_pause.visible = not _pause.visible
 	if player != null:
-		player.enabled = not _pause.visible
+		player.enabled = not _pause.visible and _down_left <= 0.0
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if _pause.visible else Input.MOUSE_MODE_CAPTURED
 	if _pause.visible:
 		_resume.grab_focus()

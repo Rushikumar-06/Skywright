@@ -180,6 +180,23 @@ func is_wreck() -> bool:
 	return helm == null
 
 
+## Lets peer go from any station they hold on her: the helm.
+func release(peer: int) -> void:
+	if helm != null:
+		helm.leave(peer)
+
+
+## Where crew come to after being knocked down, in ship space: standing on her
+## first bunk (sorted) with room above it, else where slot 0 comes aboard.
+func respawn_spot() -> Vector3:
+	var bunks := grid.cells_of("bunk")
+	bunks.sort()
+	for bunk in bunks:
+		if grid.type_at(bunk + Vector3i.UP) == "" and grid.type_at(bunk + Vector3i.UP * 2) == "":
+			return Vector3(bunk + Vector3i.UP) + Vector3(0.0, 0.45, 0.0)
+	return crew_spawn(0)
+
+
 ## Her hit points over her blueprint's, 0 to 1.
 func condition() -> float:
 	var full := 0

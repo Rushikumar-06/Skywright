@@ -95,6 +95,22 @@ func solo_world() -> Node3D:
 	return add_world(session)
 
 
+## Frees world's streamer (at the end of the frame), so no islands load, and
+## returns open sky at altitude: the first of (1000 k, altitude, 7000 - 1000 k) and
+## (-1000 k, altitude, 7000 - 1000 k), k = 1 to 6, at least 1,500 m from every
+## town's dock.
+func open_sky(world: Node3D, altitude: float) -> Vector3:
+	world.streamer.queue_free()
+	world.streamer = null
+	for k in range(1, 7):
+		for side in [1, -1]:
+			var spot := Vector3(side * 1000.0 * k, altitude, 7000.0 - 1000.0 * k)
+			if world.gen.towns.all(func(town: Dictionary) -> bool: return (town["dock"] as Vector3).distance_to(spot) >= 1500.0):
+				return spot
+	assert_true(false, "open sky near the start")
+	return Vector3(0, altitude, 0)
+
+
 ## Runs seconds of physics ticks in real time, calling each_tick(tick) ahead of
 ## each tick when given. Under --fixed-fps frames otherwise run as fast as they
 ## can, and a game in another process, or ENet's own timers, wouldn't keep pace.

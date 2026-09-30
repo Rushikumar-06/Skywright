@@ -58,6 +58,11 @@ static func test_berth(at: Vector3, index: int) -> Transform3D:
 	return slipway(at, index).translated(TEST_OFFSET)
 
 
+## Where someone stands on the quay behind slipway 0, for a dock at at.
+static func quay_spot(at: Vector3) -> Vector3:
+	return at + Vector3(0, -0.5, 37)
+
+
 ## Every slipway, every test berth and the quay.
 static func area(at: Vector3) -> AABB:
 	return AABB(at + Vector3(-30, -60, -100), Vector3(540, 120, 144))

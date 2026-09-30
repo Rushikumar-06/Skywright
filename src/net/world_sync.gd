@@ -19,6 +19,15 @@ extends Node
 ## enough is added as a wreck, nobody's, and smaller ones vanish. Once a second the
 ## server wears ships: wrecks go when they're old, too many or far from every player.
 ##
+## Shots belong to the server too. It fires them and tells everyone the launch, so
+## every machine's Projectiles flies the same arc; it decides every hit and tells
+## everyone where each shot ended. A shot into a ship damages the blocks it flies
+## into (a shell bursts too, and a harpoon ties a rope); a player it hits, or who
+## stands in a shell's burst, is knocked down: let go of every station, passed over
+## by shots for KNOCKOUT_TIME, and told so. ponytail: clients apply _blocks_changed
+## as it arrives, up to DELAY before they draw the shot arriving; queue changes by
+## time if holes opening early shows.
+##
 ## Each player walks their own crew member and reports where it is in ship space
 ## at 30 Hz (spec §4.5), or in world space with ship id 0 while ashore. The server
 ## checks each report, stamps it with its own clock and passes it on. Everyone draws
@@ -43,6 +52,8 @@ extends Node
 signal ship_added(ship: Ship)
 ## ship has left ships and is about to be freed. Its crew board successor, if not null.
 signal ship_removed(ship: Ship, successor: Ship)
+## This machine's player was knocked down by a shot.
+signal knocked_out
 
 const SessionScript := preload("res://src/net/session.gd")
 const SEND_EVERY := 2  ## Physics ticks between snapshots: 30 Hz at 60 ticks a second.
@@ -61,12 +72,20 @@ const WEAR_EVERY := 1.0       ## s between the server's wearing of ships.
 const WRECK_LIFETIME := 180.0 ## s a wreck lasts.
 const MAX_WRECKS := 8         ## The most wrecks at once: the oldest go first.
 const FAR := 3000.0           ## m. Wrecks further than this from every player go.
+const KNOCKOUT_TIME := 5.0    ## s a player hit by a shot is down.
+const MUZZLE := 0.8           ## m from a gun's cell to where its shot starts.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
 var player: PlayerController  ## This machine's player, whose crew it reports. Null when there's none.
 var docks: Array[Vector3] = []            ## Where each town's slipway 0 is. Set by the World.
 var wind: Wind                            ## The world's wind, which every ship feels. Likewise.
+## The world's shots and ropes. Likewise; the server hears their hits here.
+var projectiles: Projectiles:
+	set(value):
+		projectiles = value
+		projectiles.hit.connect(_on_shot_hit)
+		projectiles.crew_hit.connect(_on_crew_hit)
 
 var _time := 0.0            ## Seconds of physics since this world began.
 var _offset := 0.0          ## Client: the server's clock minus ours.
@@ -80,6 +99,9 @@ var _avatars: Dictionary = {}   ## Peer id -> CrewAvatar.
 var _keys_heard: Dictionary = {}  ## Server: ship id -> _time its pilot's keys last came.
 var _my_launch_at := -INF  ## _time of this machine's last launch.
 var _launched_at: Dictionary = {}  ## Server: peer id -> _time of their last launch.
+var _next_shot := 1
+var _next_rope := 1
+var _down: Dictionary = {}  ## Server: peer id -> now() when they're back on their feet.
 
 
 func _init(world_session: Node) -> void:
@@ -268,6 +290,105 @@ func player_positions() -> Array[Vector3]:
 		elif ships.has(heard["ship"]):
 			points.append((ships[heard["ship"]] as Ship).global_position)
 	return points
+
+
+## Server: fires ammo from ship's cell along direction (ship space, a unit vector),
+## tells everyone, and returns the shot's id (0 when it can't). The shot keeps the
+## ship's motion there.
+func fire(ship: Ship, cell: Vector3i, direction: Vector3, ammo: String) -> int:
+	var ship_id := id_of(ship)
+	if not session.is_server() or ship_id == 0 or not Damage.AMMO.has(ammo) or projectiles == null:
+		return 0
+	var origin := ship.global_transform * (Vector3(cell) + direction * MUZZLE)
+	var velocity := ship.point_velocity(origin) + ship.global_basis * direction * float(Damage.AMMO[ammo]["speed"])
+	var id := _next_shot
+	_next_shot += 1
+	projectiles.launch(id, ammo, origin, velocity, now(), ship_id)
+	projectiles.shots[id]["cell"] = cell
+	tell_world(&"_fired", [id, Damage.AMMO.keys().find(ammo), origin, velocity, now(), ship_id])
+	return id
+
+
+## Server: where everyone not knocked down is in the world: peer id -> this
+## machine's player where they are, and the others where they last said they were.
+func crew_positions() -> Dictionary:
+	var found := {}
+	if player != null:
+		found[multiplayer.get_unique_id()] = player.world_position()
+	for peer: int in _crew:
+		var heard: Dictionary = _crew[peer]
+		if heard["ship"] == 0:
+			found[peer] = heard["at"]
+		elif ships.has(heard["ship"]):
+			found[peer] = (ships[heard["ship"]] as Ship).global_transform * (heard["at"] as Vector3)
+	for peer: int in found.keys():
+		if _down.get(peer, -INF) > now():
+			found.erase(peer)
+	return found
+
+
+## Server: calls method with args on every client in the world.
+func tell_world(method: StringName, args: Array) -> void:
+	for peer: int in _in_world:
+		rpc_id.callv([peer, method] + args)
+
+
+## Server: shot hit collider at point, flying along direction. A ship loses the
+## blocks it flew into (a shell then bursts among them, and a harpoon whose block
+## held ties a rope from the gun to it). Anything else just ends it.
+func _on_shot_hit(shot: Dictionary, collider: Object, point: Vector3, direction: Vector3) -> void:
+	var ammo: String = shot["ammo"]
+	var spec: Dictionary = Damage.AMMO[ammo]
+	var target := collider as Ship
+	if target != null and id_of(target) != 0:
+		var p := target.global_transform.affine_inverse() * point
+		var d := (target.global_basis.inverse() * direction).normalized()
+		var first := target.grid.cells_along(p - d * 0.01, d)
+		damage_ship(target, Damage.shot(target.grid, p - d * 0.01, d, ammo))
+		if spec["blast"] > 0.0:
+			damage_ship(target, Damage.blast(target.grid, p, spec["blast"], spec["blast_damage"]))
+		var shooter: Ship = ships.get(shot["ship"])
+		if ammo == "harpoon" and not first.is_empty() and shooter != null and id_of(target) != 0 \
+				and target.grid.blocks.has(first[0]["cell"]):
+			var cell: Vector3i = first[0]["cell"]
+			var from := shooter.global_transform * Vector3(shot["cell"])
+			var length := maxf(Projectiles.TETHER_MIN, from.distance_to(target.global_transform * Vector3(cell)))
+			var rope := _next_rope
+			_next_rope += 1
+			projectiles.tie(rope, shooter, shot["cell"], target, cell, length)
+			tell_world(&"_tether", [rope, shot["ship"], shot["cell"], id_of(target), cell, length])
+	_burst_on_crew(shot, point)
+	tell_world(&"_hit", [shot["id"], point, shot["ends"]])
+
+
+## Server: shot hit peer's crew member at point.
+func _on_crew_hit(shot: Dictionary, peer: int, point: Vector3) -> void:
+	_knock_out(peer)
+	_burst_on_crew(shot, point)
+	tell_world(&"_hit", [shot["id"], point, shot["ends"]])
+
+
+## Server: a shell bursting at point knocks down everyone within its blast.
+func _burst_on_crew(shot: Dictionary, point: Vector3) -> void:
+	var blast: float = Damage.AMMO[shot["ammo"]]["blast"]
+	if blast <= 0.0:
+		return
+	var crew := crew_positions()
+	for peer: int in crew:
+		if (crew[peer] as Vector3).distance_to(point) <= blast:
+			_knock_out(peer)
+
+
+## Server: peer is knocked down: they let go of every station, shots pass them by
+## for KNOCKOUT_TIME, and they're told.
+func _knock_out(peer: int) -> void:
+	_down[peer] = now() + KNOCKOUT_TIME
+	for ship: Ship in ships.values():
+		ship.release(peer)
+	if peer == multiplayer.get_unique_id():
+		knocked_out.emit()
+	elif _in_world.has(peer):
+		_knocked_out.rpc_id(peer)
 
 
 ## Server, every WEAR_EVERY: clears away wrecks (nobody's, without a helm) older than
@@ -638,6 +759,50 @@ func _blocks_changed(id: Variant, changes: Variant) -> void:
 		(ships[id] as Ship).damage(unpacked)
 
 
+## Server -> clients: shot id of ammo (an index into Damage.AMMO's keys) left origin
+## at velocity at server time time, fired from ship ship_id.
+@rpc("authority", "call_remote", "reliable", 0)
+func _fired(id: Variant, ammo: Variant, origin: Variant, velocity: Variant, time: Variant, ship_id: Variant) -> void:
+	if session.is_server() or projectiles == null or not id is int or not ammo is int or ammo < 0 or ammo >= Damage.AMMO.size():
+		return
+	if not _is_point(origin) or not _is_point(velocity) or not _is_time(time) or not ship_id is int:
+		return
+	projectiles.launch(id, Damage.AMMO.keys()[ammo], origin, velocity, time, ship_id)
+
+
+## Server -> clients: shot id ended at point at server time time.
+@rpc("authority", "call_remote", "reliable", 0)
+func _hit(id: Variant, point: Variant, time: Variant) -> void:
+	if not session.is_server() and projectiles != null and id is int and _is_point(point) and _is_time(time):
+		projectiles.land(id, point, time)
+
+
+## Server -> clients: rope id ties a_cell of ship a_id to b_cell of ship b_id, length long.
+@rpc("authority", "call_remote", "reliable", 0)
+func _tether(id: Variant, a_id: Variant, a_cell: Variant, b_id: Variant, b_cell: Variant, length: Variant) -> void:
+	if session.is_server() or projectiles == null or not id is int or not a_id is int or not b_id is int or a_id == b_id:
+		return
+	if not ships.has(a_id) or not ships.has(b_id) or not _is_cell(a_cell) or not _is_cell(b_cell):
+		return
+	if not length is float or not is_finite(length) or length <= 0.0:
+		return
+	projectiles.tie(id, ships[a_id], a_cell, ships[b_id], b_cell, length)
+
+
+## Server -> clients: rope id is gone.
+@rpc("authority", "call_remote", "reliable", 0)
+func _untether(id: Variant) -> void:
+	if not session.is_server() and projectiles != null and id is int:
+		projectiles.untie(id)
+
+
+## Server -> the one client hit: you're knocked down.
+@rpc("authority", "call_remote", "reliable", 0)
+func _knocked_out() -> void:
+	if not session.is_server():
+		knocked_out.emit()
+
+
 ## Server -> clients: a snapshot of every ship (see _ship_states), at time.
 @rpc("authority", "call_remote", "unreliable_ordered", 1)
 func _ships(time: Variant, states: Variant) -> void:
@@ -780,6 +945,14 @@ static func crew_speed_ok(velocity: Vector3) -> bool:
 
 static func _is_time(value: Variant) -> bool:
 	return value is float and is_finite(value)
+
+
+static func _is_point(value: Variant) -> bool:
+	return value is Vector3 and (value as Vector3).is_finite()
+
+
+static func _is_cell(value: Variant) -> bool:
+	return value is Vector3i and ShipGrid.in_area(value)
 
 
 static func _is_ship_state(state: Variant) -> bool:

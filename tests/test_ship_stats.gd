@@ -144,3 +144,13 @@ func test_the_readout() -> void:
 	assert_eq(lines.size(), 8)
 	for i in 8:
 		assert_true(lines[i].begins_with(["Blocks     ", "Weight     ", "Lift       ", "Floats at  ", "Ceiling    ", "Thrust     ", "Top speed  ", "Climb      "][i]), lines[i])
+
+
+func test_blocks_not_joined_to_the_helm_are_named() -> void:
+	var loose := StarterShip.build()
+	for z in range(-1, 2):
+		loose.set_block(Vector3i(0, -4, z), "frame")  # hung under the keel with a gap
+	assert_true(ShipStats.of(loose, ALT).warnings.has("3 blocks aren't joined to the helm: they'll fall away when she's hit."),
+			str(ShipStats.of(loose, ALT).warnings))
+	for warning in ShipStats.of(StarterShip.build(), ALT).warnings:
+		assert_false(warning.contains("joined"), "the starter ship is one piece: " + warning)

@@ -7,10 +7,11 @@ extends Node3D
 ## clients get them through the world's WorldSync. You board the host's ship when you
 ## arrive, and your own ship whenever one arrives: launch a design and you're at its
 ## helm, and B brings you back from a test flight. When the ship you're on goes, you
-## board its successor, or the ship you came from, or your own, or the host's, and
-## with none of those you step off into the air. Stepping off a deck puts you ashore,
-## on foot in this world; landing on a deck, or E next to a hull, puts you aboard;
-## and falling into the Roil puts you back aboard. A dedicated server's world has no
+## board its successor, or the ship you came from, or your own, or the host's (never
+## a wreck), and with none of those you step off into the air. Stepping off a deck
+## puts you ashore, on foot in this world; landing on a deck (a wreck's too), or E
+## next to a hull (not a wreck's), puts you aboard; and falling into the Roil puts
+## you back aboard (not on a wreck). A dedicated server's world has no
 ## player, HUD, pause menu or Weather.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
@@ -182,10 +183,11 @@ func go_ashore() -> void:
 	_swap_crew(crew)
 
 
-## Out of the Roil: aboard the ship you left, else your own, else the host's.
+## Out of the Roil: aboard the ship you left, else your own, else the host's, but
+## never a wreck.
 func rescue() -> void:
 	for next: Ship in [left, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
-		if next != null and sync.id_of(next) != 0:
+		if next != null and sync.id_of(next) != 0 and not next.is_wreck():
 			board(next)
 			hud.show_message("The Roil nearly took you. Back aboard!")
 			return
@@ -262,7 +264,7 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 	if ship != removed:
 		return
 	for next: Ship in [successor, _came_from, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
-		if next != null:
+		if next != null and not next.is_wreck():
 			board(next)
 			if removed.test and removed.captain == multiplayer.get_unique_id() and not _pause.visible:
 				open_shipyard(false)  # back from a test flight

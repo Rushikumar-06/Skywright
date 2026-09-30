@@ -303,3 +303,18 @@ func test_a_second_test_flight_still_goes_back_to_the_ship_you_crewed() -> void:
 	assert_true(await play_until(func() -> bool: return host_world.on_test_flight() and sync.id_of(host_world.ship) != first_id, 2.0), "and another")
 	press_b(host_world)
 	assert_eq(host_world.ship, theirs, "B goes back aboard the guest's ship")
+
+
+func test_home_ship_ignores_wrecks_and_pirates() -> void:
+	var world := solo_world()
+	await get_tree().process_frame
+	var sync: WorldSync = world.sync
+	var starter: Ship = world.ship
+	var no_helm := skiff()
+	no_helm.blocks.erase(no_helm.cells_of("helm")[0])
+	var wreck := sync.add_ship(no_helm, Dock.slipway(world.START, 1))  # nobody's, which would come before a guest's
+	var theirs := sync.add_ship(skiff(), Dock.slipway(world.START, 2), 2)
+	assert_true(wreck.is_wreck(), "a wreck")
+	assert_true(sync.home_ship() == starter, "the host's ship")
+	starter.pirate = true
+	assert_true(sync.home_ship() == theirs, "not a pirate, nor a wreck")

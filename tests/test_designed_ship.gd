@@ -24,7 +24,7 @@ func skiff() -> ShipDesign:
 		design.place(Vector3i(0, -1, z), "iron" if z == -2 or z == -1 else "frame")
 	design.remove(Vector3i(0, -1, -4))
 	design.place(Vector3i(0, -1, -4), "engine")
-	design.place(Vector3i(2, 0, 5), "propeller")
+	design.place(Vector3i(2, 0, 4), "propeller")  # beside the deck, so joined to it
 	design.place(Vector3i(0, 0, 5), "rudder")
 	design.place(Vector3i(0, 1, 3), "helm")
 	design.place(Vector3i(0, 1, 4), "deck")

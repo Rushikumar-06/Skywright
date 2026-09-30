@@ -15,7 +15,9 @@ extends Node
 ##
 ## Damage belongs to the server too. It applies each change to a ship's blocks and
 ## sends the same changes to everyone, who apply them to their copies; a ship with
-## no blocks left is taken away.
+## no blocks left is taken away. Pieces cut off from the helm's break away: each big
+## enough is added as a wreck, nobody's, and smaller ones vanish. Once a second the
+## server wears ships: wrecks go when they're old, too many or far from everyone.
 ##
 ## Each player walks their own crew member and reports where it is in ship space
 ## at 30 Hz (spec §4.5), or in world space with ship id 0 while ashore. The server
@@ -55,6 +57,10 @@ const KEYS_GO_STALE := 0.25  ## s. A remote pilot's keys count as let go when no
 const LAUNCH_COOLDOWN := 1.0 ## s. The least time between one player's launches.
 const CLEARANCE := 2.0       ## m. The least gap between a ship being launched and another ship.
 const OBSTACLE_CLEARANCE := 1.0  ## m. Likewise between it and a dock or a town island.
+const WEAR_EVERY := 1.0       ## s between the server's wearing of ships.
+const WRECK_LIFETIME := 180.0 ## s a wreck lasts.
+const MAX_WRECKS := 8         ## The most wrecks at once: the oldest go first.
+const FAR := 3000.0           ## m. Wrecks further than this from every crewed ship go.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
@@ -116,11 +122,12 @@ func avatar_of(peer: int) -> CrewAvatar:
 
 ## Server: puts a new ship in the world, captain's (0 for nobody's), with pilot at
 ## its helm, and tells everyone in the world. As she is now is her blueprint, made
-## whole. She carries a full load of spares, unless she's a pirate.
+## whole. She carries a full load of spares, unless she's a pirate or a wreck.
 func add_ship(grid: ShipGrid, at: Transform3D, captain := 0, test := false, pilot := 0, pirate := false) -> Ship:
 	var id := _next_id
 	_next_id += 1
-	var ship := _add(id, grid, at, true, captain, test, pilot, grid.whole(), pirate, 0 if pirate else Damage.SPARES_MAX)
+	var spares := 0 if pirate or grid.cells_of("helm").is_empty() else Damage.SPARES_MAX
+	var ship := _add(id, grid, at, true, captain, test, pilot, grid.whole(), pirate, spares)
 	ship_added.emit(ship)
 	var entry := _entry(id)
 	for peer: int in _in_world:
@@ -139,15 +146,37 @@ func remove_ship(ship: Ship, successor: Ship = null) -> void:
 
 
 ## Server: puts hit-point changes (cell -> hit points, 0 for destroyed) into ship,
-## tells everyone in the world, and takes her away if no blocks are left.
+## tells everyone in the world, and takes her away if no blocks are left. When blocks
+## were destroyed, the pieces no longer joined to her helm's break away: those of
+## Damage.DEBRIS blocks or more as wrecks, moving as she moved there, the rest gone.
 func damage_ship(ship: Ship, changes: Dictionary) -> void:
 	var id := id_of(ship)
 	if id == 0 or changes.is_empty():
 		return
+	var destroyed := changes.keys().any(func(cell: Vector3i) -> bool: return changes[cell] <= 0 and ship.grid.blocks.has(cell))
 	ship.damage(changes)
-	var packed := Damage.pack(changes)
+	var sent := changes
+	var pieces: Array[ShipGrid] = []
+	if destroyed:
+		var parts := Damage.split(ship.grid)
+		sent = changes.duplicate()
+		var debris := {}
+		for cell: Vector3i in parts["debris"]:
+			debris[cell] = 0
+		ship.damage(debris)
+		sent.merge(debris, true)
+		for cells: Array in parts["wrecks"]:
+			for cell: Vector3i in cells:
+				sent[cell] = 0  # clients drop them, and get the wreck as a new ship
+			pieces.append(ship.take_cells(cells))
+	var packed := Damage.pack(sent)
 	for peer: int in _in_world:
 		_blocks_changed.rpc_id(peer, id, packed)
+	for piece in pieces:
+		var wreck := add_ship(piece, ship.global_transform)
+		wreck.calm = ship.calm
+		wreck.linear_velocity = ship.point_velocity(wreck.global_transform * wreck.center_of_mass)
+		wreck.angular_velocity = ship.angular_velocity
 	if ship.grid.blocks.is_empty():
 		remove_ship(ship)
 
@@ -198,16 +227,51 @@ func berth_of(peer: int, test: bool, town := 0) -> Transform3D:
 
 
 ## The ship to board when there's no other reason to pick one: the host's (captain
-## 1), else nobody's (a dedicated server's), else anyone's, a test flight last.
+## 1), else nobody's (a dedicated server's), else anyone's, a test flight last; never
+## a wreck or a pirate.
 func home_ship() -> Ship:
 	var home: Ship = null
 	var best := 4
 	for ship: Ship in ships.values():
+		if ship.is_wreck() or ship.pirate:
+			continue
 		var rank := 3 if ship.test else 0 if ship.captain == 1 else 1 if ship.captain == 0 else 2
 		if rank < best:
 			home = ship
 			best = rank
 	return home
+
+
+## Server: the ships someone is aboard, by this machine's player or a remote
+## player's last report.
+func crewed_ships() -> Array[Ship]:
+	var crewed: Array[Ship] = []
+	if player != null and player.ship != null and id_of(player.ship) != 0:
+		crewed.append(player.ship)
+	for heard: Dictionary in _crew.values():
+		var ship: Ship = ships.get(heard["ship"])
+		if ship != null and not crewed.has(ship):
+			crewed.append(ship)
+	return crewed
+
+
+## Server, every WEAR_EVERY: clears away wrecks (nobody's, without a helm) older than
+## WRECK_LIFETIME or further than FAR from every crewed ship, then the oldest while
+## there are more than MAX_WRECKS.
+func _wear() -> void:
+	var crewed := crewed_ships()
+	var wrecks: Array[Ship] = []
+	for ship: Ship in ships.values():
+		if not ship.is_wreck() or ship.captain != 0:
+			continue
+		var far := crewed.all(func(near: Ship) -> bool: return near.global_position.distance_to(ship.global_position) > FAR)
+		if now() - ship.born > WRECK_LIFETIME or far:
+			remove_ship(ship)
+		else:
+			wrecks.append(ship)
+	wrecks.sort_custom(func(a: Ship, b: Ship) -> bool: return a.born < b.born or (a.born == b.born and id_of(a) < id_of(b)))
+	for i in wrecks.size() - MAX_WRECKS:
+		remove_ship(wrecks[i])
 
 
 ## Adds a ship. The pilot is set before the helm's signals are connected, so it
@@ -371,6 +435,8 @@ func _physics_process(delta: float) -> void:
 		# Stamp snapshots before the clock ticks on: they hold the ships as the last
 		# physics step left them, which is where they were at _time.
 		_let_go_of_stale_keys()
+		if _tick % roundi(WEAR_EVERY * Engine.physics_ticks_per_second) == 0:
+			_wear()
 		if sending and not _in_world.is_empty():
 			var states := _ship_states()
 			for peer: int in _in_world:
@@ -532,9 +598,9 @@ func _add_entry(entry: Variant, time: float) -> Ship:
 		return null
 	if not entry[9] is int or entry[9] < 0 or entry[9] > Damage.SPARES_MAX:
 		return null
-	var grid := ShipGrid.from_bytes(entry[1])
+	var grid := ShipGrid.from_bytes(entry[1], false)  # wrecks have no helm
 	var paint: Variant = ShipGrid.read_paint(entry[2])
-	var blueprint := ShipGrid.from_bytes(entry[7])
+	var blueprint := ShipGrid.from_bytes(entry[7], false)
 	if grid == null or paint == null or blueprint == null:
 		push_warning("The host sent ship %d with blocks or paint that don't make a ship; leaving it out." % entry[0])
 		return null

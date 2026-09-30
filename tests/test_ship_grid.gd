@@ -222,6 +222,7 @@ func test_from_bytes_refuses_junk() -> void:
 	for problem: String in cases:
 		assert_eq(ShipGrid.from_bytes(cases[problem]), null, problem)
 	assert_true(ShipGrid.from_bytes(packed(1, helm)) != null, "the test's own bytes are fine")
+	assert_true(ShipGrid.from_bytes(cases["no helm"], false) != null, "and a wreck's, when that will do")
 
 
 func test_read_blocks_names_the_first_problem() -> void:

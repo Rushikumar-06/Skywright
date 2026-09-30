@@ -89,14 +89,14 @@ func helm_in_reach() -> bool:
 	return ship != null and ship.helm != null and ship.helm.in_reach(crew.position)
 
 
-## Ashore: the nearest ship whose box, grown 3 m, holds you, or null.
+## Ashore: the nearest ship whose box, grown 3 m, holds you, or null. Never a wreck.
 func ship_in_reach() -> Ship:
 	if ship != null:
 		return null
 	var nearest: Ship = null
 	for node in crew.get_parent().get_children():
 		var near := node as Ship
-		if near != null and (near.global_transform * near.bounds).grow(3.0).has_point(crew.position) \
+		if near != null and not near.is_wreck() and (near.global_transform * near.bounds).grow(3.0).has_point(crew.position) \
 				and (nearest == null or near.global_position.distance_to(crew.position) < nearest.global_position.distance_to(crew.position)):
 			nearest = near
 	return nearest

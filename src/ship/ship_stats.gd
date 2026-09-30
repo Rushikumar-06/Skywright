@@ -108,6 +108,10 @@ static func _height_text(height: float) -> String:
 func _find_warnings(grid: ShipGrid) -> void:
 	if grid.cells_of("helm").is_empty():
 		warnings.append("Every ship needs a helm.")
+	else:
+		var loose: int = blocks - Damage.split(grid)["keep"].size()
+		if loose > 0:
+			warnings.append("%d blocks aren't joined to the helm: they'll fall away when she's hit." % loose)
 	if blocks == 0:
 		return
 	if ceiling == -INF:

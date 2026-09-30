@@ -94,10 +94,27 @@ func _ready() -> void:
 ## returns true.
 func damage(changes: Dictionary) -> bool:
 	var moved := Damage.apply(grid, changes, blueprint)
-	if moved and not _rebuild_pending:
+	if moved:
+		_rebuild_soon()
+	return moved
+
+
+## Moves the blocks at cells, with their hit points, into a new grid with her paint,
+## for a piece that breaks away. She rebuilds, once, at the end of the frame.
+func take_cells(cells: Array) -> ShipGrid:
+	var piece := ShipGrid.new()
+	piece.paint = grid.paint.duplicate()
+	for cell: Vector3i in cells:
+		piece.blocks[cell] = grid.blocks[cell]
+		grid.blocks.erase(cell)
+	_rebuild_soon()
+	return piece
+
+
+func _rebuild_soon() -> void:
+	if not _rebuild_pending:
 		_rebuild_pending = true
 		rebuild.call_deferred()
-	return moved
 
 
 ## Rebuilds everything that comes from the blocks, now: mass, shapes, the parts
@@ -185,8 +202,11 @@ const SPAWN_SPOTS: Array[Vector3i] = [
 
 ## Where crew come aboard, in ship space. Slot 0 stands just aft of the helm; later
 ## slots stand on the free spots around it, and share them when there are more
-## crew than spots (crew don't collide with each other).
+## crew than spots (crew don't collide with each other). A wreck has no helm, so
+## everyone stands on top of her, near her middle.
 func crew_spawn(slot := 0) -> Vector3:
+	if helm == null:
+		return Vector3(_spot_on_top()) + Vector3(0.0, 0.45, 0.0)
 	var aft := helm.cell + Vector3i(0, 0, 1)
 	var free: Array[Vector3i] = []
 	for offset in SPAWN_SPOTS:
@@ -196,6 +216,23 @@ func crew_spawn(slot := 0) -> Vector3:
 			free.append(cell)
 	var spot := free[slot % free.size()] if not free.is_empty() else aft
 	return Vector3(spot) + Vector3(0.0, 0.45, 0.0)
+
+
+## The empty cell over the highest block, with room to stand, in the column nearest
+## the middle of her box. Ties go to the smallest cell.
+func _spot_on_top() -> Vector3i:
+	var middle := bounds.get_center()
+	var best := Vector3i.ZERO
+	var best_rank := INF
+	for cell: Vector3i in grid.blocks:
+		var above := cell + Vector3i.UP
+		if grid.type_at(cell) == "ladder" or grid.blocks.has(above) or grid.blocks.has(above + Vector3i.UP):
+			continue
+		var rank := Vector2(cell.x - middle.x, cell.z - middle.z).length_squared()
+		if rank < best_rank or (rank == best_rank and (above.y > best.y or (above.y == best.y and above < best))):
+			best = above
+			best_rank = rank
+	return best
 
 
 ## Whether this ship is the first thing straight below world_point, within its own

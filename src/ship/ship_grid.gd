@@ -126,15 +126,16 @@ func to_blocks() -> Array:
 
 
 ## A grid from to_blocks() data, or null if it isn't a valid ship; see read_blocks.
-static func from_blocks(data: Variant) -> ShipGrid:
-	return read_blocks(data).get("grid")
+static func from_blocks(data: Variant, needs_helm := true) -> ShipGrid:
+	return read_blocks(data, needs_helm).get("grid")
 
 
 ## Checks block data that may come from another machine or a shared file, and
 ## returns {"grid": ShipGrid} or {"problem": String} naming the first thing wrong.
 ## Entries are [x, y, z, type, rotation] at full hit points, or with hit points as a
-## sixth item. Numbers may be ints or whole floats (JSON has only floats).
-static func read_blocks(data: Variant) -> Dictionary:
+## sixth item. Numbers may be ints or whole floats (JSON has only floats). Without
+## needs_helm, a wreck will do.
+static func read_blocks(data: Variant, needs_helm := true) -> Dictionary:
 	if not data is Array or data.is_empty():
 		return {"problem": "The ship has no blocks."}
 	if data.size() > MAX_BLOCKS:
@@ -170,7 +171,7 @@ static func read_blocks(data: Variant) -> Dictionary:
 		if grid.blocks.has(cell):
 			return {"problem": "Block %d is in the same place as another block." % n}
 		grid.blocks[cell] = {"type": type, "rotation": numbers[3], "hp": hp}
-	if grid.cells_of("helm").is_empty():
+	if needs_helm and grid.cells_of("helm").is_empty():
 		return {"problem": "Every ship needs a helm."}
 	return {"grid": grid}
 
@@ -246,8 +247,8 @@ func to_bytes() -> PackedByteArray:
 
 
 ## A grid from to_bytes() data, or null if it isn't valid. Nothing is assumed: the
-## bytes may come from another machine.
-static func from_bytes(data: Variant) -> ShipGrid:
+## bytes may come from another machine. Without needs_helm, a wreck will do.
+static func from_bytes(data: Variant, needs_helm := true) -> ShipGrid:
 	if not data is PackedByteArray or data.size() < 3:
 		return null
 	var count: int = data.decode_u16(0)
@@ -264,7 +265,7 @@ static func from_bytes(data: Variant) -> ShipGrid:
 		if body[at + 3] >= types.size():
 			return null
 		list.append([body[at] + MIN_CELL, body[at + 1] + MIN_CELL, body[at + 2] + MIN_CELL, types[body[at + 3]], body[at + 4], body.decode_u16(at + 5)])
-	return from_blocks(list)
+	return from_blocks(list, needs_helm)
 
 
 ## Paint as plain text for sending or saving: type -> "rrggbb".

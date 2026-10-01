@@ -153,7 +153,7 @@ func repair_prompt() -> String:
 	if fix.is_empty():
 		return ""
 	if ship.spares < 1:
-		return "No spares left: refill at a town's dock"
+		return "No spares left: buy more at a town's dock"
 	if fix.has(cell):
 		return "Hold R   Repair  %d/%d" % [ship.grid.blocks[cell]["hp"], Tuning.BLOCKS[ship.grid.blocks[cell]["type"]]["hp"]]
 	return "Hold R   Rebuild"

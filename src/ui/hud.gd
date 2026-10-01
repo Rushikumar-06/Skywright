@@ -17,6 +17,7 @@ var salvage := false      ## There's a wreck in reach to salvage. Likewise.
 var wind: Wind            ## The world's wind, shown at the helm. Set by the World.
 var gen: WorldGen         ## The world's shape, for the compass. Set by the World, with exploration.
 var exploration: Exploration
+var ledger: Ledger        ## The world's books, for your purse. Set by the World.
 var compass: Compass      ## Made in _ready when the World gave gen and exploration.
 var map_open := false:    ## The map is showing, which hides the compass. Set by the World.
 	set(value):
@@ -26,6 +27,7 @@ var map_open := false:    ## The map is showing, which hides the compass. Set by
 
 var _status: Label
 var _crew: Label
+var _purse: Label
 var _prompt: Label
 var _helm: PanelContainer  ## The station panel: the helm's or a cannon's.
 var _readout: Label
@@ -53,6 +55,8 @@ func _ready() -> void:
 	column.add_child(_status)
 	_crew = UiTheme.caption("")
 	column.add_child(_crew)
+	_purse = UiTheme.caption("")
+	column.add_child(_purse)
 
 	var dot := ColorRect.new()
 	dot.color = Color(UiTheme.TEXT, 0.8)
@@ -144,6 +148,8 @@ func _process(delta: float) -> void:
 		compass.origin = player.world_position()
 		compass.region = WorldGen.REGION_NAMES[WorldGen.region_at(compass.origin)]
 	_banner.visible = test_flight
+	if ledger != null:
+		_purse.text = "%d crowns" % ledger.mine["money"]
 	_message_left -= delta
 	_message.visible = _message_left > 0.0
 	_helm.visible = player.crew.station != null

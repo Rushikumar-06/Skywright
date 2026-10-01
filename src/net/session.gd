@@ -269,6 +269,18 @@ func _on_auth(id: int, data: PackedByteArray) -> void:
 			_end(message["refused"])
 
 
+## raw, or with " 2", " 3" and so on when it's taken, cut to stay within the
+## longest name. Progress is kept by name, so no two players share one.
+static func unique_name(raw: String, taken: Array) -> String:
+	var unique := raw
+	var n := 2
+	while taken.has(unique):
+		var suffix := " %d" % n
+		unique = raw.left(SettingsScript.MAX_NAME_LENGTH - suffix.length()).strip_edges() + suffix
+		n += 1
+	return unique
+
+
 ## Host: accept or refuse a joiner from what it sent.
 func _on_hello(id: int, hello: Dictionary) -> void:
 	if players.has(id) or _joining.has(id):
@@ -287,7 +299,8 @@ func _on_hello(id: int, hello: Dictionary) -> void:
 		_log("refused peer %d: %s" % [id, refusal])
 		return
 	var raw_name: Variant = hello.get("name", "")
-	_joining[id] = SettingsScript.clean_name(raw_name if raw_name is String else "")
+	var taken: Array = _joining.values() + players.values().map(func(entry: Dictionary) -> String: return entry["name"])
+	_joining[id] = unique_name(SettingsScript.clean_name(raw_name if raw_name is String else ""), taken)
 	api.send_auth(id, var_to_bytes({"accepted": true}))
 	api.complete_auth(id)
 

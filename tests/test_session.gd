@@ -143,6 +143,22 @@ func test_host_cleans_joiner_names() -> void:
 	assert_eq(host.players.get(client.multiplayer.get_unique_id()), {"name": "Ann Bob" + "x".repeat(17)})
 
 
+func test_two_players_with_one_name_get_two_names() -> void:
+	var host := make_session("Host")
+	var client := make_session("Client")
+	var port := free_port()
+	host.host("Ann", port)
+	client.join("Ann", "127.0.0.1", port)
+	assert_true(await wait_until(func() -> bool: return client.players.size() == 2, 5.0), "joined")
+	var names := host.players.values().map(func(entry: Dictionary) -> String: return entry["name"])
+	names.sort()
+	assert_eq(names, ["Ann", "Ann 2"])
+	var long := "x".repeat(24)
+	assert_eq(SessionScript.unique_name(long, [long]), "x".repeat(22) + " 2", "within 24 characters")
+	assert_eq(SessionScript.unique_name("Bo", ["Bo", "Bo 2"]), "Bo 3")
+	assert_eq(SessionScript.unique_name("Bo", ["Ann"]), "Bo")
+
+
 func test_the_protocol_is_version_6() -> void:
 	assert_eq(SessionScript.PROTOCOL_VERSION, 6, "stage 7: towns and progression")
 

@@ -25,6 +25,7 @@ const REVEAL_EVERY := 0.5  ## Seconds between looks around, for the map.
 
 var session: Node
 var sync: WorldSync
+var ledger: Ledger             ## The world's books, beside the Sync.
 var ship: Ship                 ## The ship you're aboard. Null while ashore.
 var left: Ship                 ## The ship you last stepped off, while it's here.
 var player: PlayerController   ## You, once the ship has arrived.
@@ -74,6 +75,10 @@ func _ready() -> void:
 	for wreck: Dictionary in gen.wrecks:
 		sync.sites.append(Sites.wreck_center(wreck))
 	add_child(sync)
+	ledger = Ledger.new(sync)
+	sync.ledger = ledger
+	ledger.told.connect(_on_told)
+	add_child(ledger)
 	projectiles = Projectiles.new(sync, not session.dedicated)
 	sync.projectiles = projectiles
 	add_child(projectiles)  # after the Sync, so shots fly on this tick's clock
@@ -119,10 +124,7 @@ func my_slot() -> int:
 
 ## The town whose dock p is near, or -1.
 func town_at(p: Vector3) -> int:
-	for i in gen.towns.size():
-		if Dock.near(gen.towns[i]["dock"], p):
-			return i
-	return -1
+	return sync.town_at(p)
 
 
 ## Takes grid for a test flight from your test berth at the shipyard's town (with it
@@ -186,6 +188,7 @@ func _arrive(crew: CrewMember) -> void:
 	player.repairing.connect(func(cell: Vector3i) -> void: sync.repair(ship, cell))
 	player.idle_interact.connect(salvage)
 	hud = Hud.new(player, session)
+	hud.ledger = ledger
 	hud.wind = wind
 	hud.gen = gen
 	hud.exploration = exploration
@@ -261,13 +264,21 @@ func salvage() -> void:
 		sync.salvage_ship(found[1])
 
 
-func _on_salvage_result(spares: int) -> void:
-	if spares > 0:
-		hud.show_message("Salvaged %d spares." % spares)
-	elif spares == 0:
+func _on_salvage_result(spares: int, money: int) -> void:
+	if money == 0:
 		hud.show_message("Nothing left to salvage here.")
+	elif spares > 0:
+		hud.show_message("Salvaged %d crowns and %d spares." % [money, spares])
 	else:
-		hud.show_message("No room for more spares.")
+		hud.show_message("Salvaged %d crowns." % money)
+
+
+## The server's word for you: in the open shipyard's note, else as a message.
+func _on_told(text: String) -> void:
+	if shipyard != null:
+		shipyard.say(text)
+	elif hud != null:
+		hud.show_message(text)
 
 
 ## A shot knocked you down: your controls stop until you come to, KNOCKOUT_TIME later.

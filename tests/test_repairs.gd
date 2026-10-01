@@ -138,7 +138,7 @@ func test_out_of_spares() -> void:
 	sync.damage_ship(ship, {PLANK: 20})
 	stand_over(PLANK)
 	await get_tree().process_frame
-	assert_eq(world.hud._prompt.text, "No spares left: refill at a town's dock")
+	assert_eq(world.hud._prompt.text, "No spares left: buy more at a town's dock")
 	await repair_once()
 	assert_eq(hp(PLANK), 20, "nothing changes")
 	ship.spares = 1
@@ -163,17 +163,6 @@ func test_the_prompts_say_what_r_does() -> void:
 	ship.show_fires([PLANK + Vector3i.LEFT])
 	await get_tree().process_frame
 	assert_eq(world.hud._prompt.text, "Hold R   Put out the fire")
-
-
-func test_spares_refill_at_a_dock() -> void:
-	await start(true)
-	ship.spares = 5
-	await simulate(1.5)
-	assert_eq(ship.spares, Damage.SPARES_MAX, "full at the dock")
-	ship.global_position = open_sky(world, 1000.0)
-	ship.spares = 5
-	await simulate(1.5)
-	assert_eq(ship.spares, 5, "not 3 km away")
 
 
 func test_fire_spreads_and_can_be_put_out() -> void:

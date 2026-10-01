@@ -1,8 +1,9 @@
 extends NetCase
-## Salvage (spec §3.5): E by a world wreck strips her of Damage.SALVAGE_SPARES spares,
-## once (the world remembers), and E by a broken-off wreck breaks her up for one
-## spare per 10 blocks. The spares go to the ship you're aboard, else your own, else
-## the home ship. The server checks you're in reach.
+## Salvage (spec §3.5): E by a world wreck strips her of Economy.SALVAGE_MONEY crowns
+## and Damage.SALVAGE_SPARES spares, once (the world remembers), and E by a broken-off
+## wreck breaks her up for one spare per 10 blocks and a crown a block. The spares go to
+## the ship you're aboard, else your own, else the home ship, as many as fit. The
+## server checks you're in reach.
 
 var world: Node3D
 var sync: WorldSync
@@ -49,7 +50,7 @@ func test_salvaging_a_wreck_site() -> void:
 	assert_eq(world.hud._prompt.text, "E   Salvage")
 	press(player, "interact")
 	assert_eq(ship.spares, 22, "12 spares to your ship")
-	assert_eq(world.hud._message.text, "Salvaged 12 spares.")
+	assert_eq(world.hud._message.text, "Salvaged 150 crowns and 12 spares.")
 	assert_true(sync.salvaged.has(0), "the wreck is stripped")
 	sync.salvage_site(0)  # as a second salvager would, at the same moment
 	assert_eq(world.hud._message.text, "Nothing left to salvage here.")
@@ -93,13 +94,14 @@ func test_salvage_goes_to_the_ship_you_are_aboard() -> void:
 	assert_eq(ship.spares, 10, "not your own")
 
 
-func test_no_room_for_more_spares() -> void:
+func test_a_full_ship_still_takes_the_crowns() -> void:
 	await start()
-	ship.spares = Damage.SPARES_MAX
+	ship.spares = Damage.SPARES_MAX - 2
 	ashore_at(Sites.wreck_center(world.gen.wrecks[0]))
 	press(player, "interact")
-	assert_eq(world.hud._message.text, "No room for more spares.")
-	assert_false(sync.salvaged.has(0), "the wreck keeps her spares")
+	assert_eq(world.hud._message.text, "Salvaged 150 crowns and 2 spares.")
+	assert_eq(ship.spares, Damage.SPARES_MAX, "as many spares as fit")
+	assert_true(sync.salvaged.has(0), "the wreck is stripped all the same")
 
 
 func test_the_world_remembers_what_was_salvaged() -> void:
@@ -117,7 +119,8 @@ func test_the_world_remembers_what_was_salvaged() -> void:
 	var guest_sync: WorldSync = client_world.sync
 	assert_true(await play_until(func() -> bool: return host_world.sync.salvaged.has(0) and guest_sync.salvaged.has(0), 1.0), "both know site 0 is stripped")
 	assert_eq(ours.spares, 22, "the spares went to the home ship")
-	assert_eq(client_world.hud._message.text, "Salvaged 12 spares.")
+	assert_eq(client_world.hud._message.text, "Salvaged 150 crowns and 12 spares.")
+	assert_eq(client_world.ledger.mine["money"], 1650, "the crowns went to the guest")
 	await play(0.1)
 	assert_true(client_world.hud._prompt.text != "E   Salvage", "the guest's prompt is gone")
 	var late := make_session("Late")

@@ -74,6 +74,17 @@ func test_applying_changes_removes_dead_blocks_and_restores_from_the_blueprint()
 	assert_false(grid.blocks.has(Vector3i(0, 0, 0)))
 
 
+func test_a_destroyed_bay_loses_its_crate_and_a_healed_one_keeps_it() -> void:
+	var grid := grid_of({Vector3i(0, 0, 0): "cargo_bay", Vector3i(1, 0, 0): "cargo_bay"})
+	grid.cargo = {Vector3i(0, 0, 0): {"good": "grain", "owner": "Ann"}, Vector3i(1, 0, 0): {"good": "tools", "owner": "Ann"}}
+	Damage.apply(grid, {Vector3i(1, 0, 0): 40})
+	assert_true(grid.cargo.has(Vector3i(1, 0, 0)), "a damaged bay keeps her crate")
+	Damage.apply(grid, {Vector3i(1, 0, 0): 100})
+	assert_true(grid.cargo.has(Vector3i(1, 0, 0)), "and healing it keeps it")
+	Damage.apply(grid, {Vector3i(0, 0, 0): 0})
+	assert_eq(grid.cargo.keys(), [Vector3i(1, 0, 0)], "the destroyed bay's crate is gone")
+
+
 func bar(order: Array) -> ShipGrid:
 	var grid := ShipGrid.new()
 	for z: int in order:

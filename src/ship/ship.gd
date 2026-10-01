@@ -112,16 +112,33 @@ func damage(changes: Dictionary) -> bool:
 	return moved
 
 
-## Moves the blocks at cells, with their hit points, into a new grid with her paint,
-## for a piece that breaks away. She rebuilds, once, at the end of the frame.
+## Moves the blocks at cells, with their hit points and crates, into a new grid with
+## her paint, for a piece that breaks away. She rebuilds, once, at the end of the frame.
 func take_cells(cells: Array) -> ShipGrid:
 	var piece := ShipGrid.new()
 	piece.paint = grid.paint.duplicate()
 	for cell: Vector3i in cells:
 		piece.blocks[cell] = grid.blocks[cell]
 		grid.blocks.erase(cell)
+		if grid.cargo.has(cell):
+			piece.cargo[cell] = grid.cargo[cell]
+			grid.cargo.erase(cell)
 	_rebuild_soon()
 	return piece
+
+
+## Stows cargo (see ShipGrid.cargo) and weighs her again now, without a rebuild.
+func set_cargo(cargo: Dictionary) -> void:
+	grid.cargo = cargo
+	_weigh()
+
+
+func _weigh() -> void:
+	var props := grid.mass_properties()
+	mass = props["mass"]
+	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
+	center_of_mass = props["center"]
+	inertia = props["inertia"]
 
 
 func _rebuild_soon() -> void:
@@ -137,11 +154,7 @@ func rebuild() -> void:
 	_rebuild_pending = false
 	if grid.blocks.is_empty() or not is_inside_tree():
 		return  # she's on her way out
-	var props := grid.mass_properties()
-	mass = props["mass"]
-	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
-	center_of_mass = props["center"]
-	inertia = props["inertia"]
+	_weigh()
 	for shape in _shapes:
 		shape.free()
 	_shapes.clear()

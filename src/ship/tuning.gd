@@ -23,6 +23,8 @@ const BLOCKS := {
 	"ladder": {"mass": 15.0, "hp": 40},
 }
 
+const CRATE_MASS := 100.0         ## kg a cargo crate adds to the bay it's stowed in.
+
 const ROIL_ALTITUDE := 200.0      ## m. The air is densest here and below.
 const AIR_SCALE_HEIGHT := 2500.0  ## m. Air thins by a factor of e over this height.
 const AIR_DENSITY := 1.2          ## kg/m³ at the Roil.

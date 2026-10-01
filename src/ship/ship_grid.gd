@@ -8,11 +8,15 @@ const MAX_BLOCKS := 4000   ## Spec §3.3.
 const MIN_CELL := -64      ## Every coordinate is in MIN_CELL…MAX_CELL (spec §4.10).
 const MAX_CELL := 63
 const BYTES_PER_BLOCK := 7  ## In to_bytes' body.
+const MAX_NAME := 24        ## A crate owner's name, as long as a player's.
 
 ## Vector3i -> {"type": String, "rotation": int (0–23), "hp": int}
 var blocks: Dictionary = {}
 ## Block type -> Color: every block of that type is drawn in it.
 var paint: Dictionary = {}
+## A cargo bay's cell -> the crate stowed in it: {"good": String, "owner": String}.
+## A crate weighs Tuning.CRATE_MASS where it's stowed. Designs never carry any.
+var cargo: Dictionary = {}
 
 
 ## Places a block, replacing any already there, at full hit points.
@@ -306,19 +310,65 @@ func copy() -> ShipGrid:
 	for cell: Vector3i in blocks:
 		other.blocks[cell] = (blocks[cell] as Dictionary).duplicate()
 	other.paint = paint.duplicate()
+	other.cargo = cargo.duplicate(true)
 	return other
 
 
 ## An independent copy with every block at full hit points, and paint.
 func whole() -> ShipGrid:
 	var other := copy()
+	other.cargo = {}
 	for cell: Vector3i in other.blocks:
 		other.blocks[cell]["hp"] = Tuning.BLOCKS[other.blocks[cell]["type"]]["hp"]
 	return other
 
 
 func _mass(cell: Vector3i) -> float:
-	return Tuning.BLOCKS[blocks[cell]["type"]]["mass"]
+	return Tuning.BLOCKS[blocks[cell]["type"]]["mass"] + (Tuning.CRATE_MASS if cargo.has(cell) else 0.0)
+
+
+## The cargo bays with no crate in them, sorted.
+func free_bays() -> Array[Vector3i]:
+	var free: Array[Vector3i] = []
+	for cell in cells_of("cargo_bay"):
+		if not cargo.has(cell):
+			free.append(cell)
+	free.sort()
+	return free
+
+
+## Every crate aboard as the network and saves carry them: [[x, y, z, good, owner], …] by cell.
+func cargo_list() -> Array:
+	var cells := cargo.keys()
+	cells.sort()
+	return cells.map(func(cell: Vector3i) -> Array: return [cell.x, cell.y, cell.z, cargo[cell]["good"], cargo[cell]["owner"]])
+
+
+## Crates from the network or a save (see cargo_list), stowed in grid's cargo bays,
+## as a cargo Dictionary, or null when they make no sense.
+static func read_cargo(data: Variant, grid: ShipGrid) -> Variant:
+	if not data is Array or data.size() > MAX_BLOCKS:
+		return null
+	var found := {}
+	for entry: Variant in data:
+		if not entry is Array or entry.size() != 5:
+			return null
+		var xyz := []
+		for i in 3:
+			var n: Variant = entry[i]
+			if n is float and is_finite(n) and n == floorf(n) and absf(n) <= 1024.0:
+				n = int(n)
+			if not n is int:
+				return null
+			xyz.append(n)
+		var cell := Vector3i(xyz[0], xyz[1], xyz[2])
+		var good: Variant = entry[3]
+		var owner: Variant = entry[4]
+		if grid.type_at(cell) != "cargo_bay" or found.has(cell) or not good is String or not Economy.GOODS.has(good) \
+				or not owner is String or owner.is_empty() or owner.length() > MAX_NAME:
+			return null
+		found[cell] = {"good": good, "owner": owner}
+	return found
 
 
 static func _all_in(cells: Dictionary, from: Vector3i, size: Vector3i) -> bool:

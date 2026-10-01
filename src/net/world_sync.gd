@@ -248,6 +248,12 @@ func damage_ship(ship: Ship, changes: Dictionary) -> void:
 		remove_ship(ship)
 
 
+## Server: stows cargo (see ShipGrid.cargo) aboard ship, and tells everyone in the world.
+func set_cargo(ship: Ship, cargo: Dictionary) -> void:
+	ship.set_cargo(cargo)
+	tell_world(&"_cargo", [id_of(ship), ship.grid.cargo_list()])
+
+
 ## ship's id, or 0 if it isn't in this world.
 func id_of(ship: Ship) -> int:
 	var id: Variant = ships.find_key(ship)
@@ -776,11 +782,12 @@ func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array, town: int) ->
 
 
 ## A ship as the network carries it: [id, blocks, paint, transform, pilot, captain,
-## test, blueprint, pirate, spares].
+## test, blueprint, pirate, spares, cargo].
 func _entry(id: int) -> Array:
 	var ship: Ship = ships[id]
 	return [id, ship.grid.to_bytes(), ship.grid.paint_names(), ship.global_transform,
-			ship.helm.pilot if ship.helm else 0, ship.captain, ship.test, ship.blueprint.to_bytes(), ship.pirate, ship.spares]
+			ship.helm.pilot if ship.helm else 0, ship.captain, ship.test, ship.blueprint.to_bytes(), ship.pirate, ship.spares,
+			ship.grid.cargo_list()]
 
 
 ## Forgets everyone no longer on the roster, and frees the stations they held.
@@ -1062,7 +1069,7 @@ func _ship_removed(id: Variant, successor: Variant, lost: Variant) -> void:
 ## Client: adds the ship an entry describes, drawn from time on, or returns null
 ## when the entry makes no sense.
 func _add_entry(entry: Variant, time: float) -> Ship:
-	if not entry is Array or entry.size() != 10 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
+	if not entry is Array or entry.size() != 11 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
 		return null
 	if not entry[3] is Transform3D or not (entry[3] as Transform3D).is_finite():
 		return null
@@ -1076,9 +1083,11 @@ func _add_entry(entry: Variant, time: float) -> Ship:
 	var grid := ShipGrid.from_bytes(entry[1], false)  # wrecks have no helm
 	var paint: Variant = ShipGrid.read_paint(entry[2])
 	var blueprint := ShipGrid.from_bytes(entry[7], false)
-	if grid == null or paint == null or blueprint == null:
-		push_warning("The host sent ship %d with blocks or paint that don't make a ship; leaving it out." % entry[0])
+	var cargo: Variant = ShipGrid.read_cargo(entry[10], grid) if grid != null else null
+	if grid == null or paint == null or blueprint == null or cargo == null:
+		push_warning("The host sent ship %d with blocks, paint or cargo that don't make a ship; leaving it out." % entry[0])
 		return null
+	grid.cargo = cargo
 	grid.paint = paint
 	blueprint.paint = paint
 	var buffer := SnapshotBuffer.new()
@@ -1165,6 +1174,17 @@ func _fires(id: Variant, cells: Variant) -> void:
 func _spares(id: Variant, count: Variant) -> void:
 	if not session.is_server() and id is int and ships.has(id) and count is int and count >= 0 and count <= Damage.SPARES_MAX:
 		(ships[id] as Ship).spares = count
+
+
+## Server -> clients: every crate aboard ship id (see ShipGrid.cargo_list).
+@rpc("authority", "call_remote", "reliable", 0)
+func _cargo(id: Variant, cargo: Variant) -> void:
+	if session.is_server() or not id is int or not ships.has(id):
+		return
+	var ship: Ship = ships[id]
+	var stowed: Variant = ShipGrid.read_cargo(cargo, ship.grid)
+	if stowed != null:
+		ship.set_cargo(stowed)
 
 
 ## Server -> clients: world wreck index is stripped.

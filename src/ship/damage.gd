@@ -76,6 +76,7 @@ static func apply(grid: ShipGrid, changes: Dictionary, blueprint: ShipGrid = nul
 		var hp: int = changes[cell]
 		if hp <= 0:
 			moved = grid.blocks.erase(cell) or moved
+			grid.cargo.erase(cell)  # a crate goes with its bay
 		elif grid.blocks.has(cell):
 			grid.blocks[cell]["hp"] = mini(hp, Tuning.BLOCKS[grid.blocks[cell]["type"]]["hp"])
 		elif blueprint != null and blueprint.blocks.has(cell):

@@ -109,10 +109,6 @@ const LOST_ALTITUDE := 0.0    ## m. A ship whose origin sinks below this is lost
 const KNOCKOUT_TIME := 5.0    ## s a player hit by a shot is down.
 const MUZZLE := 0.8           ## m from a gun's cell to where its shot starts.
 const RAID_EVERY := 30.0      ## s between the server's raids.
-## By WorldGen.Region (Eye, Stormwall, Gale, Shattered, Calm, rim): the chance a raid
-## sends a pirate at a crewed ship there, and the most pirates near her at once.
-const RAID_CHANCE := [0.5, 0.5, 0.5, 0.5, 0.25, 0.0]
-const RAID_LIMIT := [2, 2, 2, 2, 1, 0]
 const RAID_NEAR := 2000.0     ## m. Pirates within this of a ship count toward her region's limit.
 const MAX_PIRATES := 4        ## The most pirates in the world at once.
 const SAFE := 1200.0          ## m. Ships this near a town's dock aren't raided.
@@ -735,7 +731,7 @@ func _clear_of_islands(spot: Vector3) -> bool:
 
 ## Server, every RAID_EVERY when the session has pirates: each crewed ship (not a
 ## pirate, wreck or test flight) more than SAFE from every dock may draw a pirate, by
-## her region's RAID_CHANCE, while fewer than its RAID_LIMIT are within RAID_NEAR of
+## her region's raids (Campaign.REGIONS), while fewer than its raiders are within RAID_NEAR of
 ## her and fewer than MAX_PIRATES are about.
 func _raid() -> void:
 	if not session.is_server() or not session.pirates:
@@ -749,9 +745,10 @@ func _raid() -> void:
 		var region := WorldGen.region_at(here)
 		var raiders := ships.values().filter(func(other: Ship) -> bool: return other.pirate and not other.is_wreck())
 		var near := raiders.filter(func(other: Ship) -> bool: return other.global_position.distance_to(here) <= RAID_NEAR)
-		if near.size() >= RAID_LIMIT[region] or raiders.size() >= MAX_PIRATES:
+		var odds: Dictionary = Campaign.REGIONS[region]
+		if near.size() >= odds["raiders"] or raiders.size() >= MAX_PIRATES:
 			continue
-		if rng.randf() < RAID_CHANCE[region]:
+		if rng.randf() < odds["raids"]:
 			spawn_pirate(ship)
 
 

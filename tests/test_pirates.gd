@@ -162,7 +162,7 @@ func test_pirates_raid_away_from_towns() -> void:
 	var region := WorldGen.region_at(ship.global_position)
 	for i in 40:
 		sync._raid()
-	assert_eq(pirates().size(), WorldSync.RAID_LIMIT[region], "%s's limit" % WorldGen.REGION_NAMES[region])
+	assert_eq(pirates().size(), Campaign.REGIONS[region]["raiders"], "%s's limit" % WorldGen.REGION_NAMES[region])
 	for pirate in pirates():
 		var at := pirate.global_position
 		var center := WorldGen.chunk_of(at)

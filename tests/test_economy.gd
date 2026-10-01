@@ -38,7 +38,8 @@ func test_each_town_makes_two_goods_and_wants_two() -> void:
 		assert_false("mail" in makes or "mail" in wants, "never mail")
 		for good in traded():
 			var base: int = Economy.GOODS[good]["price"]
-			var factor := Economy.MAKES if good in makes else Economy.WANTS if good in wants else 1.0
+			var factor: float = (Economy.MAKES if good in makes else Economy.WANTS if good in wants else 1.0) \
+					* Campaign.REGIONS[gen.towns[town]["region"]]["prices"]
 			var p := Economy.price(gen, town, good)
 			assert_true(p >= roundi(base * factor * 0.9) and p <= roundi(base * factor * 1.1),
 					"%s at %d costs %d, near %.1f" % [good, town, p, base * factor])

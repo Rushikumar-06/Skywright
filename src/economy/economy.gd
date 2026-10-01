@@ -57,6 +57,9 @@ const SCOUT_PER_KM := 50
 const SCOUT_REACH := 400.0
 const BOUNTY_REACH := 1500.0
 
+const LEVIATHAN_REWARD := 300  ## Each player near a slain leviathan.
+const WARDEN_REWARD := 2000     ## Each player near the Warden when it falls.
+
 const MAX_TITLE := 120
 const MAX_REWARD := 100000
 const MAX_COUNT := 64
@@ -69,7 +72,7 @@ static func a_hand(role: String) -> String:
 
 
 static func new_account() -> Dictionary:
-	return {"money": STARTING_MONEY, "unlocks": [], "contracts": [], "insured": 0}
+	return {"money": STARTING_MONEY, "unlocks": [], "contracts": [], "insured": 0, "logs": []}
 
 
 ## What town makes (sold cheap) and wants (bought dear): two goods each, from the world seed.
@@ -88,7 +91,7 @@ static func trade_of(gen: WorldGen, town: int) -> Dictionary:
 	return {"makes": goods.slice(0, 2), "wants": goods.slice(2, 4)}
 
 
-## What a crate of good costs at town.
+## What a crate of good costs at town: dearer further in, by its region's prices.
 static func price(gen: WorldGen, town: int, good: String) -> int:
 	var base: int = GOODS[good]["price"]
 	if base == 0:
@@ -97,7 +100,8 @@ static func price(gen: WorldGen, town: int, good: String) -> int:
 	var factor := MAKES if good in trade["makes"] else WANTS if good in trade["wants"] else 1.0
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([gen.world_seed, town, good, "price"])
-	return maxi(1, roundi(base * factor * (1.0 + rng.randf_range(-PRICE_NOISE, PRICE_NOISE))))
+	var prices: float = Campaign.REGIONS[gen.towns[town]["region"]]["prices"]
+	return maxi(1, roundi(base * factor * (1.0 + rng.randf_range(-PRICE_NOISE, PRICE_NOISE)) * prices))
 
 
 ## What town's market pays for a crate of good.
@@ -143,8 +147,15 @@ static func unlockable_at(part: String, region: int) -> bool:
 	return UNLOCKS.has(part) and region <= UNLOCKS[part]["region"]
 
 
-## A new contract on town's board, without its id: {kind, title, reward, target, count, done}.
+## A new contract on town's board, without its id: {kind, title, reward, target, count,
+## done}. It pays more further in, by its town's region's rewards.
 static func draw_contract(gen: WorldGen, town: int, salvaged: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	var contract := _plain_contract(gen, town, salvaged, rng)
+	contract["reward"] = roundi(contract["reward"] * Campaign.REGIONS[gen.towns[town]["region"]]["rewards"])
+	return contract
+
+
+static func _plain_contract(gen: WorldGen, town: int, salvaged: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var dock: Vector3 = gen.towns[town]["dock"]
 	var home: String = gen.towns[town]["name"]
 	var kind: String = KINDS[rng.randi_range(0, 3)]
@@ -207,7 +218,15 @@ static func read_account(data: Variant) -> Variant:
 	var contracts: Variant = data.get("contracts")
 	if money == null or insured == null or not unlocks is Array or not contracts is Array or contracts.size() > MAX_CONTRACTS:
 		return null
-	var clean := {"money": money, "unlocks": [], "contracts": [], "insured": insured}
+	var logs: Variant = data.get("logs", [])  # a stage 7 save has none
+	if not logs is Array:
+		return null
+	var clean := {"money": money, "unlocks": [], "contracts": [], "insured": insured, "logs": []}
+	for entry: Variant in logs:
+		var index: Variant = whole(entry, 0, Story.LOGS.size() - 1)
+		if index == null or clean["logs"].has(index):
+			return null
+		clean["logs"].append(index)
 	for part: Variant in unlocks:
 		if not part is String or not UNLOCKS.has(part) or clean["unlocks"].has(part):
 			return null

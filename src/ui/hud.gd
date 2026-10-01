@@ -1,7 +1,7 @@
 class_name Hud
 extends CanvasLayer
 ## Everything drawn over the world: the session and crew, a dot to aim with, what
-## E or B does, the helm's instruments while you steer or the cannon's while you man
+## E, R or B does, the helm's instruments while you steer or the cannon's while you man
 ## one, a banner on a test flight, and short messages.
 
 const MESSAGE_TIME := 4.0  ## Seconds a message stays up.
@@ -123,10 +123,13 @@ func show_message(text: String) -> void:
 func _process(delta: float) -> void:
 	var action := player.prompt()
 	var holder: int = player.ship.helm.pilot if player.helm_in_reach() else 0
+	var repair := player.repair_prompt()
 	if not action.is_empty():
 		_prompt.text = "E   " + action
 	elif holder != 0 and holder != player.peer:
 		_prompt.text = "%s is at the helm" % name_of(holder)
+	elif not repair.is_empty():
+		_prompt.text = repair
 	elif player.ship == null and not player.crew.is_on_floor() and player.crew.velocity.y < 0.0 and not player.crew.gliding:
 		_prompt.text = "Hold Space   Glide"
 	elif at_dock and player.crew.station == null and not test_flight:
@@ -175,6 +178,7 @@ static func readout(ship: Ship, wind := Vector3.ZERO) -> String:
 	else:
 		lines.append("Autopilot off")
 	lines.append("Hull      %3d%%" % roundi(ship.condition() * 100.0))
+	lines.append("Spares    %2d/%d" % [ship.spares, Damage.SPARES_MAX])
 	if ship.anchored:
 		lines.append("Anchored")
 	return "\n".join(lines)

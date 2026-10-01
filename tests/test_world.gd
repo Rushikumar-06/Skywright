@@ -78,6 +78,7 @@ func test_the_helm_readout() -> void:
 	var ship := Ship.new(StarterShip.build())
 	ship.calm = true
 	ship.position = Vector3(0, 877, 7000)
+	ship.spares = Damage.SPARES_MAX
 	add_child(ship)
 	ship.throttle = 0.5
 	ship.rudder = -0.4
@@ -87,4 +88,4 @@ func test_the_helm_readout() -> void:
 	assert_true(text.contains("Heading   000°"), text)
 	assert_true(text.contains("Wind      10 m/s from 180°"), text)
 	assert_true(text.contains("Altitude   877 m"), text)
-	assert_true(text.contains("Autopilot off\nHull      100%"), text)
+	assert_true(text.contains("Autopilot off\nHull      100%\nSpares    40/40"), text)

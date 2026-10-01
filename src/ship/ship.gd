@@ -4,12 +4,15 @@ extends RigidBody3D
 ## Each physics tick it applies lift, thrust, drag and the rudders' push; the
 ## engine adds gravity. Its crew walk in its interior, a separate physics world in
 ## ship space (spec §4.5). Damage takes blocks away (or a repair brings them back),
-## and the ship rebuilds itself from what's left, at most once a frame.
+## and the ship rebuilds itself from what's left, at most once a frame. Blocks on
+## fire are drawn as flickering flames.
 
 signal blocks_changed  ## After each rebuild.
 
 const MAX_SPEED := 400.0  ## m/s. Anything faster is a physics blow-up.
 const MAX_SPIN := 20.0    ## rad/s. Likewise.
+const FLAME_SIZE := 0.8   ## m across a flame.
+const FLAME_COLOR := Color("ff7a1a")
 
 var grid: ShipGrid
 ## The ship whole, as she was built: what repairs restore. Set before adding the
@@ -19,6 +22,8 @@ var spares := 0      ## Spare materials for repairs, 0 to Damage.SPARES_MAX.
 var pirate := false
 var born := 0.0      ## The server's clock when she was added.
 var lost := false    ## The Roil took her.
+var fires: Dictionary = {}           ## Server: burning cell -> seconds it has burned.
+var burning: Array[Vector3i] = []    ## The cells drawn on fire, on every machine.
 var interior: ShipInterior  ## Where the crew walk.
 var helm: Helm              ## The ship's first helm, or null.
 var cannons: Array[Cannon] = []  ## One for each cannon block.
@@ -62,6 +67,9 @@ var _last_good := Transform3D.IDENTITY
 var _shapes: Array[CollisionShape3D] = []
 var _mesh: MeshInstance3D
 var _rebuild_pending := false
+var _flames: MultiMeshInstance3D
+
+static var _flame_mesh: BoxMesh
 
 
 func _init(ship_grid: ShipGrid) -> void:
@@ -183,6 +191,46 @@ func rebuild() -> void:
 			cannons.erase(cannon)
 			cannon.queue_free()
 	blocks_changed.emit()
+
+
+## Draws flames on cells, and remembers them as what's burning.
+func show_fires(cells: Array) -> void:
+	burning.assign(cells)
+	if _flames == null:
+		_flames = MultiMeshInstance3D.new()
+		_flames.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_flames.multimesh = MultiMesh.new()
+		_flames.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		_flames.multimesh.mesh = _flame()
+		add_child(_flames)
+	_flames.multimesh.instance_count = burning.size()
+	_flicker()
+
+
+func _process(_delta: float) -> void:
+	if not burning.is_empty():
+		_flicker()
+
+
+## Sizes each flame by a flicker of its own.
+func _flicker() -> void:
+	var t := Time.get_ticks_msec() / 1000.0
+	for i in burning.size():
+		var size := FLAME_SIZE * (0.85 + 0.15 * sin(t * 9.0 + i * 1.7))
+		_flames.multimesh.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * size), Vector3(burning[i])))
+
+
+## The flame cube, glowing orange; made once.
+static func _flame() -> BoxMesh:
+	if _flame_mesh == null:
+		var glow := StandardMaterial3D.new()
+		glow.albedo_color = FLAME_COLOR
+		glow.emission_enabled = true
+		glow.emission = FLAME_COLOR
+		glow.emission_energy_multiplier = 4.0
+		_flame_mesh = BoxMesh.new()
+		_flame_mesh.material = glow
+	return _flame_mesh
 
 
 ## Whether she has lost her helm, so nobody can steer her.

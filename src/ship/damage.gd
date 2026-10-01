@@ -207,10 +207,15 @@ static func burn(grid: ShipGrid, fires: Dictionary, rng: RandomNumberGenerator) 
 static func put_out(fires: Dictionary, cell: Vector3i) -> bool:
 	var any := false
 	for fire: Vector3i in fires.keys():
-		if maxi(maxi(absi(fire.x - cell.x), absi(fire.y - cell.y)), absi(fire.z - cell.z)) <= 1:
+		if beside(fire, cell):
 			fires.erase(fire)
 			any = true
 	return any
+
+
+## Whether a and b are the same cell or touch at a face, edge or corner.
+static func beside(a: Vector3i, b: Vector3i) -> bool:
+	return maxi(maxi(absi(a.x - b.x), absi(a.y - b.y)), absi(a.z - b.z)) <= 1
 
 
 ## One repair action aimed at cell: heal a damaged block, else rebuild the nearest

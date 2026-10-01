@@ -12,7 +12,8 @@ extends Node3D
 ## puts you ashore, on foot in this world; landing on a deck (a wreck's too), or E
 ## next to a hull (not a wreck's), puts you aboard; and falling into the Roil puts
 ## you back aboard (not on a wreck). Its Projectiles fly and draw every shot. A shot
-## that hits you knocks you down for a few seconds, and you come to at a bunk. A
+## that hits you knocks you down for a few seconds, and you come to at a bunk.
+## Holding R repairs the ship you're aboard, through the WorldSync. A
 ## dedicated server's world has no player, HUD, pause menu or Weather.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
@@ -159,6 +160,7 @@ func come_aboard(target: Ship, local: Vector3) -> void:
 		player.landed_on.connect(func(on: Ship) -> void: come_aboard(on, on.to_local(player.crew.global_position)))
 		player.climbing.connect(board)
 		player.lost.connect(rescue)
+		player.repairing.connect(func(cell: Vector3i) -> void: sync.repair(ship, cell))
 		hud = Hud.new(player, session)
 		hud.wind = wind
 		hud.gen = gen

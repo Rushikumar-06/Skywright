@@ -3,7 +3,8 @@ extends Node3D
 ## The local player's eyes and hands. It reads the keyboard and mouse, walks their
 ## crew member (aboard or ashore), steers from the helm or aims and fires a cannon,
 ## and places the camera: first person, or a chase view behind the ship while at the
-## helm (spec §3.4). At a cannon it draws the arc its shot would fly. What
+## helm (spec §3.4). At a cannon it draws the arc its shot would fly. Holding R
+## aboard, away from any station, repairs the block you look at. What
 ## your crew member does that moves you between ships and the world, it passes on
 ## for the World to act on.
 
@@ -11,6 +12,7 @@ signal left_ship               ## You stepped off your ship.
 signal landed_on(ship: Ship)   ## Ashore, you came down on ship's deck.
 signal lost                    ## Ashore, you fell into the Roil.
 signal climbing(ship: Ship)    ## Ashore, E next to ship's hull.
+signal repairing(cell: Vector3i)  ## A repair action at cell of your ship, every Damage.REPAIR_EVERY while R is held.
 
 const MOUSE_TURN := 0.0025     ## Radians per pixel of mouse movement at sensitivity 1.
 const CHASE_DISTANCE := 40.0   ## Metres from the chase camera to the ship.
@@ -29,6 +31,7 @@ var _avatar: CrewAvatar
 var _chase_yaw := 0.0
 var _chase_pitch := -0.3
 var _aim_line: MeshInstance3D
+var _repair_left := 0.0        ## s until the next repair action while R is held.
 
 
 func _init(player_crew: CrewMember) -> void:
@@ -124,6 +127,37 @@ func leave_station() -> void:
 		(crew.station as Cannon).ask_man(peer, false)
 
 
+## The block of your ship you look at, within Damage.REPAIR_REACH of your eye, as
+## {"cell": Vector3i}; {} when there's none, or you're ashore.
+func aimed_block() -> Dictionary:
+	if ship == null:
+		return {}
+	var eye := crew.position + Vector3(0.0, CrewMember.EYE_HEIGHT, 0.0)
+	var look := Basis.from_euler(Vector3(look_pitch, crew.look_yaw, 0.0)) * Vector3.FORWARD
+	var hit := ship.grid.raycast(eye, look, Damage.REPAIR_REACH)
+	return {"cell": hit["cell"]} if not hit.is_empty() else {}
+
+
+## What holding R does right now, for the HUD, or "" when it does nothing.
+func repair_prompt() -> String:
+	if ship == null or crew.station != null:
+		return ""
+	var aimed := aimed_block()
+	if aimed.is_empty():
+		return ""
+	var cell: Vector3i = aimed["cell"]
+	if ship.burning.any(func(fire: Vector3i) -> bool: return Damage.beside(fire, cell)):
+		return "Hold R   Put out the fire"
+	var fix := Damage.repair(ship.grid, ship.blueprint, cell)
+	if fix.is_empty():
+		return ""
+	if ship.spares < 1:
+		return "No spares left: refill at a town's dock"
+	if fix.has(cell):
+		return "Hold R   Repair  %d/%d" % [ship.grid.blocks[cell]["hp"], Tuning.BLOCKS[ship.grid.blocks[cell]["type"]]["hp"]]
+	return "Hold R   Rebuild"
+
+
 ## Ashore: the nearest ship whose box, grown 3 m, holds you, or null. Never a wreck.
 func ship_in_reach() -> Ship:
 	if ship != null:
@@ -162,7 +196,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		(crew.station as Cannon).next_ammo()
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	var keys := 1.0 if enabled else 0.0
 	if crew.station is Cannon:
 		# The aim follows your look, within the cannon's limits.
@@ -176,12 +210,28 @@ func _physics_process(_delta: float) -> void:
 		ship.helm.rudder_input = Input.get_axis("move_left", "move_right") * keys
 		ship.helm.climb_input = Input.get_axis("descend", "jump") * keys
 		return
+	_hold_repair(delta)
 	crew.move = Input.get_vector("move_left", "move_right", "move_forward", "move_back") * keys
 	crew.sprint = Input.is_action_pressed("sprint")
 	crew.jump = Input.is_action_just_pressed("jump") and enabled
 	crew.glide = Input.is_action_pressed("jump") and enabled
 	# On a ladder, forward and jump climb and descend goes down.
 	crew.climb = clampf(Input.get_axis("descend", "jump") * keys + maxf(0.0, -crew.move.y), -1.0, 1.0)
+
+
+## While R is held aboard, a repair action at the block you look at at once, then
+## every Damage.REPAIR_EVERY.
+func _hold_repair(delta: float) -> void:
+	if not enabled or ship == null or not Input.is_action_pressed("repair"):
+		_repair_left = 0.0
+		return
+	_repair_left -= delta
+	if _repair_left > 0.0:
+		return
+	_repair_left = Damage.REPAIR_EVERY
+	var aimed := aimed_block()
+	if not aimed.is_empty():
+		repairing.emit(aimed["cell"])
 
 
 func _process(_delta: float) -> void:

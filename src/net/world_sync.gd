@@ -19,12 +19,19 @@ extends Node
 ## enough is added as a wreck, nobody's, and smaller ones vanish. Once a second the
 ## server wears ships: wrecks go when they're old, too many or far from every player.
 ##
+## Repairs belong to the server too. A player's repair action comes here aimed at a
+## block of the ship they're aboard; within reach, it puts out the fires there, or
+## else uses one of the ship's spares to heal the block or rebuild a lost one beside
+## it. Fires burn once a second as the server wears ships, and docks fill the spares
+## of the ships at them; everyone hears what burns and how many spares are left.
+##
 ## Shots belong to the server too. It fires them and tells everyone the launch, so
 ## every machine's Projectiles flies the same arc; it decides every hit and tells
 ## everyone where each shot ended. A shot into a ship damages the blocks it flies
 ## into (a shell bursts too, and a harpoon ties a rope); a player it hits, or who
 ## stands in a shell's burst, is knocked down: let go of every station, passed over
-## by shots for KNOCKOUT_TIME, and told so. ponytail: clients apply _blocks_changed
+## by shots for KNOCKOUT_TIME, and told so. A shell's burst can set wood and cloth
+## alight. ponytail: clients apply _blocks_changed
 ## as it arrives, up to DELAY before they draw the shot arriving; queue changes by
 ## time if holes opening early shows.
 ##
@@ -79,6 +86,7 @@ const MUZZLE := 0.8           ## m from a gun's cell to where its shot starts.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
+var rng := RandomNumberGenerator.new()  ## The server's luck: fires catching and spreading. Tests seed it.
 var player: PlayerController  ## This machine's player, whose crew it reports. Null when there's none.
 var docks: Array[Vector3] = []            ## Where each town's slipway 0 is. Set by the World.
 var wind: Wind                            ## The world's wind, which every ship feels. Likewise.
@@ -104,6 +112,7 @@ var _launched_at: Dictionary = {}  ## Server: peer id -> _time of their last lau
 var _next_shot := 1
 var _next_rope := 1
 var _down: Dictionary = {}  ## Server: peer id -> now() when they're back on their feet.
+var _repaired_at: Dictionary = {}  ## Server: peer id -> now() of their last repair.
 
 
 func _init(world_session: Node) -> void:
@@ -320,6 +329,62 @@ func fire_cannon(ship: Ship, cannon: Cannon) -> int:
 	return fire(ship, cannon.cell, cannon.direction(), cannon.ammo)
 
 
+## This machine's player's repair action, aimed at cell of ship (which they're
+## aboard). The server decides.
+func repair(ship: Ship, cell: Vector3i) -> void:
+	if session.is_server():
+		_repair_for(multiplayer.get_unique_id(), ship, cell)
+	elif id_of(ship) != 0:
+		_repair.rpc_id(1, id_of(ship), cell)
+
+
+## Server: peer's repair action at cell of ship. They must be aboard her, within
+## reach of it, and not have repaired in the last Damage.REPAIR_EVERY. It puts out the
+## fires around cell, free; with none, it uses a spare to heal or rebuild a block.
+func _repair_for(peer: int, ship: Ship, cell: Vector3i) -> void:
+	var id := id_of(ship)
+	var standing: Variant = null  # where they are in her space
+	if peer == multiplayer.get_unique_id():
+		if player != null and player.ship == ship:
+			standing = player.crew.position
+	elif _crew.has(peer) and _crew[peer]["ship"] == id:
+		standing = _crew[peer]["at"]
+	if id == 0 or standing == null:
+		return
+	if (standing as Vector3).distance_to(Vector3(cell)) > Damage.REPAIR_REACH + CrewMember.EYE_HEIGHT + REACH_SLACK:
+		return
+	if now() - _repaired_at.get(peer, -INF) < Damage.REPAIR_EVERY - 0.05:
+		return
+	_repaired_at[peer] = now()
+	if Damage.put_out(ship.fires, cell):
+		_send_fires(ship)
+		return
+	if ship.spares < 1:
+		return
+	var changes := Damage.repair(ship.grid, ship.blueprint, cell)
+	if changes.is_empty():
+		return
+	ship.spares -= 1
+	damage_ship(ship, changes)
+	tell_world(&"_spares", [id, ship.spares])
+
+
+## Server: draws ship's fires here, and tells everyone in the world what's burning.
+func _send_fires(ship: Ship) -> void:
+	var cells := ship.fires.keys()
+	cells.sort()
+	ship.show_fires(cells)
+	tell_world(&"_fires", [id_of(ship), _fire_bytes(ship)])
+
+
+## What ship has burning, as the network carries it: 3 bytes a cell.
+static func _fire_bytes(ship: Ship) -> PackedByteArray:
+	var bytes := PackedByteArray()
+	for cell in ship.burning:
+		bytes.append_array([cell.x + 64, cell.y + 64, cell.z + 64])
+	return bytes
+
+
 ## Server: where everyone not knocked down is in the world: peer id -> this
 ## machine's player where they are, and the others where they last said they were.
 func crew_positions() -> Dictionary:
@@ -357,7 +422,13 @@ func _on_shot_hit(shot: Dictionary, collider: Object, point: Vector3, direction:
 		var first := target.grid.cells_along(p - d * 0.01, d)
 		damage_ship(target, Damage.shot(target.grid, p - d * 0.01, d, ammo))
 		if spec["blast"] > 0.0:
-			damage_ship(target, Damage.blast(target.grid, p, spec["blast"], spec["blast_damage"]))
+			var burst := Damage.blast(target.grid, p, spec["blast"], spec["blast_damage"])
+			damage_ship(target, burst)
+			if id_of(target) != 0:
+				var lit := target.fires.size()
+				Damage.ignite(target.grid, target.fires, burst.keys(), rng)
+				if target.fires.size() != lit:
+					_send_fires(target)
 		var shooter: Ship = ships.get(shot["ship"])
 		if ammo == "harpoon" and not first.is_empty() and shooter != null and id_of(target) != 0 \
 				and target.grid.blocks.has(first[0]["cell"]):
@@ -402,10 +473,27 @@ func _knock_out(peer: int) -> void:
 		_knocked_out.rpc_id(peer)
 
 
-## Server, every WEAR_EVERY: clears away wrecks (nobody's, without a helm) older than
-## WRECK_LIFETIME or further than FAR from every player (all of them when there are
-## no players), then the oldest while there are more than MAX_WRECKS.
+## Server, every WEAR_EVERY: burns each ship's fires for a second, fills the spares
+## of ships at a town's dock (not pirates' or wrecks'), and clears away wrecks
+## (nobody's, without a helm) older than WRECK_LIFETIME or further than FAR from
+## every player (all of them when there are no players), then the oldest while
+## there are more than MAX_WRECKS.
 func _wear() -> void:
+	for ship: Ship in ships.values():
+		if ship.fires.is_empty() or id_of(ship) == 0:
+			continue
+		damage_ship(ship, Damage.burn(ship.grid, ship.fires, rng))
+		var cells: Array[Vector3i] = []
+		cells.assign(ship.fires.keys())
+		cells.sort()
+		if id_of(ship) != 0 and cells != ship.burning:
+			_send_fires(ship)
+	for ship: Ship in ships.values():
+		if ship.pirate or ship.is_wreck() or ship.spares >= Damage.SPARES_MAX:
+			continue
+		if docks.any(func(dock: Vector3) -> bool: return Dock.near(dock, ship.global_position)):
+			ship.spares = Damage.SPARES_MAX
+			tell_world(&"_spares", [id_of(ship), ship.spares])
 	var players := player_positions()
 	var wrecks: Array[Ship] = []
 	for ship: Ship in ships.values():
@@ -735,9 +823,12 @@ func _enter_world() -> void:
 	_in_world[peer] = true
 	_world.rpc_id(peer, _time, ships.keys().map(_entry))
 	for id: int in ships:
-		for cannon in (ships[id] as Ship).cannons:
+		var ship: Ship = ships[id]
+		for cannon in ship.cannons:
 			if cannon.gunner != 0:
 				_gunner.rpc_id(peer, id, cannon.cell, cannon.gunner)
+		if not ship.burning.is_empty():
+			_fires.rpc_id(peer, id, _fire_bytes(ship))
 
 
 ## Server -> client: the server's clock and every ship, as entries (see _entry).
@@ -855,6 +946,31 @@ func _untether(id: Variant) -> void:
 func _knocked_out() -> void:
 	if not session.is_server():
 		knocked_out.emit()
+
+
+## Server -> clients: every cell of ship id that's burning, 3 bytes each (x + 64,
+## y + 64, z + 64).
+@rpc("authority", "call_remote", "reliable", 0)
+func _fires(id: Variant, cells: Variant) -> void:
+	if session.is_server() or not id is int or not ships.has(id) or not cells is PackedByteArray:
+		return
+	var bytes: PackedByteArray = cells
+	if bytes.size() % 3 != 0 or bytes.size() / 3 > ShipGrid.MAX_BLOCKS:
+		return
+	var burning: Array[Vector3i] = []
+	for i in range(0, bytes.size(), 3):
+		var cell := Vector3i(bytes[i] - 64, bytes[i + 1] - 64, bytes[i + 2] - 64)
+		if not ShipGrid.in_area(cell):
+			return
+		burning.append(cell)
+	(ships[id] as Ship).show_fires(burning)
+
+
+## Server -> clients: ship id has count spares now.
+@rpc("authority", "call_remote", "reliable", 0)
+func _spares(id: Variant, count: Variant) -> void:
+	if not session.is_server() and id is int and ships.has(id) and count is int and count >= 0 and count <= Damage.SPARES_MAX:
+		(ships[id] as Ship).spares = count
 
 
 ## Server -> clients: a snapshot of every ship (see _ship_states), at time.
@@ -1022,6 +1138,14 @@ func _fire(ship_id: Variant, cell: Variant, yaw: Variant, pitch: Variant, ammo: 
 	cannon.aim_pitch = clampf(pitch, Cannon.PITCH_MIN, Cannon.PITCH_MAX)
 	cannon.ammo = Damage.AMMO.keys()[ammo]
 	fire_cannon(ships[ship_id], cannon)
+
+
+## Client -> server: one repair action aimed at cell of ship ship_id.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _repair(ship_id: Variant, cell: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if session.is_server() and _in_world.has(peer) and ship_id is int and ships.has(ship_id) and _is_cell(cell):
+		_repair_for(peer, ships[ship_id], cell)
 
 
 func _is_crew_state(ship_id: Variant, position: Variant, velocity: Variant, yaw: Variant, pitch: Variant) -> bool:

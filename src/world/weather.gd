@@ -116,6 +116,12 @@ func _process(delta: float) -> void:
 		strike(start, start + Vector3(cos(heading) * run, _random.randf_range(-20.0, 20.0), sin(heading) * run))
 
 
+## A bolt down to point from WorldSync.BOLT_HEIGHT above it, up to 80 m to one side.
+func bolt_to(point: Vector3) -> MeshInstance3D:
+	var off := _random_disc(80.0)
+	return strike(point + Vector3(off.x, WorldSync.BOLT_HEIGHT, off.y), point)
+
+
 ## A bolt from from to to, a jagged ribbon facing the viewer, lit by a flickering light
 ## for BOLT_LIFE seconds. Its vertices are in world space.
 func strike(from: Vector3, to: Vector3) -> MeshInstance3D:

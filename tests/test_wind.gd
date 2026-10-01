@@ -215,3 +215,14 @@ func _fly(grid: ShipGrid, x: float) -> Ship:
 	ship.position = Vector3(x, 880, 7000)
 	add_child(ship)
 	return ship
+
+
+func test_the_air_is_rough_in_storms_and_the_wall() -> void:
+	var walled := _wind_with(7, [], [])
+	assert_eq(walled.roughness(Vector3(0, 1000, -1900), 0.0), 1.0, "in the wall, below its top")
+	assert_eq(walled.roughness(Vector3(0, 1950, -1900), 0.0), 0.0, "above it")
+	var gen := WorldGen.new(7)
+	var stormy := Wind.new(gen)
+	var core := gen.storm_center(0, 50.0) + Vector3(0, 800, 0)
+	assert_eq(stormy.roughness(core, 50.0), stormy.storm_strength(core, 50.0))
+	assert_eq(stormy.roughness(core, 50.0), 1.0, "a storm's core")

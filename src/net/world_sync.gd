@@ -85,6 +85,8 @@ signal salvage_result(spares: int, money: int)
 signal peer_entered(peer: int)
 ## Server: ship came to town's dock.
 signal docked(ship: Ship, town: int)
+## Lightning struck ship at cell (every machine).
+signal struck(ship: Ship, cell: Vector3i)
 ## Client: the server's world has arrived, every ship in it added.
 signal world_arrived
 
@@ -104,6 +106,9 @@ const OBSTACLE_CLEARANCE := 1.0  ## m. Likewise between it and a dock or a town 
 const WEAR_EVERY := 1.0       ## s between the server's wearing of ships.
 const WRECK_LIFETIME := 180.0 ## s a wreck lasts.
 const MAX_WRECKS := 8         ## The most wrecks at once: the oldest go first.
+const STRIKE_RADIUS := 1.2    ## m. Lightning's blast around the block it strikes.
+const STRIKE_DAMAGE := 60.0   ## Hit points at the block it strikes.
+const BOLT_HEIGHT := 600.0    ## m above a ship that its bolt comes from.
 const FAR := 3000.0           ## m. Wrecks further than this from every player go.
 const LOST_ALTITUDE := 0.0    ## m. A ship whose origin sinks below this is lost to the Roil.
 const KNOCKOUT_TIME := 5.0    ## s a player hit by a shot is down.
@@ -844,6 +849,8 @@ func _wear() -> void:
 		damage_ship(ship, Damage.roil(ship.grid, ship.global_transform))
 		if id_of(ship) != 0 and ship.global_position.y < LOST_ALTITUDE:
 			remove_ship(ship, null, true)
+	if session.lightning:
+		_strike_storms()
 	for ship: Ship in ships.values():
 		if ship.fires.is_empty() or id_of(ship) == 0:
 			continue
@@ -882,6 +889,47 @@ func _wear() -> void:
 	wrecks.sort_custom(func(a: Ship, b: Ship) -> bool: return a.born < b.born or (a.born == b.born and id_of(a) < id_of(b)))
 	for i in wrecks.size() - MAX_WRECKS:
 		remove_ship(wrecks[i])
+
+
+## Server: each ship in rough air may be struck, by her region's strikes (Campaign.REGIONS)
+## times the air's roughness: one rng draw each, in ship-id order.
+func _strike_storms() -> void:
+	var ids := ships.keys()
+	ids.sort()
+	for id: int in ids:
+		var ship: Ship = ships.get(id)
+		if ship == null:
+			continue  # an earlier strike broke her up
+		var p := ship.global_position
+		if rng.randf() < Campaign.of(p)["strikes"] * wind.roughness(p, now()):
+			strike(ship)
+
+
+## Server: lightning strikes ship's highest block (by world height; ties go to the
+## smallest cell): a small blast that may set the blocks around it alight. Everyone
+## hears it, and this returns the cell. ponytail: no lightning rods; add a rod block if
+## players want a defence.
+func strike(ship: Ship) -> Vector3i:
+	var id := id_of(ship)
+	var cells := ship.grid.blocks.keys()
+	cells.sort()
+	var top := Vector3i.ZERO
+	var height := -INF
+	for cell: Vector3i in cells:
+		var y := (ship.global_transform * Vector3(cell)).y
+		if y > height + 0.01:
+			top = cell
+			height = y
+	var burst := Damage.blast(ship.grid, Vector3(top), STRIKE_RADIUS, STRIKE_DAMAGE)
+	damage_ship(ship, burst)
+	if id_of(ship) != 0:
+		var lit := ship.fires.size()
+		Damage.ignite(ship.grid, ship.fires, burst.keys(), rng)
+		if ship.fires.size() != lit:
+			_send_fires(ship)
+	tell_world(&"_strike", [id, top])
+	struck.emit(ship, top)
+	return top
 
 
 ## Server: pirate is beaten, once, for the bounties of everyone near her.
@@ -1447,6 +1495,14 @@ func _fires(id: Variant, cells: Variant) -> void:
 ## Whether fuel is a finite float that grid's tanks hold.
 static func _fits_tanks(fuel: Variant, grid: ShipGrid) -> bool:
 	return fuel is float and is_finite(fuel) and fuel >= 0.0 and fuel <= grid.cells_of("fuel_tank").size() * Tuning.FUEL_PER_TANK
+
+
+## Server -> clients: lightning struck ship id at cell. The damage comes in
+## _blocks_changed, and any fire in _fires.
+@rpc("authority", "call_remote", "reliable", 0)
+func _strike(id: Variant, cell: Variant) -> void:
+	if not session.is_server() and id is int and ships.has(id) and _is_cell(cell):
+		struck.emit(ships[id], cell)
 
 
 ## Server -> clients: ship id has fuel units in her tanks now.

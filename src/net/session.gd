@@ -43,6 +43,7 @@ var game_name := ""                       ## Host: what the LAN list calls this 
 var requested_seed := -1                  ## The world's seed for the next solo or hosted game; -1 picks one at random.
 var world_seed := 0                       ## The seed of the world being played, from 0 to 2147483647.
 var pirates := true                       ## Server: pirates raid in this game. Tests turn it off.
+var lightning := true                     ## Server: storms strike ships in this game. Tests turn it off.
 var save_slot := ""                       ## Server: the slot this game saves to; "" never saves. Kept across games.
 var loaded: Dictionary = {}               ## A SaveGame.load_slot result for the next world to play, or {}.
 

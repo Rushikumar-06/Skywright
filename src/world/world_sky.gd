@@ -13,6 +13,9 @@ const NIGHT_TOP := Color("04070f")
 const NIGHT_HORIZON := Color("16203a")
 
 var hour := START_HOUR  ## Time of day, 0 to 24. The world sets it from its clock.
+var storm := 0.0        ## 0 to 1: how rough the air is at the camera. The world sets it.
+
+const STORM_FOG := Color("4a4656")
 
 var _sun: DirectionalLight3D
 var _moon: DirectionalLight3D
@@ -80,4 +83,7 @@ func _apply() -> void:
 	_sky.sky_horizon_color = NIGHT_HORIZON.lerp(DAY_HORIZON, day).lerp(DUSK_HORIZON, glow * 0.6)
 	_sky.ground_horizon_color = _sky.sky_horizon_color
 	_sky.ground_bottom_color = _sky.sky_horizon_color
-	_environment.fog_light_color = _sky.sky_horizon_color
+	# Inside a storm or the Stormwall the fog closes in.
+	_environment.fog_depth_begin = lerpf(900.0, 30.0, storm)
+	_environment.fog_depth_end = lerpf(2600.0, 400.0, storm)
+	_environment.fog_light_color = _sky.sky_horizon_color.lerp(STORM_FOG, storm)

@@ -98,7 +98,9 @@ func _ready() -> void:
 	sync.salvage_result.connect(_on_salvage_result)
 	sync.world_arrived.connect(_on_world_arrived)
 	if not session.dedicated:
-		add_child(Weather.new(gen, sync.now))
+		var weather := Weather.new(gen, sync.now)
+		add_child(weather)
+		sync.struck.connect(func(on: Ship, cell: Vector3i) -> void: weather.bolt_to(on.global_transform * Vector3(cell)))
 	sync.docked.connect(func(_ship: Ship, _town: int) -> void:
 		if _since_save >= AUTOSAVE_GAP:
 			_autosave())
@@ -116,6 +118,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_sky.hour = WorldSky.hour_at(sync.now())
+	_sky.storm = wind.roughness(player.camera.global_position, sync.now()) if player != null else 0.0
 	if hud != null:
 		hud.test_flight = on_test_flight()
 		hud.at_dock = at_dock()

@@ -546,6 +546,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.apply_force(normal * push, offset)
 
 
+	# Turbulence: rough air rocks her. Flight tests fly in calm air.
+	if not calm:
+		var rough := weather.roughness(state.transform.origin, weather.now())
+		if rough > 0.0:
+			state.apply_torque(basis * (inertia * Wind.shake(weather.now()) * Tuning.TURBULENCE * rough))
+
+
 func _sane(state: PhysicsDirectBodyState3D) -> bool:
 	return state.transform.is_finite() and state.linear_velocity.is_finite() and state.angular_velocity.is_finite() \
 			and state.linear_velocity.length() <= MAX_SPEED and state.angular_velocity.length() <= MAX_SPIN

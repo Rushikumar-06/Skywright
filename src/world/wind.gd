@@ -76,6 +76,17 @@ func at(p: Vector3, t: float) -> Vector3:
 	return wind
 
 
+## How rough the air is at p at time t, 0 to 1: a storm's strength there, or the
+## Stormwall's. Lightning strikes and turbulence rocks in rough air.
+func roughness(p: Vector3, t: float) -> float:
+	return maxf(storm_strength(p, t), wall_strength(p))
+
+
+## Turbulence's shape at time t, each axis roughly -1.5 to 1.5.
+static func shake(t: float) -> Vector3:
+	return Vector3(sin(1.7 * t) + 0.5 * sin(2.9 * t), 0.3 * sin(1.1 * t), sin(1.3 * t) + 0.5 * sin(3.1 * t))
+
+
 ## How much of the Stormwall's wind blows at p, 0 to 1.
 static func wall_strength(p: Vector3) -> float:
 	var d := Vector2(p.x, p.z).length()

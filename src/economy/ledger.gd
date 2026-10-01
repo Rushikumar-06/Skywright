@@ -131,6 +131,22 @@ func insure(captain: int, blueprint: ShipGrid) -> void:
 	send_account(captain)
 
 
+## This machine's player hires a hand of role onto the ship they're aboard, at a dock.
+func hire(role: String) -> void:
+	if sync.session.is_server():
+		_hire_for(multiplayer.get_unique_id(), role)
+	else:
+		_hire.rpc_id(1, role)
+
+
+## This machine's player lets hand id go from the ship they're aboard, at a dock.
+func dismiss(id: int) -> void:
+	if sync.session.is_server():
+		_dismiss_for(multiplayer.get_unique_id(), id)
+	else:
+		_dismiss.rpc_id(1, id)
+
+
 ## This machine's player asks for the board of the town whose dock they're at.
 func ask_board() -> void:
 	if sync.session.is_server():
@@ -306,6 +322,53 @@ func _unlock_for(peer: int, part: String) -> void:
 		tell(peer, "Unlocked %s." % part_name)
 
 
+## Server: a hand needs a free bunk, and a gunner a cannon nobody mans, an engineer an
+## engine nobody tends. He's named from Economy.HAND_NAMES, skipping names aboard while
+## any are left.
+func _hire_for(peer: int, role: String) -> void:
+	if not Economy.HANDS.has(role):
+		return
+	var ship := _docked_ship(peer)
+	if ship == null:
+		tell(peer, "Hire crew at a town's dock.")
+		return
+	if ship.hands.size() >= ship.grid.cells_of("bunk").size():
+		tell(peer, "She has no free bunk.")
+		return
+	var post: Variant = Vector3i.ZERO
+	if role != "repairer":
+		post = sync.free_post(ship, role, [])
+		if post == null:
+			tell(peer, "She has no free cannon for a gunner." if role == "gunner" else "She has no free engine for an engineer.")
+			return
+	var fee: int = Economy.HANDS[role]["fee"]
+	if account_of(peer)["money"] < fee:
+		tell(peer, "You can't afford a %s (%d crowns)." % [role, fee])
+		return
+	pay(peer, -fee)
+	var names: Array = Economy.HAND_NAMES.filter(func(each: String) -> bool:
+		return not ship.hands.any(func(hand: Dictionary) -> bool: return hand["name"] == each))
+	if names.is_empty():
+		names = Economy.HAND_NAMES
+	var hand_name: String = names[sync.rng.randi_range(0, names.size() - 1)]
+	var at := ship.crew_spawn(0) if role == "repairer" else ship.spot_near(post)
+	sync.set_hands(ship, ship.hands + [{"id": sync.next_hand_id(), "name": hand_name, "role": role, "post": post, "at": at}])
+	tell(peer, "%s the %s joins the crew." % [hand_name, role])
+
+
+func _dismiss_for(peer: int, id: int) -> void:
+	var ship := _docked_ship(peer)
+	if ship == null:
+		return
+	var index := ship.hands.find_custom(func(hand: Dictionary) -> bool: return hand["id"] == id)
+	if index < 0:
+		return
+	var hands := ship.hands.duplicate()
+	var gone: Dictionary = hands.pop_at(index)
+	sync.set_hands(ship, hands)
+	tell(peer, "%s leaves the crew." % gone["name"])
+
+
 ## Server: the board of town, drawn the first time.
 func _board_of(town: int) -> Array:
 	if not boards.has(town):
@@ -479,6 +542,22 @@ func _board(town: Variant, offers: Variant) -> void:
 		clean.append(contract)
 	boards[town] = clean
 	board_changed.emit(town)
+
+
+## Client -> server: hire a hand of role onto the ship I'm aboard.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _hire(role: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and role is String and _may_ask(peer):
+		_hire_for(peer, role)
+
+
+## Client -> server: let hand id go from the ship I'm aboard.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _dismiss(id: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and id is int and _may_ask(peer):
+		_dismiss_for(peer, id)
 
 
 ## Client -> server: unlock part where I am.

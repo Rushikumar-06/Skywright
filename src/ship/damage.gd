@@ -247,6 +247,29 @@ static func repair(grid: ShipGrid, blueprint: ShipGrid, cell: Vector3i) -> Dicti
 	return {best: mini(REPAIR_STEP, Tuning.BLOCKS[blueprint.blocks[best]["type"]]["hp"])}
 
 
+## Where a repairer standing at from (ship space) works next: the burning cell nearest
+## him, else, when mending (he has spares), the nearest block a repair there would
+## heal or rebuild beside; else null. Ties go to the smallest cell.
+## ponytail: searches the whole grid; keep a list of damaged cells if big ships need it.
+static func next_job(grid: ShipGrid, blueprint: ShipGrid, burning: Array, from: Vector3, mending: bool) -> Variant:
+	var found: Variant = _nearest(burning, from)
+	if found != null or not mending:
+		return found
+	var work := grid.blocks.keys().filter(func(cell: Vector3i) -> bool: return not repair(grid, blueprint, cell).is_empty())
+	return _nearest(work, from)
+
+
+static func _nearest(cells: Array, from: Vector3) -> Variant:
+	var best: Variant = null
+	var best_distance := INF
+	for cell: Vector3i in cells:
+		var d := from.distance_to(Vector3(cell))
+		if d < best_distance or (d == best_distance and cell < best):
+			best = cell
+			best_distance = d
+	return best
+
+
 ## The Roil wears every block below Tuning.ROIL_ALTITUDE once placed by place.
 static func roil(grid: ShipGrid, place: Transform3D) -> Dictionary:
 	var changes := {}

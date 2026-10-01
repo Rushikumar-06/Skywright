@@ -74,6 +74,20 @@ func test_applying_changes_removes_dead_blocks_and_restores_from_the_blueprint()
 	assert_false(grid.blocks.has(Vector3i(0, 0, 0)))
 
 
+func test_a_repairer_works_on_the_nearest_fire_then_the_nearest_damage() -> void:
+	var blueprint := grid_of({Vector3i(0, 0, 0): "deck", Vector3i(1, 0, 0): "deck", Vector3i(2, 0, 0): "deck", Vector3i(3, 0, 0): "deck",
+			Vector3i(4, 0, 0): "deck"})
+	var grid := blueprint.copy()
+	grid.blocks[Vector3i(1, 0, 0)]["hp"] = 20
+	grid.blocks.erase(Vector3i(4, 0, 0))
+	assert_eq(Damage.next_job(grid, blueprint, [Vector3i(3, 0, 0)], Vector3.ZERO, true), Vector3i(3, 0, 0), "a fire before any damage")
+	assert_eq(Damage.next_job(grid, blueprint, [Vector3i(3, 0, 0), Vector3i(2, 0, 0)], Vector3.ZERO, true), Vector3i(2, 0, 0), "the nearest fire")
+	assert_eq(Damage.next_job(grid, blueprint, [], Vector3.ZERO, true), Vector3i(1, 0, 0), "the nearest damage")
+	assert_eq(Damage.next_job(grid, blueprint, [], Vector3(4, 0, 0), true), Vector3i(3, 0, 0), "a lost block is rebuilt from beside it")
+	assert_eq(Damage.next_job(grid, blueprint, [], Vector3.ZERO, false), null, "no spares, no mending")
+	assert_eq(Damage.next_job(grid, blueprint, [Vector3i(3, 0, 0)], Vector3.ZERO, false), Vector3i(3, 0, 0), "but fires still go out")
+
+
 func test_a_destroyed_bay_loses_its_crate_and_a_healed_one_keeps_it() -> void:
 	var grid := grid_of({Vector3i(0, 0, 0): "cargo_bay", Vector3i(1, 0, 0): "cargo_bay"})
 	grid.cargo = {Vector3i(0, 0, 0): {"good": "grain", "owner": "Ann"}, Vector3i(1, 0, 0): {"good": "tools", "owner": "Ann"}}

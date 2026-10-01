@@ -1,7 +1,8 @@
 class_name TownPanel
 extends CanvasLayer
 ## A town's business, opened with T at its dock: its market, buying and selling
-## crates aboard the ship you're on and filling her spares, and its contract board.
+## crates aboard the ship you're on and filling her spares, its contract board, and
+## hiring hands for her.
 ## Everything goes through
 ## the Ledger; the panel only shows what the server last said, and rebuilds its rows
 ## when that changes.
@@ -48,6 +49,7 @@ func _ready() -> void:
 	top.add_child(_money)
 	top.add_child(UiTheme.button("Market", show_section.bind("market")))
 	top.add_child(UiTheme.button("Contracts", show_section.bind("contracts")))
+	top.add_child(UiTheme.button("Crew", show_section.bind("crew")))
 	top.add_child(UiTheme.button("Close (T)", close_requested.emit))
 	_note = UiTheme.caption("")
 	column.add_child(_note)
@@ -56,7 +58,7 @@ func _ready() -> void:
 	refresh()
 
 
-## Shows section: "market" or "contracts".
+## Shows section: "market", "contracts" or "crew".
 func show_section(section: String) -> void:
 	_section = section
 	if section == "contracts":
@@ -81,6 +83,8 @@ func refresh() -> void:
 			_build_market()
 		"contracts":
 			_build_contracts()
+		"crew":
+			_build_crew()
 
 
 func _process(delta: float) -> void:
@@ -95,7 +99,7 @@ func _process(delta: float) -> void:
 func _summary() -> String:
 	var ship := _trading_ship()
 	return var_to_str([_ledger.mine, _section, ship.grid.cargo_list() if ship != null else null, ship.spares if ship != null else 0,
-			_ledger.boards.get(_town)])
+			_ledger.boards.get(_town), CrewHand.hand_list(ship) if ship != null else null])
 
 
 ## The ship you're aboard, when she's at this town's dock; else null.
@@ -154,6 +158,23 @@ func _build_contracts() -> void:
 			label.text += "   %d/%d" % [contract["done"], contract["count"]]
 		line.add_child(label)
 		line.add_child(UiTheme.button("Drop", _ledger.drop_contract.bind(contract["id"])))
+		_rows.add_child(line)
+
+
+func _build_crew() -> void:
+	var ship := _trading_ship()
+	if ship == null:
+		_rows.add_child(UiTheme.caption("Come aboard a ship at the dock to hire crew."))
+		return
+	_rows.add_child(_mono("Hands     %d/%d bunks" % [ship.hands.size(), ship.grid.cells_of("bunk").size()]))
+	for role: String in Economy.HANDS:
+		_rows.add_child(UiTheme.button("Hire a %s   %d crowns" % [role, Economy.HANDS[role]["fee"]], _ledger.hire.bind(role)))
+	for hand in ship.hands:
+		var line := HBoxContainer.new()
+		var label := Label.new()
+		label.text = "%s, %s" % [hand["name"], hand["role"]]
+		line.add_child(label)
+		line.add_child(UiTheme.button("Dismiss", _ledger.dismiss.bind(hand["id"])))
 		_rows.add_child(line)
 
 

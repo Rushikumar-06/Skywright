@@ -153,6 +153,7 @@ var _next_rope := 1
 var _down: Dictionary = {}  ## Server: peer id -> now() when they're back on their feet.
 var _repaired_at: Dictionary = {}  ## Server: peer id -> now() of their last repair.
 var _names: Dictionary = {}  ## Peer id -> their name, remembered after they leave.
+var _next_hand := -1         ## Server: the next hired hand's id.
 
 
 func _init(world_session: Node) -> void:
@@ -257,6 +258,57 @@ func damage_ship(ship: Ship, changes: Dictionary) -> void:
 		wreck.angular_velocity = ship.angular_velocity
 	if ship.grid.blocks.is_empty():
 		remove_ship(ship)
+
+
+## Server: sets ship's hands (see Ship.hands), gives each gunner and repairer a
+## CrewHand, mans each gunner's cannon, and tells everyone in the world.
+func set_hands(ship: Ship, hands: Array) -> void:
+	for cannon in ship.cannons:
+		if cannon.gunner < 0:
+			cannon.leave(cannon.gunner)
+	for child in ship.get_children():
+		if child is CrewHand:
+			ship.remove_child(child)
+			child.queue_free()
+	ship.set_hands(hands)
+	for hand in ship.hands:
+		if hand["role"] == "gunner":
+			for cannon in ship.cannons:
+				if cannon.cell == hand["post"]:
+					cannon.take(hand["id"])
+		if hand["role"] != "engineer":
+			ship.add_child(CrewHand.new(self, hand))
+	tell_hands(ship)
+
+
+## Server: tells everyone in the world where ship's hands are.
+func tell_hands(ship: Ship) -> void:
+	ship.set_hands(ship.hands)  # moves their avatars here too
+	tell_world(&"_hands", [id_of(ship), CrewHand.hand_list(ship)])
+
+
+## Server: the next hired hand's id: -1, -2 and so on.
+func next_hand_id() -> int:
+	_next_hand -= 1
+	return _next_hand + 1
+
+
+## Server: one repair action at cell of ship, as a player's: it puts out the fires
+## around cell, free, or with none uses a spare to heal or rebuild a block. Whether
+## it did something.
+func mend(ship: Ship, cell: Vector3i) -> bool:
+	if Damage.put_out(ship.fires, cell):
+		_send_fires(ship)
+		return true
+	if ship.spares < 1:
+		return false
+	var changes := Damage.repair(ship.grid, ship.blueprint, cell)
+	if changes.is_empty():
+		return false
+	ship.spares -= 1
+	damage_ship(ship, changes)
+	tell_world(&"_spares", [id_of(ship), ship.spares])
+	return true
 
 
 ## Server: stows cargo (see ShipGrid.cargo) aboard ship, and tells everyone in the world.
@@ -423,17 +475,7 @@ func _repair_for(peer: int, ship: Ship, cell: Vector3i) -> void:
 	if now() - _repaired_at.get(peer, -INF) < Damage.REPAIR_EVERY - 0.05:
 		return
 	_repaired_at[peer] = now()
-	if Damage.put_out(ship.fires, cell):
-		_send_fires(ship)
-		return
-	if ship.spares < 1:
-		return
-	var changes := Damage.repair(ship.grid, ship.blueprint, cell)
-	if changes.is_empty():
-		return
-	ship.spares -= 1
-	damage_ship(ship, changes)
-	tell_world(&"_spares", [id, ship.spares])
+	mend(ship, cell)
 
 
 ## Server: draws ship's fires here, and tells everyone in the world what's burning.
@@ -853,9 +895,48 @@ func _launch_for(peer: int, grid: ShipGrid, test: bool, town: int) -> void:
 			cargo[free[i]] = own.grid.cargo[cells[i]]
 		if not cargo.is_empty():
 			set_cargo(ship, cargo)
+		var ashore := _move_hands(own, ship)
 		remove_ship(own, ship)
-	if not test:
 		_tell(peer, "Launched for %d crowns." % price)
+		for hand: Dictionary in ashore:
+			_tell(peer, "%s stays ashore: she has no room for a %s." % [hand["name"], hand["role"]])
+	elif not test:
+		_tell(peer, "Launched for %d crowns." % price)
+
+
+## Server: from's hands go aboard to, in order, while she has bunks, each to a free
+## post of his role. Returns those left ashore.
+func _move_hands(from: Ship, to: Ship) -> Array[Dictionary]:
+	var aboard: Array[Dictionary] = []
+	var ashore: Array[Dictionary] = []
+	var bunks := to.grid.cells_of("bunk").size()
+	for hand in from.hands:
+		var post: Variant = Vector3i.ZERO
+		if hand["role"] != "repairer":
+			post = free_post(to, hand["role"], aboard)
+		if aboard.size() >= bunks or post == null:
+			ashore.append(hand)
+			continue
+		var moved := hand.duplicate()
+		moved["post"] = post
+		moved["at"] = to.crew_spawn(0) if hand["role"] == "repairer" else to.spot_near(post)
+		aboard.append(moved)
+	if not aboard.is_empty():
+		set_hands(to, aboard)
+	return ashore
+
+
+## The first (by cell) of ship's cannons (for a gunner) or engines (an engineer) no
+## hand in hands, or already aboard her, is posted at, and nobody mans; or null.
+func free_post(ship: Ship, role: String, hands: Array) -> Variant:
+	var cells := ship.grid.cells_of("cannon" if role == "gunner" else "engine")
+	cells.sort()
+	for cell in cells:
+		var taken := (hands + ship.hands).any(func(hand: Dictionary) -> bool: return hand["role"] == role and hand["post"] == cell)
+		var manned := role == "gunner" and ship.cannons.any(func(cannon: Cannon) -> bool: return cannon.cell == cell and cannon.gunner != 0)
+		if not taken and not manned:
+			return cell
+	return null
 
 
 func _tell(peer: int, text: String) -> void:
@@ -883,12 +964,12 @@ func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array, town: int) ->
 
 
 ## A ship as the network carries it: [id, blocks, paint, transform, pilot, captain,
-## test, blueprint, pirate, spares, cargo].
+## test, blueprint, pirate, spares, cargo, hands].
 func _entry(id: int) -> Array:
 	var ship: Ship = ships[id]
 	return [id, ship.grid.to_bytes(), ship.grid.paint_names(), ship.global_transform,
 			ship.helm.pilot if ship.helm else 0, ship.captain, ship.test, ship.blueprint.to_bytes(), ship.pirate, ship.spares,
-			ship.grid.cargo_list()]
+			ship.grid.cargo_list(), CrewHand.hand_list(ship)]
 
 
 ## Forgets everyone no longer on the roster, and frees the stations they held.
@@ -928,7 +1009,7 @@ func _let_leavers_go() -> void:
 		if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
 			ship.helm.leave(ship.helm.pilot)
 		for cannon in ship.cannons:
-			if cannon.gunner != 0 and not session.players.has(cannon.gunner):
+			if cannon.gunner > 0 and not session.players.has(cannon.gunner):  # hands (below 0) stay
 				cannon.leave(cannon.gunner)
 
 
@@ -1173,7 +1254,7 @@ func _ship_removed(id: Variant, successor: Variant, lost: Variant) -> void:
 ## Client: adds the ship an entry describes, drawn from time on, or returns null
 ## when the entry makes no sense.
 func _add_entry(entry: Variant, time: float) -> Ship:
-	if not entry is Array or entry.size() != 11 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
+	if not entry is Array or entry.size() != 12 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
 		return null
 	if not entry[3] is Transform3D or not (entry[3] as Transform3D).is_finite():
 		return null
@@ -1188,8 +1269,9 @@ func _add_entry(entry: Variant, time: float) -> Ship:
 	var paint: Variant = ShipGrid.read_paint(entry[2])
 	var blueprint := ShipGrid.from_bytes(entry[7], false)
 	var cargo: Variant = ShipGrid.read_cargo(entry[10], grid) if grid != null else null
-	if grid == null or paint == null or blueprint == null or cargo == null:
-		push_warning("The host sent ship %d with blocks, paint or cargo that don't make a ship; leaving it out." % entry[0])
+	var hands: Variant = CrewHand.read_hands(entry[11], grid) if grid != null else null
+	if grid == null or paint == null or blueprint == null or cargo == null or hands == null:
+		push_warning("The host sent ship %d with blocks, paint, cargo or hands that don't make a ship; leaving it out." % entry[0])
 		return null
 	grid.cargo = cargo
 	grid.paint = paint
@@ -1197,7 +1279,9 @@ func _add_entry(entry: Variant, time: float) -> Ship:
 	var buffer := SnapshotBuffer.new()
 	buffer.push(time, at.origin, Vector3.ZERO, at.basis.get_rotation_quaternion())
 	_buffers[entry[0]] = buffer
-	return _add(entry[0], grid, at, false, entry[5], entry[6], entry[4], blueprint, entry[8], entry[9])
+	var ship := _add(entry[0], grid, at, false, entry[5], entry[6], entry[4], blueprint, entry[8], entry[9])
+	ship.set_hands(hands)
+	return ship
 
 
 ## Server -> clients: hit-point changes to ship id (Damage.pack bytes: 0 is
@@ -1278,6 +1362,17 @@ func _fires(id: Variant, cells: Variant) -> void:
 func _spares(id: Variant, count: Variant) -> void:
 	if not session.is_server() and id is int and ships.has(id) and count is int and count >= 0 and count <= Damage.SPARES_MAX:
 		(ships[id] as Ship).spares = count
+
+
+## Server -> clients: ship id's hands (see CrewHand.read_hands), with where each stands.
+@rpc("authority", "call_remote", "reliable", 0)
+func _hands(id: Variant, hands: Variant) -> void:
+	if session.is_server() or not id is int or not ships.has(id):
+		return
+	var ship: Ship = ships[id]
+	var read: Variant = CrewHand.read_hands(hands, ship.grid)
+	if read != null:
+		ship.set_hands(read)
 
 
 ## Server -> clients: every crate aboard ship id (see ShipGrid.cargo_list).

@@ -32,6 +32,7 @@ const BALLOON_LIFT := 900.0       ## N per balloon cell in the densest air, at t
 const LIFT_STONE_LIFT := 6000.0   ## N per lift stone, at any altitude.
 const PROPELLER_THRUST := 2500.0  ## N per propeller at full throttle and full power.
 const PROPELLERS_PER_ENGINE := 2  ## Propellers one engine drives at full power.
+const ENGINE_BOOST := 0.25        ## How much harder an engineer drives the engine he tends.
 const DRAG_COEFFICIENT := 0.45    ## Cd of every exposed face.
 const HULL_LIFT := 8.0            ## How hard the hull resists slipping sideways at speed, as a keel does. Without it ships skid instead of turning.
 const SAIL_AREA := 6.0             ## m² of cloth in a sail cell.

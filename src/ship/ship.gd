@@ -22,6 +22,10 @@ var spares := 0      ## Spare materials for repairs, 0 to Damage.SPARES_MAX.
 var pirate := false
 var born := 0.0      ## The server's clock when she was added.
 var lost := false    ## The Roil took her.
+## Her hired crew, on every machine: {"id": int (below 0), "name", "role" (a key of
+## Economy.HANDS), "post": Vector3i (a gunner's cannon, an engineer's engine), "at":
+## Vector3 (where he stands, in her space)}. Set through set_hands.
+var hands: Array[Dictionary] = []
 var at_town := -1    ## Server: the town whose dock she's at, or -1.
 var beaten := false  ## Server: a pirate already counted toward bounties.
 var fires: Dictionary = {}           ## Server: burning cell -> seconds it has burned.
@@ -70,6 +74,7 @@ var _shapes: Array[CollisionShape3D] = []
 var _mesh: MeshInstance3D
 var _rebuild_pending := false
 var _flames: MultiMeshInstance3D
+var _hand_avatars: Dictionary = {}  ## A hand's id -> his CrewAvatar.
 
 static var _flame_mesh: BoxMesh
 
@@ -186,7 +191,7 @@ func rebuild() -> void:
 	for cell in grid.cells_of("sail"):
 		_sails.append(Vector3(cell))
 		_sail_normals.append(Blocks.facing(grid.blocks[cell]["rotation"]))
-	_power = ShipForces.propeller_power(grid)
+	_power = _boosted_power()
 	_zones = grid.drag_zones()
 	bounds = grid.bounds()
 	if _mesh != null:
@@ -208,6 +213,65 @@ func rebuild() -> void:
 			cannons.erase(cannon)
 			cannon.queue_free()
 	blocks_changed.emit()
+
+
+## Sets her hands (see hands), works out her engines' power again, and draws them.
+func set_hands(list: Array) -> void:
+	hands.assign(list)
+	_power = _boosted_power()
+	var ids := {}
+	for hand in hands:
+		ids[hand["id"]] = true
+		var avatar: CrewAvatar = _hand_avatars.get(hand["id"])
+		if avatar == null:
+			avatar = CrewAvatar.new(hand["name"])
+			avatar.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
+			_hand_avatars[hand["id"]] = avatar
+			add_child(avatar)
+		avatar.position = hand["at"]
+	for id: int in _hand_avatars.keys():
+		if not ids.has(id):
+			(_hand_avatars[id] as Node).queue_free()
+			_hand_avatars.erase(id)
+
+
+## The engines an engineer tends, each counted once, that she still has.
+func tended_engines() -> int:
+	var tended := {}
+	for hand in hands:
+		if hand["role"] == "engineer" and grid.type_at(hand["post"]) == "engine":
+			tended[hand["post"]] = true
+	return tended.size()
+
+
+## Where a hand stands to work at cell: the nearest empty cell within 3 of it with
+## a block other than a ladder below and nothing above (ties to the smallest cell),
+## 0.45 m up, as crew_spawn stands crew. With none, crew_spawn(0).
+func spot_near(cell: Vector3i) -> Vector3:
+	var best := Vector3i.ZERO
+	var best_distance := INF
+	for x in range(-3, 4):
+		for y in range(-3, 4):
+			for z in range(-3, 4):
+				var spot := cell + Vector3i(x, y, z)
+				var below := grid.type_at(spot + Vector3i.DOWN)
+				if grid.type_at(spot) != "" or grid.type_at(spot + Vector3i.UP) != "" or below == "" or below == "ladder":
+					continue
+				var d := Vector3(spot).distance_to(Vector3(cell))
+				if d < best_distance or (d == best_distance and spot < best):
+					best = spot
+					best_distance = d
+	if best_distance == INF:
+		return crew_spawn(0)
+	return Vector3(best) + Vector3(0.0, 0.45, 0.0)
+
+
+## The share of full thrust each propeller gets: her engines', driven harder by
+## Tuning.ENGINE_BOOST for each engine an engineer tends.
+func _boosted_power() -> float:
+	var engines := grid.cells_of("engine").size()
+	var boost := 1.0 + Tuning.ENGINE_BOOST * tended_engines() / engines if engines > 0 else 1.0
+	return ShipForces.propeller_power(grid) * boost
 
 
 ## Draws flames on cells, and remembers them as what's burning.

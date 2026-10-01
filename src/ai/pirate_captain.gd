@@ -125,24 +125,31 @@ func _fire() -> void:
 	var ammo: String = VOLLEY[shots % VOLLEY.size()]
 	if target.grid.cells_of("balloon").is_empty():
 		ammo = "round"
-	var speed: float = Damage.AMMO[ammo]["speed"]
-	var aim_point := target.global_transform * target.center_of_mass
 	for cannon in _ship.cannons:
-		if cannon.reload_left > 0.0:
-			continue
-		var muzzle := _ship.global_transform * (Vector3(cannon.cell) + cannon.facing() * WorldSync.MUZZLE)
-		var drift := target.linear_velocity - _ship.point_velocity(muzzle)
-		var w := Vector3.ZERO
-		var t := muzzle.distance_to(aim_point) / speed
-		for i in 2:  # where the target will be when the shot gets there, twice refined
-			var offset := aim_point + drift * t - muzzle
-			w = Projectiles.aim(offset, speed)
-			var level := Vector2(w.x, w.z).length()
-			if level <= 0.0:
-				break
-			t = Vector2(offset.x, offset.z).length() / (speed * level)
-		if w == Vector3.ZERO or not cannon.aim_at(_ship.global_basis.inverse() * w):
-			continue
-		cannon.ammo = ammo
-		if _sync.fire_cannon(_ship, cannon) != 0:
+		if fire_at(_sync, _ship, cannon, target, ammo):
 			shots += 1
+
+
+## Fires ship's cannon at target with ammo, leading her, when it's loaded and can
+## bear. Whether it fired. It aims at her centre of mass, or at aim_cell (in her space)
+## when given. Hired gunners aim with it too.
+static func fire_at(world_sync: WorldSync, ship: Ship, cannon: Cannon, target: Ship, ammo: String, aim_cell: Variant = null) -> bool:
+	if cannon.reload_left > 0.0:
+		return false
+	var speed: float = Damage.AMMO[ammo]["speed"]
+	var aim_point := target.global_transform * (Vector3(aim_cell as Vector3i) if aim_cell is Vector3i else target.center_of_mass)
+	var muzzle := ship.global_transform * (Vector3(cannon.cell) + cannon.facing() * WorldSync.MUZZLE)
+	var drift := target.linear_velocity - ship.point_velocity(muzzle)
+	var w := Vector3.ZERO
+	var t := muzzle.distance_to(aim_point) / speed
+	for i in 2:  # where the target will be when the shot gets there, twice refined
+		var offset := aim_point + drift * t - muzzle
+		w = Projectiles.aim(offset, speed)
+		var level := Vector2(w.x, w.z).length()
+		if level <= 0.0:
+			break
+		t = Vector2(offset.x, offset.z).length() / (speed * level)
+	if w == Vector3.ZERO or not cannon.aim_at(ship.global_basis.inverse() * w):
+		return false
+	cannon.ammo = ammo
+	return world_sync.fire_cannon(ship, cannon) != 0

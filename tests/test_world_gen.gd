@@ -60,7 +60,7 @@ func test_chunks_dont_depend_on_the_order_they_are_made_in() -> void:
 func test_ten_towns_in_their_regions() -> void:
 	var expected := [WorldGen.Region.CALM, WorldGen.Region.CALM, WorldGen.Region.CALM, WorldGen.Region.CALM,
 			WorldGen.Region.SHATTERED, WorldGen.Region.SHATTERED, WorldGen.Region.SHATTERED,
-			WorldGen.Region.GALE, WorldGen.Region.GALE, WorldGen.Region.STORMWALL]
+			WorldGen.Region.GALE, WorldGen.Region.GALE, WorldGen.Region.EYE]  # the tenth in the Eye, not the wall
 	for world_seed in range(1, 21):
 		var gen := WorldGen.new(world_seed)
 		assert_eq(gen.towns.size(), 10, "seed %d has ten towns" % world_seed)

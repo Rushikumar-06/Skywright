@@ -75,6 +75,7 @@ static func write(path: String, save: Dictionary) -> Error:
 ## ints), or {"problem": String} naming the first thing wrong and its file.
 static func read(path: String) -> Dictionary:
 	var parts := {}
+	var versions := {}
 	for part: String in FILES:
 		var file_name: String = FILES[part]
 		var file_path := path.path_join(file_name)
@@ -93,6 +94,7 @@ static func read(path: String) -> Dictionary:
 		if not version in READS:
 			return {"problem": "This save is version %s; this game reads versions 1 and 2." % (str(version) if version != null else "?")}
 		parts[part] = json.data[part]
+		versions[part] = version
 	var world: Variant = _read_world(parts["world"])
 	if world is String:
 		return {"problem": "world.json: %s" % world}
@@ -104,6 +106,8 @@ static func read(path: String) -> Dictionary:
 		if ship.has("problem"):
 			return {"problem": "ships.json: ship %d %s" % [i + 1, ship["problem"]]}
 		ships.append(ship["record"])
+	if versions["ships"] == 1:
+		_into_port(ships, world["seed"])
 	if not parts["players"] is Dictionary:
 		return {"problem": "player.json: the players aren't a list by name."}
 	var players := {}
@@ -113,6 +117,24 @@ static func read(path: String) -> Dictionary:
 			return {"problem": "player.json: %s's account doesn't make sense." % str(player_name).left(24)}
 		players[player_name] = account
 	return {"save": {"world": world, "ships": ships, "players": players}}
+
+
+## Version 1 saves came before towns moved for the Stormwall: a ship kept near an old
+## town could wake in the wall or inside an island. Each wakes anchored at slipway k
+## (her index, modulo Dock.SLIPWAYS) of the town whose dock is nearest her now.
+static func _into_port(records: Array, world_seed: int) -> void:
+	var gen := WorldGen.new(world_seed)
+	for k in records.size():
+		var record: Dictionary = records[k]
+		var at := Vector3(record["at"][0], record["at"][1], record["at"][2])
+		var nearest: Vector3 = gen.towns[0]["dock"]
+		for town: Dictionary in gen.towns:
+			if (town["dock"] as Vector3).distance_to(at) < nearest.distance_to(at):
+				nearest = town["dock"]
+		var berth := Dock.slipway(nearest, k % Dock.SLIPWAYS)
+		var q := berth.basis.get_rotation_quaternion()
+		record["at"] = [berth.origin.x, berth.origin.y, berth.origin.z, q.x, q.y, q.z, q.w]
+		record["anchored"] = true
 
 
 ## A ship's record from a save, checked: {"record": the record cleaned, "grid": her

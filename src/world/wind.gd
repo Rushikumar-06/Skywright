@@ -20,6 +20,14 @@ const RIM_WIDTH := 1000.0    ## m. The rim's push is full this far past the disc
 const RIM_PUSH := 15.0       ## m/s at full.
 const STORM_GUSTS := 10.0    ## m/s of extra gusts in a storm's core.
 const STORM_UPDRAFT := 6.0   ## m/s straight up and down in a storm's core.
+## The Stormwall: an outward wind in the band between the Eye and the Gale Expanse,
+## full in its core and below its top, that only a strong ship pushes through.
+## ponytail: the wall is the same all the way round; give it gaps (the spec's "gap in
+## a sky river") if one route in feels thin.
+const WALL_WIND := 22.0      ## m/s outward in the wall's core.
+const WALL_FADE := 150.0     ## m over which it fades at its inner and outer edges.
+const WALL_TOP := 1700.0     ## m: full below.
+const WALL_TOP_FADE := 200.0 ## m: gone above WALL_TOP plus this.
 
 ## The world's clock in seconds. Below 0, now() counts physics ticks since the game started.
 var time := -1.0
@@ -55,6 +63,8 @@ func at(p: Vector3, t: float) -> Vector3:
 	var wind := Vector3.ZERO
 	if distance > 1.0:
 		wind += Vector3(p.z, 0.0, -p.x) / distance * prevailing_speed(distance)  # counter-clockwise seen from above
+	if distance > 1.0:
+		wind += flat / distance * WALL_WIND * wall_strength(p)  # outward, away from the Eye
 	if distance > DISC_RADIUS:
 		wind -= flat / distance * RIM_PUSH * clampf((distance - DISC_RADIUS) / RIM_WIDTH, 0.0, 1.0)
 	wind += _sines(p, t, 1.0) * gust_strength(distance)
@@ -64,6 +74,15 @@ func at(p: Vector3, t: float) -> Vector3:
 		wind += _sines(p, t, 2.0) * (storm * STORM_GUSTS)
 		wind.y += storm * STORM_UPDRAFT * sin(t * 0.9 + p.x * 0.01)
 	return wind
+
+
+## How much of the Stormwall's wind blows at p, 0 to 1.
+static func wall_strength(p: Vector3) -> float:
+	var d := Vector2(p.x, p.z).length()
+	var inner: float = WorldGen.REGION_OUTER[WorldGen.Region.EYE]
+	var outer: float = WorldGen.REGION_OUTER[WorldGen.Region.STORMWALL]
+	return smoothstep(inner, inner + WALL_FADE, d) * (1.0 - smoothstep(outer - WALL_FADE, outer, d)) \
+			* (1.0 - smoothstep(WALL_TOP, WALL_TOP + WALL_TOP_FADE, p.y))
 
 
 ## The push of the sky rivers at p. Every segment within twice its river's width pulls

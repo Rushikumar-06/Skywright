@@ -199,13 +199,12 @@ func test_a_test_flight_earns_nothing() -> void:
 			{"id": 9, "kind": "scout", "title": "Scout it", "reward": 180, "target": 0, "count": 1, "done": 0}]
 	var pirate := sync.add_ship(PirateShip.build(), trial.global_transform.translated(Vector3(300, 0, 0)), 0, false, 0, true)
 	sync.remove_ship(pirate, null, true)
-	world.go_ashore()
-	player.crew.position = Sites.wreck_center(world.gen.wrecks[0])
-	player.crew.velocity = Vector3.ZERO
-	press(player, "interact")
+	# Stepping off ends a test flight, so only a modified game asks from aboard one.
+	trial.global_position = Sites.wreck_center(world.gen.wrecks[0])
+	sync._salvage_for(1, "site", 0)
 	assert_eq(world.hud._message.text, "Test flights can't salvage.")
 	assert_false(sync.salvaged.has(0), "the wreck keeps her loot")
-	player.crew.position = (world.gen.landmarks[0]["at"] as Vector3) + Vector3(300, 0, 0)
+	trial.global_position = (world.gen.landmarks[0]["at"] as Vector3) + Vector3(300, 0, 0)
 	sync._wear()
 	assert_eq(ledger.account_of(1)["contracts"].size(), 2, "no bounty or scouting counts")
 	assert_eq(ledger.account_of(1)["contracts"][0]["done"], 0)

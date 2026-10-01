@@ -156,6 +156,29 @@ func test_a_version_1_save_still_loads() -> void:
 		assert_eq(account["logs"], [], "no logs")
 
 
+func test_a_stage_7_save_wakes_in_port() -> void:
+	fresh()
+	var save := good_save()
+	save["world"]["seed"] = NetCase.SEED
+	save["ships"][0]["at"] = [1927.6, 861.1, 530.0, 0.0, 0.258819, 0.0, 0.965926]  # stage 7's Stormwall town
+	save["ships"][1]["at"] = [100.0, 900.0, 6500.0, 0.0, 0.0, 0.0, 1.0]
+	save["ships"][0]["anchored"] = false
+	var path := SaveGame.slot_path("1")
+	assert_eq(SaveGame.write(path, save), OK)
+	var kept: Array = SaveGame.read(path)["save"]["ships"]
+	assert_eq(kept.map(func(record: Dictionary) -> Array: return record["at"]), [save["ships"][0]["at"], save["ships"][1]["at"]],
+			"a version 2 save keeps their places")
+	make_version_1(path)
+	var read := SaveGame.read(path)
+	assert_false(read.has("problem"), read.get("problem", ""))
+	var gen := WorldGen.new(NetCase.SEED)
+	var ships: Array = read["save"]["ships"]
+	for i in 2:
+		var berth := Dock.slipway(gen.towns[[8, 0][i]]["dock"], i)
+		assert_eq(ships[i]["at"], [berth.origin.x, berth.origin.y, berth.origin.z, 0.0, 0.0, 0.0, 1.0], "ship %d in port" % i)
+		assert_true(ships[i]["anchored"], "ship %d anchored" % i)
+
+
 func test_a_broken_save_falls_back_to_the_previous_autosave() -> void:
 	fresh()
 	SaveGame.write(SaveGame.slot_path("1"), good_save(200.0))

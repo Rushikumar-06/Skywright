@@ -37,7 +37,10 @@ const EDGE := 150.0              ## m sites keep inside their region's edges.
 const DARTS := 400
 
 ## What each region gets: (towns after the first, landmarks, wrecks), in order.
-const TOWN_PLAN := [[Region.CALM, 3], [Region.SHATTERED, 3], [Region.GALE, 2], [Region.STORMWALL, 1]]
+## The tenth town is in the Eye: a harbour in the Stormwall would be a hole in it.
+const TOWN_PLAN := [[Region.CALM, 3], [Region.SHATTERED, 3], [Region.GALE, 2], [Region.EYE, 1]]
+const HEART_CLEAR := 800.0    ## m an Eye town's dock area keeps from the heart.
+const HEART_ISLANDS := 450.0  ## m plain islands keep from the heart, for the Warden's open sky.
 const LANDMARK_PLAN := [[Region.CALM, 2], [Region.SHATTERED, 2], [Region.GALE, 2], [Region.STORMWALL, 1], [Region.EYE, 1]]
 const WRECK_PLAN := [[Region.CALM, 3], [Region.SHATTERED, 10], [Region.GALE, 5], [Region.STORMWALL, 2]]
 
@@ -229,7 +232,7 @@ func _make_island(rng: RandomNumberGenerator, id: String, at: Vector3, radius: f
 func _plain_island_fits(island: Dictionary, earlier: Array[Dictionary]) -> bool:
 	var at: Vector3 = island["at"]
 	var radius: float = island["radius"]
-	if not _inside_disc(at, radius) or in_town_exclusion(at, radius):
+	if not _inside_disc(at, radius) or in_town_exclusion(at, radius) or _flat(at, Vector3.ZERO) - radius < HEART_ISLANDS:
 		return false
 	for other in earlier:
 		if other["site"] != "":
@@ -255,7 +258,26 @@ func _make_towns() -> void:
 
 
 func _town_fits(dock: Vector3, _radius: float) -> bool:
-	return _far_from(dock, TOWN_SPACING, towns, "dock") and _inside_disc(dock + TOWN_ISLAND, TOWN_RADIUS)
+	return _far_from(dock, TOWN_SPACING, towns, "dock") and _inside_disc(dock + TOWN_ISLAND, TOWN_RADIUS) and clear_of_the_wall(dock)
+
+
+## Whether a town with its dock at dock stands clear of the Stormwall's band: its dock
+## area and its island all inside the Eye (the dock area HEART_CLEAR from the heart),
+## or all outside the wall.
+static func clear_of_the_wall(dock: Vector3) -> bool:
+	var area := Dock.area(dock)
+	var low := Vector2(area.position.x, area.position.z)
+	var high := Vector2(area.end.x, area.end.z)
+	var nearest := Vector2.ZERO.clamp(low, high).length()
+	var farthest := 0.0
+	for corner in [low, high, Vector2(low.x, high.y), Vector2(high.x, low.y)]:
+		farthest = maxf(farthest, (corner as Vector2).length())
+	var island := _flat(dock + TOWN_ISLAND, Vector3.ZERO)
+	var inner: float = REGION_OUTER[Region.EYE]
+	var outer: float = REGION_OUTER[Region.STORMWALL]
+	if farthest <= inner and nearest >= HEART_CLEAR and island + TOWN_RADIUS <= inner:
+		return true
+	return nearest >= outer and island - TOWN_RADIUS >= outer
 
 
 func _add_town(rng: RandomNumberGenerator, dock: Vector3, region: int) -> void:

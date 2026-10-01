@@ -339,6 +339,10 @@ func go_ashore() -> void:
 	left = from
 	ship = null
 	_swap_crew(crew)
+	if from.test and from.captain == multiplayer.get_unique_id() and sync.id_of(from) != 0:
+		# Or a free test flight in locked parts could ferry you over the Stormwall.
+		hud.show_message("You stepped off your test flight, so it's over.")
+		sync.end_test()
 
 
 ## Out of the Roil: aboard the ship you left, else your own, else the host's (never
@@ -415,15 +419,16 @@ func _come_to() -> void:
 
 ## Puts you aboard the first of prefer, your own ship and the home ship that's still
 ## here and not a wreck, at its respawn spot when at_bunk, else at your roster slot,
-## and returns it. With none, you stand on the quay of the town nearest you, and
-## get null.
-func recover(prefer: Ship, at_bunk := false) -> Ship:
+## and returns it. With none, you stand on the quay of quay_town (the town nearest you
+## when it's below 0), and get null.
+func recover(prefer: Ship, at_bunk := false, quay_town := -1) -> Ship:
 	for next: Variant in [prefer, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
 		if is_instance_valid(next) and sync.id_of(next) != 0 and not (next as Ship).is_wreck():
 			var on: Ship = next
 			come_aboard(on, on.respawn_spot() if at_bunk else on.crew_spawn(my_slot()))
 			return on
-	come_ashore(Dock.quay_spot(gen.towns[_nearest_town(player.world_position())]["dock"]))
+	var town := quay_town if quay_town >= 0 else _nearest_town(player.world_position())
+	come_ashore(Dock.quay_spot(gen.towns[town]["dock"]))
 	return null
 
 
@@ -553,6 +558,8 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 			_abandoning = false
 			if ship == null:
 				recover(null)  # ashore: back to a quay, as from aboard her
+	if ship == null and player != null and removed.test and removed.captain == multiplayer.get_unique_id():
+		recover(_came_from, false, _yard_town)  # off your test flight: back where you flew from
 	if _came_from == removed:
 		_came_from = null
 	if left == removed:

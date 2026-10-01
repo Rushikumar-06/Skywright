@@ -250,3 +250,63 @@ func test_an_engineer_takes_an() -> void:
 	var texts := (world.town_panel as TownPanel).find_children("*", "Button", true, false).map(func(b: Button) -> String: return b.text)
 	assert_true(texts.has("Hire an engineer   200 crowns"), str(texts))
 	assert_true(texts.has("Hire a gunner   150 crowns"), str(texts))
+
+
+## The starter ship with a keel 40 m longer and a second engine at its end.
+static func long_ship() -> ShipGrid:
+	var grid := StarterShip.build()
+	for z in range(-45, -5):
+		grid.set_block(Vector3i(0, -1, z), "frame")
+	grid.set_block(Vector3i(0, -1, -46), "engine")
+	return grid
+
+
+func test_hands_stay_aboard_a_ship_cut_short() -> void:
+	await start()
+	to_open_sky()
+	var long := sync.add_ship(long_ship(), ship.global_transform.translated(Vector3(100, 0, 0)))
+	long.anchored = true
+	sync.set_hands(long, [hand(long, -1, "gunner", STARBOARD), hand(long, -2, "engineer", Vector3i(0, -1, -46), "Marta"),
+			{"id": -3, "name": "Osric", "role": "repairer", "post": Vector3i.ZERO, "at": Vector3(0, 0.45, -44)}])
+	sync.damage_ship(long, {Vector3i(0, -1, -8): 0})
+	assert_eq(long.hands.map(func(each: Dictionary) -> int: return each["id"]), [-1, -3], "the engineer went with the bow and his engine")
+	assert_true(CrewHand.read_hands(CrewHand.hand_list(long), long.grid) != null, "the rest stand aboard what's left (%s)" % long.hands[1]["at"])
+	var read := SaveGame.read_ship(sync.record(long))
+	assert_false(read.has("problem"), read.get("problem", ""))
+	assert_eq(cannon_at(long, STARBOARD).gunner, -1, "the gunner is still at his gun")
+
+
+func test_a_ship_record_always_reads() -> void:
+	await start()
+	sync.set_hands(ship, [hand(ship, -1, "repairer")])
+	ship.hands[0]["at"] = Vector3(0, 0, -500)  # however he got there
+	var read := SaveGame.read_ship(sync.record(ship))
+	assert_false(read.has("problem"), read.get("problem", ""))
+
+
+func test_only_her_captain_dismisses_her_hands() -> void:
+	assert_true(await sail_together(), "the ship arrives")
+	var books: Ledger = host_world.ledger
+	var ours: Ship = host_world.ship
+	books.hire("gunner")
+	var theirs: Ledger = client_world.ledger
+	var said := [""]
+	theirs.told.connect(func(text: String) -> void: said[0] = text)
+	theirs.dismiss(ours.hands[0]["id"])
+	assert_true(await play_until(func() -> bool: return said[0] == "Only her captain can let her crew go.", 1.0), said[0])
+	assert_eq(ours.hands.size(), 1, "the host's gunner stays")
+
+
+func test_the_town_holds_still_while_a_repairer_walks() -> void:
+	await start()
+	ship.spares = 40
+	sync.set_hands(ship, [hand(ship, -1, "repairer")])
+	world.open_town()
+	var panel: TownPanel = world.town_panel
+	panel.show_section("crew")
+	await get_tree().process_frame
+	var dismiss: Button = panel.find_children("*", "Button", true, false).filter(func(b: Button) -> bool: return b.text == "Dismiss")[0]
+	var from: Vector3 = ship.hands[0]["at"]
+	sync.damage_ship(ship, {Vector3i(0, 0, -5): 20})
+	assert_true(await wait_until(func() -> bool: return (ship.hands[0]["at"] as Vector3).distance_to(from) > 2.0, 3.0), "he walks")
+	assert_true(is_instance_valid(dismiss), "the rows weren't rebuilt under your mouse")

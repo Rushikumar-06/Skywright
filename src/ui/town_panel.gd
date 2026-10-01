@@ -99,7 +99,15 @@ func _process(delta: float) -> void:
 func _summary() -> String:
 	var ship := _trading_ship()
 	return var_to_str([_ledger.mine, _section, ship.grid.cargo_list() if ship != null else null, ship.spares if ship != null else 0,
-			_ledger.boards.get(_town), CrewHand.hand_list(ship) if ship != null else null])
+			_ledger.boards.get(_town), _crew_of(ship)])
+
+
+## Who's aboard ship, without where they stand: a walking repairer mustn't rebuild the
+## rows under your mouse.
+static func _crew_of(ship: Ship) -> Array:
+	if ship == null:
+		return []
+	return ship.hands.map(func(hand: Dictionary) -> Array: return [hand["id"], hand["name"], hand["role"]])
 
 
 ## The ship you're aboard, when she's at this town's dock; else null.

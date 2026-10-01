@@ -169,6 +169,7 @@ func save_game(auto := false) -> Error:
 func _autosave() -> void:
 	if not session.is_server() or session.save_slot.is_empty():
 		return
+	_since_save = 0.0  # a failed autosave waits for the next, rather than retrying every frame
 	var error := save_game(true)
 	if error != OK and hud != null:
 		hud.show_message("Couldn't autosave (%s)." % error_string(error))
@@ -191,7 +192,7 @@ func _restore(loaded: Dictionary) -> void:
 			sync.salvaged[index] = true
 	if not session.dedicated:
 		exploration.read_text(world["exploration"])
-	ledger.accounts = save["players"]
+	ledger.set_accounts(save["players"])
 	if not session.dedicated:
 		ledger.send_account(me)
 	for saved: Dictionary in save["ships"]:

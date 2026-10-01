@@ -249,6 +249,8 @@ func damage_ship(ship: Ship, changes: Dictionary) -> void:
 			for cell: Vector3i in cells:
 				sent[cell] = 0  # clients drop them, and get the wreck as a new ship
 			pieces.append(ship.take_cells(cells))
+		if not ship.hands.is_empty():
+			_keep_hands_aboard(ship, sent)
 	var packed := Damage.pack(sent)
 	for peer: int in _in_world:
 		_blocks_changed.rpc_id(peer, id, packed)
@@ -259,6 +261,25 @@ func damage_ship(ship: Ship, changes: Dictionary) -> void:
 		wreck.angular_velocity = ship.angular_velocity
 	if ship.grid.blocks.is_empty():
 		remove_ship(ship)
+
+
+## Server: after ship lost the cells in gone, a gunner or engineer whose post went
+## goes with it, and anyone left standing off what's left of her steps back aboard.
+func _keep_hands_aboard(ship: Ship, gone: Dictionary) -> void:
+	var room := ship.grid.bounds().grow(2.0)
+	var kept: Array[Dictionary] = []
+	var changed := false
+	for hand in ship.hands:
+		if hand["role"] != "repairer" and gone.has(hand["post"]) and gone[hand["post"]] <= 0:
+			changed = true
+			continue
+		var moved := hand.duplicate()
+		if not room.has_point(hand["at"]):
+			moved["at"] = ship.crew_spawn(0) if hand["role"] == "repairer" else ship.spot_near(hand["post"])
+			changed = true
+		kept.append(moved)
+	if changed:
+		set_hands(ship, kept)
 
 
 ## Server: sets ship's hands (see Ship.hands), gives each gunner and repairer a
@@ -319,8 +340,10 @@ func record(ship: Ship) -> Dictionary:
 	return {"captain": name_of(ship.captain) if ship.captain != 0 else "", "at": [o.x, o.y, o.z, q.x, q.y, q.z, q.w],
 			"trim": ship.trim, "anchored": ship.anchored, "spares": ship.spares, "blocks": ship.grid.to_blocks(),
 			"blueprint": ship.blueprint.to_blocks(), "paint": ship.grid.paint_names(), "cargo": ship.grid.cargo_list(),
-			"hands": ship.hands.map(func(hand: Dictionary) -> Array: return [hand["name"], hand["role"], hand["post"].x, hand["post"].y,
-					hand["post"].z, hand["at"].x, hand["at"].y, hand["at"].z])}
+			"hands": ship.hands.map(func(hand: Dictionary) -> Array:
+				var box := ship.grid.bounds()  # however he got off her, a save keeps him aboard
+				var at: Vector3 = (hand["at"] as Vector3).clamp(box.position, box.end)
+				return [hand["name"], hand["role"], hand["post"].x, hand["post"].y, hand["post"].z, at.x, at.y, at.z])}
 
 
 ## Server: puts the ship a record describes back in the world, captain's, as she was
@@ -576,6 +599,9 @@ func salvage_ship(wreck: Ship) -> void:
 func _salvage_for(peer: int, kind: String, index: int) -> void:
 	var where: Variant = world_position_of(peer)
 	if where == null:
+		return
+	if ship_of(peer, true) != null:  # a free test flight in parts not yet unlocked mustn't earn
+		_tell(peer, "Test flights can't salvage.")
 		return
 	var at: Vector3 = where
 	var spares := 0
@@ -1256,9 +1282,8 @@ func _enter_world() -> void:
 	peer_entered.emit(peer)
 	var captain_name := name_of(peer)
 	if stored.has(captain_name):  # back: her ship with them
-		var saved: Dictionary = stored[captain_name]
-		stored.erase(captain_name)
-		restore(saved, peer)
+		if restore(stored[captain_name], peer) != null:
+			stored.erase(captain_name)
 
 
 ## Server -> client: the server's clock, every ship, as entries (see _entry), and the

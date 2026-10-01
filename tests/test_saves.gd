@@ -181,3 +181,35 @@ func test_a_leavers_ship_waits_for_them() -> void:
 	assert_true(back.global_position.distance_to(place.origin) < 1.0, "where she was")
 	assert_false(host_sync.stored.has("Guest"))
 	assert_true(await play_until(func() -> bool: return again_world.ledger.mine["money"] == money, 2.0), "their purse as it was")
+
+
+func test_contracts_taken_after_loading_have_new_ids() -> void:
+	fresh()
+	var world := await solo()
+	world.session.save_slot = "1"
+	world.ledger.account_of(1)["contracts"] = [{"id": 2, "kind": "bounty", "title": "Sink a pirate", "reward": 250, "target": -1, "count": 1, "done": 0}]
+	assert_eq(world.save_game(), OK)
+	await leave(world)
+	world = await solo("Ann", "1")
+	var ledger: Ledger = world.ledger
+	ledger.ask_board()
+	for offer: Dictionary in ledger.boards[0]:
+		assert_true(offer["id"] > 2, "offer %d isn't one you hold" % offer["id"])
+	ledger.take_contract(ledger.boards[0][0]["id"])
+	var ids: Array = ledger.mine["contracts"].map(func(each: Dictionary) -> int: return each["id"])
+	assert_eq(ids.size(), 2)
+	assert_true(ids[0] != ids[1], "two contracts, two ids: %s" % [ids])
+
+
+func test_a_failed_autosave_waits_for_the_next_one() -> void:
+	fresh()
+	allowed_engine_errors = 1  # the one failed attempt logs that it couldn't make the folder
+	var blocker := FileAccess.open(dir, FileAccess.WRITE)  # a file where the saves folder should be
+	blocker.close()
+	var world := await solo()
+	world.session.save_slot = "1"
+	world._since_save = 299.0
+	await simulate(1.5)
+	assert_true((world.hud._message.text as String).begins_with("Couldn't autosave ("), world.hud._message.text)
+	assert_true(world._since_save < 5.0, "it tries again in five minutes, not every frame (%.1f s)" % world._since_save)
+	DirAccess.remove_absolute(dir)

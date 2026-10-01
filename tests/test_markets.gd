@@ -134,13 +134,18 @@ func test_a_full_hold_or_an_empty_purse_refuses() -> void:
 	assert_eq(ledger.account_of(1)["money"], 10)
 
 
-func test_you_cant_sell_someone_elses_crates() -> void:
+func test_the_captain_sells_crates_left_by_an_absent_owner_for_them() -> void:
 	await start()
 	sync.set_cargo(ship, {Vector3i(-1, 0, -2): {"good": "grain", "owner": "Bo"}})
 	ledger.trade("grain", -1)
-	assert_eq(world.hud._message.text, "You have no Grain aboard.")
-	assert_eq(ship.grid.cargo, {Vector3i(-1, 0, -2): {"good": "grain", "owner": "Bo"}}, "Bo's crate stays")
-	assert_eq(ledger.mine["money"], 1500)
+	var sale := Economy.sell_price(world.gen, 0, "grain")
+	assert_eq(world.hud._message.text, "Sold Bo's Grain for them: %d crowns." % sale)
+	assert_true(ship.grid.cargo.is_empty(), "the bay is free")
+	assert_eq(ledger.mine["money"], 1500, "your purse doesn't move")
+	assert_eq(ledger.accounts["Bo"]["money"], 1500 + sale, "Bo's does, for when they're back")
+	sync.set_cargo(ship, {Vector3i(-1, 0, -2): {"good": "mail", "owner": "Bo"}})
+	ledger.trade("mail", -1)
+	assert_eq(world.hud._message.text, "Mail isn't for sale.")
 
 
 func test_the_panel_fills_your_spares() -> void:

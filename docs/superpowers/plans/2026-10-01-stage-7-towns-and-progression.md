@@ -686,3 +686,44 @@ Build-log item s07-07: "Tests: save round trip and economy calculations" (the ne
 ---
 
 ## Changes during execution and after the final review
+
+All eleven tasks ran inline, test first, with one whole-branch review at the end. Nobody could play by hand, so each task's "play by hand" step became a screenshot check of the town panel's three sections and the shipyard (after Task 8), plus the playtest below.
+
+| Problem | Fix |
+|---|---|
+| The Ledger had no hook for "when a peer enters the world". | `WorldSync.peer_entered(peer)` fires at the end of `_enter_world`, and the Ledger sends that peer their account. |
+| With the new dock check, a guest's launch right after joining was refused: the server hadn't yet heard where they stood. Only a test is that fast. | `NetCase.sail_together` (and two dedicated-server tests) wait until the host has heard the guest (`NetCase.heard`). |
+| Two stage 5 town tests launched from a shipyard 2 km from its dock, and at a town the guest wasn't at. | They now expect "Launch from a town's dock." and launch where the guest is: the plan checks the town for every launch. |
+| A hired gunner aiming at a pirate's centre of mass fired through the open air between her deck and envelope (traced: a round shot crossed her box at 300 m without touching a block). | `PirateCaptain.fire_at` takes an optional `aim_cell`, and gunners aim at the pirate's block nearest her centre of mass. Pirate captains aim as before. |
+| The plan's "Hire a %s" gave "Hire a engineer". | `Economy.a_hand` gives "an engineer" in the button, the refusal and the stays-ashore message. |
+| The plan's `WorldSync.entered` signal already existed as stage 6's `world_arrived`. | `world_arrived` is used, through `World.come_ashore`. |
+| A hand's place went through a single-precision `Vector3`, so 1.45 read back as 1.4500000477 and the exact round trip failed. | A save's record keeps hand positions as the doubles written. |
+| You stand a few metres from the ship's origin, so a loaded game can see one more map cell than was saved. | The solo round-trip test checks that every cell seen before saving is seen after loading. |
+| Smaller wording calls. | Taking a delivery while not aboard a docked ship says "Your hold has room for 0 crates."; a free launch says "Launched for 0 crowns."; the fallback note drops the problem's own full stop inside its brackets; `SaveGame.rename` renames the saved host too; a save whose `world.json` won't read is ordered by its files' times. |
+
+The final whole-branch review: "with fixes", one critical finding (reproduced), six important and eleven minor. One minor was re-graded important by its effect. Each fix below has a test that failed first; the whole suite then passed, 545 of 545.
+
+| Problem | Fix |
+|---|---|
+| **Critical.** A long ship cut short left a hand (a bow engineer, a walking repairer) more than 35 m off her hull. Her record then failed to read, so every later save failed, autosaves rotated over the good ones, late joiners never saw her, and a returning captain's stored ship was erased and lost. | After a split, a gunner or engineer whose post broke away goes with it, and anyone left off the hull steps back aboard (`test_hands_stay_aboard_a_ship_cut_short`). `record()` also clamps hands inside the hull (`test_a_ship_record_always_reads`), and a stored ship leaves `stored` only once she's restored. |
+| Contract ids started from 1 again after loading, so a new contract could share an id with a saved one, and Drop dropped the wrong one (unloading its mail). | `Ledger.set_accounts` numbers new contracts after every saved one (`test_contracts_taken_after_loading_have_new_ids`). |
+| A failed autosave (full disk, read-only folder) retried every physics frame, stalling the host. | The five-minute clock restarts whether or not the autosave worked (`test_a_failed_autosave_waits_for_the_next_one`). |
+| A repairer's search for work called `Damage.repair` on every block: 26–33 ms on a healthy 4,000-block ship, every second. | `next_job` looks only at damaged blocks and the neighbours of blocks the blueprint can rebuild: one pass, well under 8 ms at 4,000 blocks (`test_looking_for_work_on_a_big_healthy_ship_is_quick`). |
+| A free test flight in parts not yet unlocked could earn money: salvage, bounties and scouting. | A player on a test flight earns nothing: "Test flights can't salvage.", and bounties and scouting don't count (`test_a_test_flight_earns_nothing`). |
+| A friend who left with crates in your hold left those bays full for good, and you couldn't launch a design with fewer bays. | Her captain can sell crates whose owner isn't here, crediting the owner's purse: "Sold Bo's Grain for them: 27 crowns." Mail still can't be sold (`test_the_captain_sells_crates_left_by_an_absent_owner_for_them`). |
+| Anyone aboard your ship at a dock could dismiss the hands you paid for. | Only her captain can, or anyone aboard a ship that's nobody's: "Only her captain can let her crew go." (`test_only_her_captain_dismisses_her_hands`). |
+| (Minor, re-graded by effect.) The town panel rebuilt its rows twice a second while a repairer walked, so clicks were lost. | The panel's summary leaves out where hands stand (`test_the_town_holds_still_while_a_repairer_walks`). |
+
+**Save timing.** On the Radeon 680M (`--gpu-index 0`, a solo world, five saves each): with the starter ship, 1.3–1.7 ms; with a 1,500-block ship added (1,802 blocks), 5.0–6.2 ms. That's well under 50 ms, so no save thread is needed.
+
+**Tests.** The whole suite passed three runs in a row before the review (537 tests), and again after the fixes (545 tests).
+
+**Deferred (minor, from the final review):**
+- One pirate counts toward every bounty a player holds, so three one-pirate bounties pay 750 for one pirate. Two salvage or scouting contracts for the same target both pay too.
+- A board drawn before its wreck was stripped still offers salvaging her, and that contract can never complete.
+- `SaveGame.rename` overwrites a saved guest's account if the host's new name is that guest's.
+- A returning captain's ship is restored where she was, without the launch's clear-spot check, so she can overlap a ship launched there since.
+- Save-file hardening: a huge clock (e.g. 1e18) freezes the world clock; the map PNG is decoded before its 128 × 128 size is checked; ship places are only checked as finite.
+- "Start over" doesn't clear the slot: its summary shows the old game until the new one saves, and the old hand-made save can become a fallback.
+- The README and spec say a lost ship's crew wake on the quay at once; in co-op a guest boards another ship (her successor, the one they came from, their own, or the host's) when there is one.
+- Wording: "Your hold has room for 0 crates." when you're ashore; "Launched for 0 crowns." against the yard's "Launch · free".

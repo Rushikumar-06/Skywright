@@ -88,6 +88,22 @@ func test_a_repairer_works_on_the_nearest_fire_then_the_nearest_damage() -> void
 	assert_eq(Damage.next_job(grid, blueprint, [Vector3i(3, 0, 0)], Vector3.ZERO, false), Vector3i(3, 0, 0), "but fires still go out")
 
 
+func test_looking_for_work_on_a_big_healthy_ship_is_quick() -> void:
+	var grid := ShipGrid.new()
+	for x in 20:
+		for y in 10:
+			for z in 20:
+				grid.set_block(Vector3i(x, y, z), "frame")
+	var blueprint := grid.copy()
+	var started := Time.get_ticks_usec()
+	var job: Variant = Damage.next_job(grid, blueprint, [], Vector3.ZERO, true)
+	var ms := (Time.get_ticks_usec() - started) / 1000.0
+	assert_eq(job, null, "nothing to do")
+	assert_true(ms < 8.0, "a 4,000-block search took %.1f ms" % ms)
+	grid.blocks.erase(Vector3i(19, 9, 19))
+	assert_eq(Damage.next_job(grid, blueprint, [], Vector3(19, 9, 19), true), Vector3i(18, 9, 19), "a lost corner is rebuilt from beside it")
+
+
 func test_a_destroyed_bay_loses_its_crate_and_a_healed_one_keeps_it() -> void:
 	var grid := grid_of({Vector3i(0, 0, 0): "cargo_bay", Vector3i(1, 0, 0): "cargo_bay"})
 	grid.cargo = {Vector3i(0, 0, 0): {"good": "grain", "owner": "Ann"}, Vector3i(1, 0, 0): {"good": "tools", "owner": "Ann"}}

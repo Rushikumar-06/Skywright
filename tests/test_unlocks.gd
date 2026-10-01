@@ -186,3 +186,27 @@ func test_the_server_refuses_a_launch_it_shouldnt_make() -> void:
 	await play(0.5)
 	assert_eq(host_sync.ships.values().filter(func(each: Ship) -> bool: return each.captain == guest).size(), 1, "one ship")
 	assert_eq(books.account_of(guest)["money"], 150, "charged once")
+
+
+func test_a_test_flight_earns_nothing() -> void:
+	await start()
+	world.test_flight(with_alloy())
+	var trial: Ship = world.ship
+	assert_true(trial.test, "on a test flight")
+	trial.anchored = true
+	trial.global_position = open_sky(world, 1000.0)
+	ledger.account_of(1)["contracts"] = [{"id": 8, "kind": "bounty", "title": "Sink a pirate", "reward": 250, "target": -1, "count": 1, "done": 0},
+			{"id": 9, "kind": "scout", "title": "Scout it", "reward": 180, "target": 0, "count": 1, "done": 0}]
+	var pirate := sync.add_ship(PirateShip.build(), trial.global_transform.translated(Vector3(300, 0, 0)), 0, false, 0, true)
+	sync.remove_ship(pirate, null, true)
+	world.go_ashore()
+	player.crew.position = Sites.wreck_center(world.gen.wrecks[0])
+	player.crew.velocity = Vector3.ZERO
+	press(player, "interact")
+	assert_eq(world.hud._message.text, "Test flights can't salvage.")
+	assert_false(sync.salvaged.has(0), "the wreck keeps her loot")
+	player.crew.position = (world.gen.landmarks[0]["at"] as Vector3) + Vector3(300, 0, 0)
+	sync._wear()
+	assert_eq(ledger.account_of(1)["contracts"].size(), 2, "no bounty or scouting counts")
+	assert_eq(ledger.account_of(1)["contracts"][0]["done"], 0)
+	assert_eq(ledger.mine["money"], 1500, "and no crowns")

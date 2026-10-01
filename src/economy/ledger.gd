@@ -48,6 +48,15 @@ func account_of(peer: int) -> Dictionary:
 	return accounts[player_name]
 
 
+## Server: takes the accounts a saved game kept, and numbers new contracts after
+## every one they hold.
+func set_accounts(saved: Dictionary) -> void:
+	accounts = saved
+	for account: Dictionary in accounts.values():
+		for contract: Dictionary in account["contracts"]:
+			_next_contract = maxi(_next_contract, contract["id"] + 1)
+
+
 ## Server: adds amount to peer's money (charges it when negative, never below 0), and
 ## sends them their account.
 func pay(peer: int, amount: int) -> void:
@@ -292,12 +301,26 @@ func _trade_for(peer: int, good: String, count: int) -> void:
 		return
 	var cells := cargo.keys()
 	cells.sort()
+	var price := Economy.sell_price(sync.gen, town, good)
 	for cell: Vector3i in cells:
 		if cargo[cell]["good"] == good and cargo[cell]["owner"] == owner:
 			cargo.erase(cell)
 			sync.set_cargo(ship, cargo)
-			pay(peer, Economy.sell_price(sync.gen, town, good))
+			pay(peer, price)
 			return
+	# Her captain sells what someone who left stowed in her, so it can't fill her bays
+	# for good. The crowns are theirs, for when they're back.
+	if ship.captain == peer:
+		for cell: Vector3i in cells:
+			var absent: String = cargo[cell]["owner"]
+			if cargo[cell]["good"] == good and _peer_named(absent) == 0:
+				cargo.erase(cell)
+				sync.set_cargo(ship, cargo)
+				if not accounts.has(absent):
+					accounts[absent] = Economy.new_account()
+				accounts[absent]["money"] += price
+				tell(peer, "Sold %s's %s for them: %d crowns." % [absent, good_name, price])
+				return
 	tell(peer, "You have no %s aboard." % good_name)
 
 
@@ -362,6 +385,9 @@ func _dismiss_for(peer: int, id: int) -> void:
 		return
 	var index := ship.hands.find_custom(func(hand: Dictionary) -> bool: return hand["id"] == id)
 	if index < 0:
+		return
+	if ship.captain != 0 and ship.captain != peer:  # whoever paid for them keeps them
+		tell(peer, "Only her captain can let her crew go.")
 		return
 	var hands := ship.hands.duplicate()
 	var gone: Dictionary = hands.pop_at(index)
@@ -490,11 +516,13 @@ func _peer_named(player_name: String) -> int:
 
 
 ## Server: the players in the world within reach of at (where they last said they were).
+## Placed, it leaves out players on a test flight: a free flight in parts not yet
+## unlocked earns nothing toward contracts.
 func _players_near(at: Vector3, reach: float, placed := true) -> Array[int]:
 	var found: Array[int] = []
 	var peers: Array = sync.session.players.keys()
 	for peer: int in peers:
-		if not sync.in_world(peer):
+		if not sync.in_world(peer) or (placed and sync.ship_of(peer, true) != null):
 			continue
 		var where: Variant = sync.world_position_of(peer)
 		if not placed or (where != null and (where as Vector3).distance_to(at) <= reach):

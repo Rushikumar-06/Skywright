@@ -343,7 +343,7 @@ func _hire_for(peer: int, role: String) -> void:
 			return
 	var fee: int = Economy.HANDS[role]["fee"]
 	if account_of(peer)["money"] < fee:
-		tell(peer, "You can't afford a %s (%d crowns)." % [role, fee])
+		tell(peer, "You can't afford %s (%d crowns)." % [Economy.a_hand(role), fee])
 		return
 	pay(peer, -fee)
 	var names: Array = Economy.HAND_NAMES.filter(func(each: String) -> bool:

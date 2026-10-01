@@ -899,7 +899,7 @@ func _launch_for(peer: int, grid: ShipGrid, test: bool, town: int) -> void:
 		remove_ship(own, ship)
 		_tell(peer, "Launched for %d crowns." % price)
 		for hand: Dictionary in ashore:
-			_tell(peer, "%s stays ashore: she has no room for a %s." % [hand["name"], hand["role"]])
+			_tell(peer, "%s stays ashore: she has no room for %s." % [hand["name"], Economy.a_hand(hand["role"])])
 	elif not test:
 		_tell(peer, "Launched for %d crowns." % price)
 

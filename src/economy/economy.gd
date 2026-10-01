@@ -62,6 +62,12 @@ const MAX_REWARD := 100000
 const MAX_COUNT := 64
 
 
+## role's name with its article: "a gunner", "an engineer".
+static func a_hand(role: String) -> String:
+	var hand_name: String = HANDS[role]["name"]
+	return ("an " if hand_name[0] in "aeiou" else "a ") + hand_name
+
+
 static func new_account() -> Dictionary:
 	return {"money": STARTING_MONEY, "unlocks": [], "contracts": [], "insured": 0}
 

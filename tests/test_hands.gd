@@ -238,3 +238,15 @@ func test_the_server_ignores_junk_hiring() -> void:
 	await play(0.3)
 	assert_eq(ours.hands, hands, "her hands are as they were")
 	assert_eq(books.account_of(guest)["money"], money, "and the guest's purse")
+
+
+func test_an_engineer_takes_an() -> void:
+	await start()
+	ledger.account_of(1)["money"] = 0
+	ledger.hire("engineer")
+	assert_eq(world.hud._message.text, "You can't afford an engineer (200 crowns).")
+	world.open_town()
+	(world.town_panel as TownPanel).show_section("crew")
+	var texts := (world.town_panel as TownPanel).find_children("*", "Button", true, false).map(func(b: Button) -> String: return b.text)
+	assert_true(texts.has("Hire an engineer   200 crowns"), str(texts))
+	assert_true(texts.has("Hire a gunner   150 crowns"), str(texts))

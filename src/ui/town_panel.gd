@@ -168,7 +168,7 @@ func _build_crew() -> void:
 		return
 	_rows.add_child(_mono("Hands     %d/%d bunks" % [ship.hands.size(), ship.grid.cells_of("bunk").size()]))
 	for role: String in Economy.HANDS:
-		_rows.add_child(UiTheme.button("Hire a %s   %d crowns" % [role, Economy.HANDS[role]["fee"]], _ledger.hire.bind(role)))
+		_rows.add_child(UiTheme.button("Hire %s   %d crowns" % [Economy.a_hand(role), Economy.HANDS[role]["fee"]], _ledger.hire.bind(role)))
 	for hand in ship.hands:
 		var line := HBoxContainer.new()
 		var label := Label.new()

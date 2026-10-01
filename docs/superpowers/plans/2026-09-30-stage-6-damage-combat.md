@@ -589,3 +589,34 @@ Build-log item s06-08: "Tests: damage and break-apart logic" (the network half; 
 
 ## Changes during execution and after the final review
 
+Tasks 1–5 ran with an implementer and a reviewer each. From Task 6 on, at the user's request, they ran inline: test first, then the whole suite, with one whole-branch review at the end.
+
+| Problem | Fix |
+|---|---|
+| The starter ship's envelope didn't touch her hull: the posts stopped at y 7 and the envelope's bottom row is 3 wide, so the first hit anywhere would have split the envelope off. | Frames at (±2, 8, −4) and (±2, 8, 6) carry the posts into the envelope's widest row, and four balloon cells at (±2, 9, −5) and (±2, 9, 7) keep her height. She now splits into keep only, and a cut at z 0 gives one wreck. |
+| A shipyard design with a gap would lose blocks on the first hit, without warning. | `ShipStats` warns "%d blocks aren't joined to the helm: they'll fall away when she's hit." |
+| Round shot through four balloons never reaches the frame behind them (reach 4), unlike the plan's test. | The reach rule stands, and the test asserts the frame untouched. |
+| Without her engine the starter ship is 300 kg lighter and rises, so "under 1 m/s" couldn't hold. | The engine-loss test checks horizontal speed. |
+| Clients refused ships without a helm, so wrecks never reached them, nor late joiners. | `ShipGrid` readers take `needs_helm` (true by default); ship entries pass false. |
+| Boarding a wreck read `helm.cell` and crashed. | `crew_spawn` on a wreck stands you on her highest block near the middle. |
+| Wrecks were cleared within a second whenever nobody was aboard a ship, so one could vanish under a player jumping to it. | Wreck and pirate upkeep measure from every player's position, aboard or ashore (`WorldSync.player_positions()`). |
+| The six extra balloon cells already gave the joined, armed ship 882.5 m. | The plan's cells stand; `test_ship_grid`'s float centre moved from 877 to 881 m, with the tolerance unchanged. |
+| With the spec's literal break-apart rule, shooting out the one plank under the starter ship's helm kept a one-block helm as "the ship" and broke her whole hull away as a wreck. | A helm only keeps the ship on a piece of at least 4 blocks. Otherwise the hull stays the ship, as a wreck, and the loose helm goes as a splinter. |
+| The pirate's circling prototype flew in calm air. In the Shattered Belt's 7 m/s wind she circled 430–640 m out. | The captain steers against the wind's drift: the bow goes off by the angle between heading and ground track, at most 0.6 rad, above 5 m/s. Four spawn angles now circle 305–367 m out. |
+| `NetCase.open_sky` lands in the Shattered Belt for the test seed, not the Calm Reaches. | The raid test expects that region's own limit. |
+| E by a wreck couldn't go through the World in tests, which drive the controller. | The controller emits `idle_interact` when E has nothing else to do, and the World salvages. |
+| A captain whose own ship was wrecked couldn't rebuild her if she sank. | A lost ship with a captain gives back her blueprint, wreck or not. Only nobody's wrecks and pirates sink without a word. |
+| Late joiners didn't see fires already burning. | They get each burning ship's `_fires` after `_world`, as they get cannon gunners. |
+
+**Frame rate.** On the Radeon 680M (`--gpu-index 0`, seed 7, 1920 × 1080, vsync off), a scripted two-minute fight was measured: your anchored ship in the Shattered Belt with the world streaming, a pirate circling and firing, and your cannon firing shells, chain shot and round shot back every 2 s.
+- With a warm shader cache it averaged 226 fps. The slowest second was 183 fps, and the worst frame after loading was 18 ms.
+- On the very first run, with a cold shader cache, one frame took 384 ms. That was the driver compiling shaders, and it didn't recur.
+- No ship broke apart in the run. Rebuilds measured 2.9 ms (starter ship) to 3.8 ms (500 blocks) in prototyping.
+- Playtest item 11 is the hand-flown check.
+
+**Network.** A two-machine fight with a pirate stayed under 32 KB/s down to the guest (`test_a_battle_stays_within_the_network_budget`).
+
+**Deferred:**
+- A ship whose helm is shot off is a wreck you can't repair, because helms need a shipyard. If she still floats, you're stranded far from a dock. Consider an "abandon ship" back to the nearest quay, or repairs that rebuild a helm, in stage 7 or 8.
+- Right after a loss, the Roil's quay rescue replaces "Your ship is lost to the Roil…" within a second, so the rebuild hint may go unseen. Playtest item 9.
+- Smaller items: `Projectiles.untie` broadcasts through `WorldSync.tell_world`; `_down` is never pruned; a wreck keeps a mannable cannon; clients set `Ship.born` on arrival; the aim line leaves out the ship's motion on guests.

@@ -1,7 +1,7 @@
 # Skywright: design spec
 
 - **Date:** 2026-09-29
-- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 with what stages 2, 3, 4 and 5 settled.
+- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 and 2026-10-01 with what stages 2 to 6 settled.
 - **Tracker:** [Skywright Build Log](https://claude.ai/artifact/N8W3J8xUU77JcdYdhcSZCx)
 
 ## 1. Summary
@@ -50,14 +50,16 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 - **Weight and forces:** every block has weight. Balloons and propellers push from where they're mounted. Wind and drag act on every exposed face.
 - **Shipyard readouts:** weight, lift at the current altitude, thrust, estimated top speed and climb rate. Markers show the centre of mass against the centre of lift, with warnings such as "lists 8° to port" or "too heavy to hold altitude".
 - **Cargo:** crates are stowed in cargo bays, and their weight counts where they're stowed.
-- **Damage:** destroyed blocks are removed. Any section no longer connected to the helm's section breaks away as its own wreck, and a severed balloon floats away.
+- **Damage:** every block has hit points, and destroyed blocks are removed; the ship flies on what's left. Any section no longer connected to the helm's section breaks away as its own wreck, and a severed balloon floats away. A helm shot loose on fewer than 4 blocks is lost with them, and the ship becomes a wreck that can't be steered.
+- **Shipyard warning:** blocks not joined through faces to the helm's piece are flagged, because they'd fall away at the first hit.
 - **Shipyard:** the shipyard opens within 150 m of any town's dock, which has a slipway for each player. A launch or test flight goes from the slipways of the town whose shipyard it was made in, even after you come back from a test flight somewhere else. Blocks are placed, removed, turned, tipped and mirrored, with undo and redo. Mirror mode makes every edit on both sides of the keel.
 - **Test flights:** a design can be flown at once from the shipyard, with the designer at the helm, and returned from instantly. A test flight is a real ship that's removed when it ends.
 - **Blueprints:** designs are saved as blueprints, which are shareable files.
 
 ### 3.4 Crew and stations
 
-- Players walk the deck in first person, climb ladders and use stations: helm, cannon, engine and repair.
+- Players walk the deck in first person, climb ladders and use stations: the helm and cannons. (An engine station waits for fuel, stage 7.)
+- **Repairs:** holding R at a block within 6 m puts out fires around it, or else uses one of the ship's spares to heal it or rebuild a lost block beside it from her blueprint, four times a second. That patches the envelope from the deck. Helms and cannons need a shipyard. A ship carries up to 40 spares, filled free at any town's dock until stage 7 prices them.
 - At the helm, the camera can switch to a third-person chase view.
 - The helm has an autopilot that holds heading and altitude, so a solo player can leave the helm to man a gun.
 - AI crew hired in towns staff stations: gunner, engineer and repairer.
@@ -66,11 +68,14 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 
 ### 3.5 Threats and combat
 
-- **Pirates:** ships built from the same blocks and flying on the same physics, with AI captains that chase, circle and fire broadsides.
+- **Pirates:** ships built from the same blocks and flying on the same physics, with AI captains that chase, circle and fire broadsides. One design (`PirateShip`, four cannons). The server raids crewed ships more than 1,200 m from every dock every 30 s: a 25% chance in the Calm Reaches with at most one pirate near you, 50% and two further in, four in the world at most. Captains fire the guns themselves (no pirate crew), steer against the wind's drift, and don't steer around islands. Pirates far from every player leave.
 - **Sky leviathans:** roaming giants in the Gale Expanse, plus one boss.
 - **Weather:** storm cells bring lightning and turbulence.
-- **Cannon ammunition:** round shot (block damage), chain shot (shreds balloons), explosive shells (area damage) and harpoons (tethering).
-- **The Roil:** below 200 m a ship takes storm damage, and below 0 m it is lost. You keep the blueprint and can rebuild the ship at a shipyard for a price.
+- **Cannon ammunition:** round shot (block damage, about two planks), chain shot (shreds balloons), explosive shells (3 m bursts that start fires) and harpoons (a rope between the ships for 45 s). Cannons never run out until ammunition becomes cargo (stage 7).
+- **Being hit:** a shot through a player, or a shell bursting within 3 m, knocks them down for 5 s; they come to at a bunk or by the helm. There's no health bar.
+- **Fire:** wood and cloth burn, losing 5 hit points a second, spreading, and burning out after 30 s.
+- **Salvage:** each world wreck gives 12 spares once a session; a broken-off wreck gives a spare per 10 blocks and is broken up. Loot beyond spares waits for inventory (stage 7).
+- **The Roil:** below 200 m a ship takes storm damage, and below 0 m it is lost. You keep the blueprint and can rebuild the ship at a shipyard, free until stage 7 sets a price.
 
 ### 3.6 Economy and progression
 
@@ -189,7 +194,7 @@ Player names are trimmed and capped at 24 characters. An empty name becomes "Cap
 
 Sanity check: a starter ship with a 12 × 4 hull and about 5 t of blocks needs about 70 balloon cells to float at 800 m. That's an envelope about the size of the hull, which reads as an airship. Two propellers giving 5 kN reach about 27 m/s.
 
-The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 balloon cells. Iron in the middle of its keel puts its weight right under its lift, so it floats level at 877 m. Its two propellers reach 20 m/s.
+The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 balloon cells. Iron in the middle of its keel puts its weight right under its lift, so it floats level at 877 m. Its two propellers reach 20 m/s. Stage 6 joined her envelope to her hull (her posts run into it) and gave her two cannons and more balloons: 9.6 t, 301 blocks, 137 balloon cells, level at 882 m.
 
 **Mass properties:**
 - Total mass is the sum of the blocks.
@@ -209,12 +214,14 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 
 **Collision:** cells are merged into boxes with greedy meshing and added as box shapes on the body. A hit's shape index plus its local hit point identify the cell.
 
-**Rendering:** one mesh per ship, with one surface per material. Stage 6 may split it into 16³ sections so a hit only rebuilds its section. Shaped blocks (propeller, rudder, sail, cannon, helm) are drawn as shapes but still collide and drag as cubes. Balloons are drawn as one cloth envelope.
+**Rendering:** one mesh per ship, with one surface per material, rebuilt whole at most once a frame when blocks go or come back (2.9 ms for the starter ship, 3.8 ms at 500 blocks, 23 ms at 4,000). 16³ sections wait until big ships stutter under fire. Shaped blocks (propeller, rudder, sail, cannon, helm) are drawn as shapes but still collide and drag as cubes. Balloons are drawn as one cloth envelope.
 
-**Break-apart:** after blocks are destroyed, a flood fill finds the connected components.
-- The largest component that still contains a helm stays the ship.
-- Every other component becomes a new wreck, with its own body, the velocity it had at that point, and its own mass properties.
-- If no helm survives, the whole ship becomes a wreck that can't be steered.
+**Break-apart:** after blocks are destroyed, a flood fill finds the components connected through faces.
+- The largest component of at least 4 blocks that still contains a helm stays the ship. Otherwise the largest component stays, as a wreck that can't be steered. Ties go to the component with the smallest cell, so every machine agrees.
+- Every other component of 4 blocks or more becomes a new wreck (nobody's), with its own body, the velocity it had at that point, and its own mass properties. Smaller ones vanish as splinters.
+- Wrecks go after 3 minutes, when more than 8 are about, or when further than 3 km from every player.
+
+**Damage rules** live in `Damage` (node-free): shots walk the grid along their path, blasts fall off with distance, fire burns and spreads once a second, repairs heal or rebuild from the blueprint. Hits are found by moving the hit point into ship space and walking the grid, not by shape index.
 
 **Physics guard:** a ship whose position or velocity becomes non-finite, faster than 400 m/s, or spinning faster than 20 rad/s is restored to its last good transform with zero velocity, and the event is logged.
 
@@ -225,7 +232,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 - **Drawing crew:** a crew member is drawn in the main world at the ship's interpolated transform multiplied by their local transform.
 - **Leaving and boarding:** you leave the ship when no ship floor has been under your feet for 0.2 s and nothing of the ship is below you (`Ship.is_over`). You then become a main-world character (`ship` is null) in world space, with the ship's point velocity plus your own. Ashore you walk with ordinary gravity, never faster than 50 m/s, and a glide (Space held through 0.3 s of falling, not rising, or pressed again in the air) eases you to 13 m/s where you look, sinking at most 3 m/s. Landing on a ship's deck puts you aboard that ship, once you've been ashore 0.5 s so you don't bounce straight back. So does E within 3 m of a ship's box, because you can't jump 2 m up a hull and ships don't hold still at a quay. Falling below the Roil's 200 m puts you back aboard the ship you left, else your own, else the host's.
 - **Walking in a tilted gravity:** walking "uphill" against gravity that isn't square to the deck makes Godot skip its floor snap, so crew apply the snap themselves (except when jumping or on a ladder). Ladders are open cells: while your body is in a ladder's column you hold on, gravity stops, and you climb along the ship's up.
-- **Being hit:** each crew member also has a main-world hitbox (`Area3D`) so projectiles can hit them.
+- **Being hit:** the server tests each shot against where each player last reported standing (within 0.7 m of its path, or inside a shell's burst), so crew need no hitboxes.
 - **Other players:** each machine walks only its own crew member, in its own copy of the interior, and reports where it is (§4.6). Everyone else is drawn as an avatar with a name tag. Crew don't collide with each other until combat needs server-side crew bodies (stage 6).
 - **Fallback:** if this approach fails its stage 2 check, crew become main-world characters that inherit platform velocity and yaw from the deck.
 
@@ -251,6 +258,12 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
   - `_request(ship_id, what, on)` may ask for `"anchor"`. Only the pilot may.
   - `_crew_report` and `_crew_moved` use ship id 0 for crew ashore, as above.
 - **Block bytes:** two bytes of block count (`encode_u16`), then a zstd-compressed body of 7 bytes per block: `x + 64`, `y + 64`, `z + 64`, the type's index in `Tuning.BLOCKS`' key order, the rotation, and the hit points as `u16`. Reordering `Tuning.BLOCKS` changes the protocol.
+- **Protocol 5 (stage 6):**
+  - Ship entries gain the blueprint's bytes, whether she's a pirate, and her spares: `[id, blocks, paint, transform, pilot, captain, test, blueprint, pirate, spares]`. `_world(time, entries, salvaged)` adds the world wrecks already stripped.
+  - `_blocks_changed(id, changes)` carries every hit-point change (hits, fire, the Roil, repairs; 0 is destroyed): a `u16` count, then 5 bytes a change. A split is one `_blocks_changed` followed by `_ship_added` for each wreck. `_ship_removed(id, successor, lost)` says whether the Roil took her.
+  - Shots: `_fired(shot, ammo, origin, velocity, time, ship)` and `_hit(shot, point, time)`; every machine flies the arc, clients 100 ms behind like ships. Ropes: `_tether` and `_untether`.
+  - Stations: `_man`, `_gunner` and `_fire` for cannons, as for the helm. Repairs: `_repair`, `_fires` (3 bytes a burning cell), `_spares`. Salvage: `_salvage`, `_salvaged`, `_salvage_result`. Knock-downs: `_knocked_out`.
+  - A broadside of four is under 1 KB. A fight with a pirate measured under 32 KB/s down to a guest.
 - **Joining mid-game:** only peers whose world has loaded get world traffic. A client's world asks to enter when it's ready, and receives the world clock and every ship (blocks as bytes, paint, transform, pilot, captain and test). The world seed comes with the handshake; later stages add the list of changes to the world. The crew roster comes with the handshake.
 - **Budget:** at most 64 KB/s down per client. Twelve ships at 30 Hz is about 22 KB/s.
 
@@ -265,7 +278,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 - **Detail levels:** full below 800 m, medium below 1,800 m, low below 3,000 m. Trees stop at 1,200 m, waterfalls at 1,800 m and clouds at 3,000 m. Fog hides the edge.
 - **Islands:** each chunk makes up to 4 tries by region, and a try lands 70% of the time if it fits. The Shattered Belt has the most (4 tries of small islands, 15–60 m in radius), the Stormwall the fewest (1 try, 15–40 m), and the others 2 tries of 25–120 m. The rim has none. Tops float between 300 m and 1,700 m. Each island has a noise-shaped grassy top and a tapered, noisy rock underside, flat shaded, with trees and sometimes a waterfall. Collision is a static trimesh.
 - **Towns:** ten, placed by seeded dart throwing with at least 1,500 m between docks, in the regions' shares (§3.1). The starting town is always at the start point, `(0, 880, 7000)`. A town is a flat island with houses and a beacon tower, behind a stone quay with a slipway for every player and a finger pier 1.5 m off the side of a ship at each slipway. Docks are frictionless, so a ship blown against a pier slides along it. A launch keeps 1 m from the dock's obstacles and 2 m from other ships.
-- **Landmarks and wrecks:** landmarks are spires, arches and ruins. A wreck is a starter ship with its balloons gone and each other block lost with a 35% chance, resting on an island. Both are made from their own seeds, so they come out the same everywhere. Wrecks will be made from pirate blueprints when pirates arrive (stage 6).
+- **Landmarks and wrecks:** landmarks are spires, arches and ruins. A wreck is a pirate ship with its balloons gone and each other block lost with a 35% chance, resting on an island. Both are made from their own seeds, so they come out the same everywhere.
 - **Wind:** `W(p, t)` = prevailing wind + sky rivers + storm cells + turbulence, and the rim's push inward past 8,000 m.
   - The prevailing wind circles the Eye counter-clockwise, rising from 2 m/s at the rim to 12 m/s in the Gale Expanse.
   - There are 6–10 sky rivers, each a winding spline of 20 points at 600–1,400 m. They blow 20–35 m/s in a core 60–120 m wide, fading smoothly to nothing at twice that, and at their two ends. Segments blend, so the wind swings round a bend instead of jumping.
@@ -315,7 +328,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 | Players | ≤ 8 |
 | Host physics tick | ≤ 8 ms with 12 ships |
 | Network, per client | ≤ 64 KB/s down |
-| Mesh rebuild after a hit | ≤ 4 ms per 16³ section |
+| Mesh rebuild after a hit | ≤ 4 ms per 16³ section; the whole-ship rebuild measured 2.9 ms for the starter ship and 3.8 ms at 500 blocks |
 
 > ponytail: all game code is GDScript. If mesh building or world generation misses its budget, move that hot path into a GDExtension (C++) module.
 
@@ -415,3 +428,10 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-30 | Piers stand 1.5 m off a ship at each slipway, and docks are frictionless so a ship blown onto one slides along it; launches keep 1 m from dock obstacles and 2 m from ships |
 | 2026-09-30 | Crew ashore report in world space (ship id 0), at most 50 m/s overall, with 0.01 m/s of slack on the server |
 | 2026-09-30 | The world seed travels in the handshake (protocol 4), and a guest makes the world from it |
+| 2026-10-01 | Ships carry spares (0–40) for repairs, filled free at docks, and lost ships rebuild free, until stage 7 prices them |
+| 2026-10-01 | One mesh per ship, rebuilt whole at most once a frame; 16³ sections wait for big ships to stutter |
+| 2026-10-01 | Crew are hit by where they last reported standing; a hit knocks you down for 5 s, with no health bar |
+| 2026-10-01 | Pirates' guns are fired by their captains; there's no pirate crew, and pirates never board |
+| 2026-10-01 | A helm on a piece under 4 blocks doesn't keep the ship: the hull stays, a wreck, and the helm goes as a splinter |
+| 2026-10-01 | The starter ship's envelope is joined to her hull, so she breaks only where she's cut |
+| 2026-10-01 | Pirate captains steer against the wind's drift, so they circle where they mean to |

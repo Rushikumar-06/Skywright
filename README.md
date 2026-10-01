@@ -6,7 +6,12 @@ Built with Godot 4.7.2. The design is in [`docs/superpowers/specs/2026-09-29-sky
 
 ## Status
 
-**Stage 5 of 10 (The sky world).** You can:
+**Stage 6 of 10 (Damage and combat).** You can:
+- man a cannon and fire round shot, chain shot, shells and harpoons on arcs you can see before you shoot;
+- shoot holes in ships, cut them apart, and send severed envelopes floating off, while the part with the helm flies on what's left;
+- fight pirates who raid you away from the towns, circling and firing broadsides;
+- repair your ship with spares, rebuild lost planks and patch the envelope, and put out fires;
+- salvage spares from wrecks, and lose a ship to the Roil and rebuild her from her blueprint;
 - fly a generated world: a disc 16 km across of floating islands, from the Calm Reaches in to the Stormwall and the Eye, the same for everyone who plays the same seed;
 - visit ten towns, each with a dock, a shipyard and a beacon you can see from far off;
 - ride sky rivers, fly through storms, and fit sails to a ship and sail with the wind;
@@ -26,7 +31,8 @@ Everyone starts aboard the host's starter ship, and can launch a ship of their o
 | Space | Jump, or climb a ladder | Climb | Jump; in the air, hold it to glide |
 | Ctrl or C | Climb down a ladder | Descend | |
 | Shift | Sprint | | Sprint |
-| E | Take the helm | Leave the helm | Climb aboard, next to a ship |
+| E | Take the helm, man a cannon, or salvage a wreck | Leave the helm | Climb aboard, next to a ship; salvage a wreck |
+| R (hold) | Repair the block you look at | | |
 | G | | Drop or raise the anchor | |
 | H | | Autopilot on or off | |
 | V | | Chase view | |
@@ -34,6 +40,8 @@ Everyone starts aboard the host's starter ship, and can launch a ship of their o
 | Mouse | Look | Look, or orbit in the chase view | Look |
 | B | Shipyard, at a dock | | Shipyard, at a dock |
 | Esc | Menu | Menu | Menu |
+
+At a cannon, the mouse aims (within its arc), left click fires and Q changes the ammunition; E leaves it.
 
 On a ladder, W climbs too. Throttle and trim stay where you leave them. The autopilot holds the heading and height it was switched on at, and A, D, Space and Ctrl adjust those.
 
@@ -50,7 +58,7 @@ The world is a disc 16 km across, centred on the Eye. The Roil, a storm sea, fil
 | The Eye | 0 to 1,600 m |
 
 - **Islands** stream in around you, up to 2.5 km away, in three levels of detail. Tops are grassy and undersides are rock. Some have trees and waterfalls.
-- **Towns.** Ten towns stand on big islands: four in the Calm Reaches (the first is where you start), three in the Shattered Belt, two in the Gale Expanse and one at the Stormwall. Each has a quay with a slipway for every player, a pier beside each slipway, houses and a beacon tower. The shipyard opens at any town's dock, and ships launch from that town. Landmarks (spires, arches and ruins) and wrecks of old starter ships are scattered about.
+- **Towns.** Ten towns stand on big islands: four in the Calm Reaches (the first is where you start), three in the Shattered Belt, two in the Gale Expanse and one at the Stormwall. Each has a quay with a slipway for every player, a pier beside each slipway, houses and a beacon tower. The shipyard opens at any town's dock, and ships launch from that town. Landmarks (spires, arches and ruins) and wrecks of old pirate ships are scattered about.
 - **Wind** circles the Eye and blows harder toward it. **Sky rivers** are fast currents, up to 35 m/s, that you can ride or fight. **Storm cells** are drifting circles of gusts and updrafts, with lightning. Sails push a ship along the way they face. The wind is the same for everyone, because it comes from the seed and the world clock.
 - **The Roil** is at the bottom of everything. Fog sheets lie over it, and lightning flickers in it.
 - **The map** (M) fills in as you fly. The compass shows your bearing, the towns you've seen, and the region you're in.
@@ -61,10 +69,27 @@ The world is a disc 16 km across, centred on the Eye. The Roil, a storm sea, fil
 - **Stepping off.** Walk off the edge of the deck and you're ashore. At a dock, a pier runs beside each slipway, just below the deck. You keep the ship's speed at first.
 - **Gliding.** Fall and hold Space to open a glider: about 13 m/s forward and sinking no faster than 3 m/s. Let go and you fall. Land on an island and walk around.
 - **Climbing aboard.** Land on a ship's deck, or stand beside her hull and press E.
-- **The Roil.** Fall into it and you're put back aboard.
+- **The Roil.** Fall into it and you're put back aboard, or if there's no ship left, you wake on the nearest town's quay.
 - **Anchoring.** At the helm, G drops the anchor: the ship stops and stays exactly where she is, whatever the wind. The readout says "Anchored". G again raises it.
 
 Friends see you wherever you go, as a plain figure with no glider. Ashore you move at 50 m/s at most.
+
+## Combat
+
+- **Cannons.** The starter ship carries two, one on each side. Stand by one and press E to man it. While you man it, a white line shows where a shot would fly. A cannon turns 40° either way from where it faces, and reloads in 4 s.
+- **Ammunition.** Q cycles through four kinds, and cannons never run out:
+  - **round shot** punches through about two planks;
+  - **chain shot** shreds balloons;
+  - **shells** burst, hurting everything within 3 m and setting wood alight;
+  - **harpoons** tie a rope between the two ships for 45 s.
+- **Damage.** Every block has hit points. Shots break blocks, and a broken block is gone: you can see the hole and fall through it, and the ship flies on what's left. Lose balloons and she sinks or lists; lose a propeller and she pulls to one side. The helm's readout shows her hull and spares.
+- **Breaking apart.** A section cut off from the helm's piece breaks away as a wreck, keeping its speed. A severed envelope floats off, and the ship falls. A helm shot loose on its own is lost, and the ship becomes a wreck that can't be steered. Pieces under 4 blocks vanish.
+- **Being hit.** A shot through you, or a shell bursting within 3 m, knocks you down for 5 s. You come to at a bunk, or by the helm.
+- **Repairs.** Hold R and look at a block within 6 m. Four times a second, a repair puts out any fire there, or else uses one spare to heal a damaged block or rebuild a lost one beside it from the ship's blueprint. That patches the envelope from the deck, too. Helms and cannons can't be rebuilt away from a shipyard. A ship carries up to 40 spares, and any town's dock refills them for free.
+- **Fires.** Shells set wood and cloth alight. Fire eats 5 hit points a second, spreads, and burns out after 30 s. Hold R at it to put it out, which is free.
+- **Pirates** raid crewed ships away from the towns: up to one at a time in the Calm Reaches, and two further in. They chase you, circle about 350 m out, and fire broadsides. Shoot off a pirate's helm and she's a wreck. Pirates leave when you get far away.
+- **Salvage.** Press E by a wreck to salvage her. Each wreck in the world gives 12 spares once, and the world remembers she's been stripped. A broken-off wreck gives a spare for every 10 blocks and is broken up. The spares go to the ship you're aboard, else your own.
+- **The Roil.** Below 200 m the storm wears away a ship's blocks. Below 0 m she's lost. Her captain's shipyard then holds her blueprint, and launching rebuilds her whole, for free for now.
 
 ## The shipyard
 
@@ -84,7 +109,7 @@ Every town has a dock, and you start at the first one. Each player has a slipway
 | F | Test flight |
 | B | Back from a test flight |
 
-The panels show what your design will do: weight, lift, where she floats, thrust, top speed and climb rate. Two markers show the centre of mass and the centre of lift. If they don't line up, she lists or trims that way. Warnings say what's wrong before you fly: "Lists 8° to port", "Too heavy to fly", "Every ship needs a helm".
+The panels show what your design will do: weight, lift, where she floats, thrust, top speed and climb rate. Two markers show the centre of mass and the centre of lift. If they don't line up, she lists or trims that way. Warnings say what's wrong before you fly: "Lists 8° to port", "Too heavy to fly", "Every ship needs a helm", or blocks that aren't joined to the helm and would fall away when she's hit.
 
 **Test flight.** F puts a copy of your design in the air with you at its helm. Fly it, then press B: you're back in the shipyard at once, with your design as you left it. You can have one test flight at a time.
 
@@ -158,10 +183,12 @@ A test fails when an assert fails, or when the engine logs an error the test did
 ```
 src/core/     Settings and Game autoloads, launch options
 src/net/      Session autoload (solo, host, join, lobby, dedicated server), LAN discovery, WorldSync and snapshot interpolation
-src/ship/     blocks and the tuning file, the ship grid, blueprints, ship stats, the starter ship, flight forces, the ship body and mesh
+src/ship/     blocks and the tuning file, the ship grid, blueprints, ship stats, the starter ship, flight forces, damage, the ship body and mesh
 src/builder/  the shipyard: the design and its undo, the 3D build view, the panels
 src/crew/     each ship's interior world, crew members (aboard and ashore) and how others see them, the helm, the player's controls and camera
 src/ui/       menus, the HUD, the map and compass, and the shared UI theme
+src/combat/   projectiles (shots, bursts and harpoon ropes) and cannons
+src/ai/       the pirate ship and its captain
 src/world/    the world scene: the seeded world and its chunks, streaming, island shapes, towns and docks, landmarks and wrecks, wind, weather, exploration, the sky and the Roil, the menu backdrop
 tests/        test runner and tests
 docs/         design spec and implementation plans

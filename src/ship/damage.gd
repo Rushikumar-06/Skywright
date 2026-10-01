@@ -87,8 +87,9 @@ static func apply(grid: ShipGrid, changes: Dictionary, blueprint: ShipGrid = nul
 
 
 ## The ship's pieces, joined through faces: {"keep": Array[Vector3i], "wrecks": Array
-## of Array[Vector3i], "debris": Array[Vector3i]}. The keep is the largest piece with
-## a helm (the largest when none has one); ties go to the smallest cell.
+## of Array[Vector3i], "debris": Array[Vector3i]}. The keep is the largest piece of at
+## least DEBRIS blocks with a helm (the largest when none has one): a helm shot loose
+## on a splinter goes with the splinter. Ties go to the smallest cell.
 static func split(grid: ShipGrid) -> Dictionary:
 	var cells := grid.blocks.keys()
 	cells.sort()
@@ -117,6 +118,8 @@ static func split(grid: ShipGrid) -> Dictionary:
 			var has_helm := false
 			for cell: Vector3i in pieces[i]:
 				has_helm = has_helm or grid.blocks[cell]["type"] == "helm"
+			# A helm left on a splinter is a splinter: the hull doesn't break away from it.
+			has_helm = has_helm and pieces[i].size() >= DEBRIS
 			if (has_helm or not with_helm) and (keep < 0 or pieces[i].size() > pieces[keep].size()):
 				keep = i
 		if keep >= 0:

@@ -109,6 +109,23 @@ func test_split_counts_faces_not_corners() -> void:
 	assert_eq(parts["debris"].size(), 0)
 
 
+func test_a_helm_cut_off_on_its_own_is_a_splinter() -> void:
+	var grid := ShipGrid.new()
+	for z in 10:
+		grid.set_block(Vector3i(0, 0, z), "frame")
+	grid.set_block(Vector3i(0, 2, 9), "helm")  # on a post of one plank, now shot away
+	grid.set_block(Vector3i(0, 2, 8), "deck")
+	var parts := Damage.split(grid)
+	assert_eq(parts["keep"].size(), 10, "the hull stays the ship, without her helm")
+	assert_eq(parts["wrecks"], [], "nothing breaks away")
+	assert_eq(parts["debris"], [Vector3i(0, 2, 8), Vector3i(0, 2, 9)] as Array[Vector3i], "the helm and its plank are splinters")
+	grid.set_block(Vector3i(0, 2, 7), "deck")
+	grid.set_block(Vector3i(0, 2, 6), "deck")
+	parts = Damage.split(grid)
+	assert_eq(parts["keep"].size(), 4, "a helm on a piece of DEBRIS blocks stays the ship, as the spec has it")
+	assert_eq(parts["wrecks"].size(), 1, "and the hull breaks away")
+
+
 func test_without_a_helm_the_largest_piece_stays() -> void:
 	var grid := ShipGrid.new()
 	for x in 6:

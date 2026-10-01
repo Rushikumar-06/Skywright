@@ -10,6 +10,7 @@ const LAND := Color("8fae6b")
 const RIVER := Color("7fb2e6")
 const GOLD := Color("f0c24b")
 const WRECK := Color("9a9a9a")
+const PIRATE := Color("d9534f")
 const RING := Color(1, 1, 1, 0.12)
 const FONT_SIZE := 16
 
@@ -36,7 +37,7 @@ var _islands: Dictionary = {}  ## Chunk -> its islands as [Vector3, radius] pair
 
 
 ## The map of world_gen's world as explored shows it. you returns [your world position, your heading in
-## radians as Ship.heading() counts it]. world_sync's ships are drawn as dots; it can be null.
+## radians as Ship.heading() counts it]. world_sync's ships are drawn as dots, pirates red; it can be null.
 func _init(world_gen: WorldGen, explored: Exploration, world_sync: WorldSync, you: Callable) -> void:
 	_gen = world_gen
 	_explored = explored
@@ -131,7 +132,7 @@ func _draw() -> void:
 		draw_string(font, at + Vector2(8, 5), _gen.towns[i]["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE, GOLD)
 	if _sync != null:
 		for ship: Ship in _sync.ships.values():
-			draw_circle(place_of(ship.global_position), 3.0, UiTheme.TEXT)
+			draw_circle(place_of(ship.global_position), 3.0, ship_color(ship))
 	var you: Array = _you.call()
 	var heading := Vector2(-sin(you[1]), -cos(you[1]))
 	var tip := place_of(you[0])
@@ -155,3 +156,8 @@ func _refresh() -> void:
 
 func _scale() -> float:
 	return (minf(size.x, size.y) / 2.0 - MARGIN) / WorldGen.RADIUS
+
+
+## The colour a ship's dot is drawn in: red for pirates.
+static func ship_color(ship: Ship) -> Color:
+	return PIRATE if ship.pirate else UiTheme.TEXT

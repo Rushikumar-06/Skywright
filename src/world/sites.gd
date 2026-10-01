@@ -24,11 +24,11 @@ const LABEL_ABOVE := 10.0
 const LABEL_RANGE := 400.0
 
 
-## The wreck's ship: the starter ship with its balloons gone and each other block
-## lost with WRECK_LOSS, drawn from the wreck's own seed, visiting the cells in
-## order so it comes out the same everywhere.
+## The wreck's ship: a pirate ship with its balloons gone and each other block lost
+## with WRECK_LOSS, drawn from the wreck's own seed, visiting the cells in order so
+## it comes out the same everywhere.
 static func wreck_grid(wreck: Dictionary) -> ShipGrid:
-	var grid := StarterShip.build()
+	var grid := PirateShip.build()
 	for cell in grid.cells_of("balloon"):
 		grid.blocks.erase(cell)
 	var rng := RandomNumberGenerator.new()

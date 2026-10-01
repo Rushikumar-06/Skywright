@@ -25,6 +25,12 @@ extends Node
 ## it. Fires burn once a second as the server wears ships, and docks fill the spares
 ## of the ships at them; everyone hears what burns and how many spares are left.
 ##
+## Pirates belong to the server too. Every RAID_EVERY, a crewed ship away from the
+## towns may draw a pirate, by her region's odds and up to its limit; a pirate is a
+## ship built from PirateShip with a PirateCaptain aboard, here only, and clients
+## see an ordinary ship flagged pirate. Pirates far from every player go when ships
+## are worn.
+##
 ## Shots belong to the server too. It fires them and tells everyone the launch, so
 ## every machine's Projectiles flies the same arc; it decides every hit and tells
 ## everyone where each shot ended. A shot into a ship damages the blocks it flies
@@ -83,6 +89,16 @@ const MAX_WRECKS := 8         ## The most wrecks at once: the oldest go first.
 const FAR := 3000.0           ## m. Wrecks further than this from every player go.
 const KNOCKOUT_TIME := 5.0    ## s a player hit by a shot is down.
 const MUZZLE := 0.8           ## m from a gun's cell to where its shot starts.
+const RAID_EVERY := 30.0      ## s between the server's raids.
+## By WorldGen.Region (Eye, Stormwall, Gale, Shattered, Calm, rim): the chance a raid
+## sends a pirate at a crewed ship there, and the most pirates near her at once.
+const RAID_CHANCE := [0.5, 0.5, 0.5, 0.5, 0.25, 0.0]
+const RAID_LIMIT := [2, 2, 2, 2, 1, 0]
+const RAID_NEAR := 2000.0     ## m. Pirates within this of a ship count toward her region's limit.
+const MAX_PIRATES := 4        ## The most pirates in the world at once.
+const SAFE := 1200.0          ## m. Ships this near a town's dock aren't raided.
+const PIRATE_DISTANCE := 800.0  ## m from her target that a pirate comes in.
+const ISLAND_CLEARANCE := 60.0  ## m between a pirate coming in and any island's edge.
 
 var session: Node
 var ships: Dictionary = {}  ## Ship id -> Ship.
@@ -90,6 +106,7 @@ var rng := RandomNumberGenerator.new()  ## The server's luck: fires catching and
 var player: PlayerController  ## This machine's player, whose crew it reports. Null when there's none.
 var docks: Array[Vector3] = []            ## Where each town's slipway 0 is. Set by the World.
 var wind: Wind                            ## The world's wind, which every ship feels. Likewise.
+var gen: WorldGen                         ## The world's shape, for where pirates can come in. Likewise.
 ## The world's shots and ropes. Likewise; the server hears their hits here.
 var projectiles: Projectiles:
 	set(value):
@@ -403,6 +420,65 @@ func crew_positions() -> Dictionary:
 	return found
 
 
+## Server: a pirate comes in PIRATE_DISTANCE from near, at her height (kept between
+## PirateCaptain.MIN_ALTITUDE and 1,600 m), facing her, from the first of 8 ways round
+## (from a random one) clear of every island. Returns the pirate, or null when no
+## way is clear.
+func spawn_pirate(near: Ship) -> Ship:
+	if not session.is_server():
+		return null
+	var from := rng.randf() * TAU
+	for i in 8:
+		var angle := from + i * TAU / 8.0
+		var spot := near.global_position + Vector3(cos(angle), 0.0, sin(angle)) * PIRATE_DISTANCE
+		spot.y = clampf(near.global_position.y, PirateCaptain.MIN_ALTITUDE, 1600.0)
+		if not _clear_of_islands(spot):
+			continue
+		var facing := Basis.looking_at(Vector3(near.global_position.x - spot.x, 0.0, near.global_position.z - spot.z))
+		var pirate := add_ship(PirateShip.build(), Transform3D(facing, spot), 0, false, 0, true)
+		pirate.add_child(PirateCaptain.new(self))
+		return pirate
+	return null
+
+
+## Whether spot is ISLAND_CLEARANCE clear of every island near it, towns' too.
+func _clear_of_islands(spot: Vector3) -> bool:
+	if gen == null:
+		return true
+	var islands: Array[Dictionary] = []
+	var center := WorldGen.chunk_of(spot)
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			islands.append_array(gen.islands_in(center + Vector2i(dx, dz)))
+	for town: Dictionary in gen.towns:
+		islands.append(town["island"])
+	return islands.all(func(island: Dictionary) -> bool:
+		var to := spot - (island["at"] as Vector3)
+		return Vector2(to.x, to.z).length() >= island["radius"] + ISLAND_CLEARANCE)
+
+
+## Server, every RAID_EVERY when the session has pirates: each crewed ship (not a
+## pirate, wreck or test flight) more than SAFE from every dock may draw a pirate, by
+## her region's RAID_CHANCE, while fewer than its RAID_LIMIT are within RAID_NEAR of
+## her and fewer than MAX_PIRATES are about.
+func _raid() -> void:
+	if not session.is_server() or not session.pirates:
+		return
+	for ship in crewed_ships():
+		if ship.pirate or ship.is_wreck() or ship.test:
+			continue
+		var here := ship.global_position
+		if docks.any(func(dock: Vector3) -> bool: return dock.distance_to(here) <= SAFE):
+			continue
+		var region := WorldGen.region_at(here)
+		var raiders := ships.values().filter(func(other: Ship) -> bool: return other.pirate and not other.is_wreck())
+		var near := raiders.filter(func(other: Ship) -> bool: return other.global_position.distance_to(here) <= RAID_NEAR)
+		if near.size() >= RAID_LIMIT[region] or raiders.size() >= MAX_PIRATES:
+			continue
+		if rng.randf() < RAID_CHANCE[region]:
+			spawn_pirate(ship)
+
+
 ## Server: calls method with args on every client in the world.
 func tell_world(method: StringName, args: Array) -> void:
 	for peer: int in _in_world:
@@ -477,7 +553,7 @@ func _knock_out(peer: int) -> void:
 ## of ships at a town's dock (not pirates' or wrecks'), and clears away wrecks
 ## (nobody's, without a helm) older than WRECK_LIFETIME or further than FAR from
 ## every player (all of them when there are no players), then the oldest while
-## there are more than MAX_WRECKS.
+## there are more than MAX_WRECKS. Pirates far from every player go too.
 func _wear() -> void:
 	for ship: Ship in ships.values():
 		if ship.fires.is_empty() or id_of(ship) == 0:
@@ -497,9 +573,12 @@ func _wear() -> void:
 	var players := player_positions()
 	var wrecks: Array[Ship] = []
 	for ship: Ship in ships.values():
+		var far := players.all(func(at: Vector3) -> bool: return at.distance_to(ship.global_position) > FAR)
+		if ship.pirate and not ship.is_wreck() and far:
+			remove_ship(ship)
+			continue
 		if not ship.is_wreck() or ship.captain != 0:
 			continue
-		var far := players.all(func(at: Vector3) -> bool: return at.distance_to(ship.global_position) > FAR)
 		if now() - ship.born > WRECK_LIFETIME or far:
 			remove_ship(ship)
 		else:
@@ -711,6 +790,8 @@ func _physics_process(delta: float) -> void:
 		_let_go_of_stale_keys()
 		if _tick % roundi(WEAR_EVERY * Engine.physics_ticks_per_second) == 0:
 			_wear()
+		if _tick % roundi(RAID_EVERY * Engine.physics_ticks_per_second) == 0:
+			_raid()
 		if sending and not _in_world.is_empty():
 			var states := _ship_states()
 			for peer: int in _in_world:

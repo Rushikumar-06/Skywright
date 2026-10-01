@@ -63,6 +63,7 @@ func _ready() -> void:
 		towns.append(town)
 	sync = WorldSync.new(session)
 	sync.wind = wind
+	sync.gen = gen
 	sync.ship_added.connect(_on_ship_added)
 	sync.ship_removed.connect(_on_ship_removed)
 	for town: Dictionary in gen.towns:

@@ -42,6 +42,7 @@ var discovery_port := LanBeacon.DISCOVERY_PORT  ## Where a host answers LAN quer
 var game_name := ""                       ## Host: what the LAN list calls this game.
 var requested_seed := -1                  ## The world's seed for the next solo or hosted game; -1 picks one at random.
 var world_seed := 0                       ## The seed of the world being played, from 0 to 2147483647.
+var pirates := true                       ## Server: pirates raid in this game. Tests turn it off.
 
 var _accepted := false
 var _pending_name := ""

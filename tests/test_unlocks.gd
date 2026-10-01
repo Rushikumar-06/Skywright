@@ -114,14 +114,14 @@ func test_a_lost_ship_is_insured_for_half() -> void:
 	await start()
 	ship.global_position.y = -5.0
 	sync._wear()
-	assert_eq(ledger.mine["insured"], 675)
+	assert_eq(ledger.mine["insured"], 740)
 	assert_eq(world.hud._message.text, "Your ship is lost to the Roil. The shipyard has her blueprint, and her insurance pays half of her.")
 	assert_true(await wait_until(func() -> bool: return player.ship == null and player.crew.is_on_floor(), 5.0), "on a quay")
 	var dock: Vector3 = world.gen.towns[world.town_at(player.world_position()) if world.at_dock() else 0]["dock"]
 	player.crew.position = dock + Vector3(5.0, -1.5 + CrewMember.HEIGHT / 2.0 + 0.05, 0)
 	await simulate(0.2)
 	assert_true(await launch(world.design.grid), "rebuilt")
-	assert_eq(ledger.mine["money"], 825, "for half her cost")
+	assert_eq(ledger.mine["money"], 760, "for half her cost")
 	assert_eq(ledger.mine["insured"], 0, "the insurance is spent")
 
 
@@ -172,7 +172,7 @@ func test_the_server_refuses_a_launch_it_shouldnt_make() -> void:
 	await play(1.1)
 	books.account_of(guest)["money"] = 100
 	ask.call(starter, 0)
-	assert_true(await play_until(func() -> bool: return said[0] == "She costs 1350 crowns and you have 100.", 1.0), said[0])
+	assert_true(await play_until(func() -> bool: return said[0] == "She costs 1480 crowns and you have 100.", 1.0), said[0])
 	await play(1.1)
 	books.account_of(guest)["money"] = 1500
 	ask.call(with_alloy(), 0)
@@ -185,7 +185,7 @@ func test_the_server_refuses_a_launch_it_shouldnt_make() -> void:
 	assert_true(await play_until(func() -> bool: return host_sync.ship_of(guest, false) != null, 2.0), "a fair launch")
 	await play(0.5)
 	assert_eq(host_sync.ships.values().filter(func(each: Ship) -> bool: return each.captain == guest).size(), 1, "one ship")
-	assert_eq(books.account_of(guest)["money"], 150, "charged once")
+	assert_eq(books.account_of(guest)["money"], 20, "charged once")
 
 
 func test_a_test_flight_earns_nothing() -> void:

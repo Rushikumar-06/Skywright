@@ -18,7 +18,7 @@ const INFO := {
 	"lift_stone": {"name": "Lift stone", "group": "Lift", "material": "stone", "about": "6,000 N of lift at any height. Heavy."},
 	"engine": {"name": "Engine", "group": "Power", "material": "metal", "about": "Drives two propellers at full power."},
 	"propeller": {"name": "Propeller", "group": "Power", "material": "wood", "about": "Up to 2,500 N of thrust, the way it faces."},
-	"fuel_tank": {"name": "Fuel tank", "group": "Power", "material": "metal", "about": "Holds fuel for the engines."},
+	"fuel_tank": {"name": "Fuel tank", "group": "Power", "material": "metal", "about": "Holds 200 units of fuel for the engines."},
 	"helm": {"name": "Helm", "group": "Control", "material": "wood", "about": "Where the pilot steers. Every ship needs one."},
 	"rudder": {"name": "Rudder", "group": "Control", "material": "wood", "about": "Pushes sideways on its flat side as air flows past, which turns the ship."},
 	"sail": {"name": "Sail", "group": "Control", "material": "cloth", "about": "Canvas to catch the wind."},

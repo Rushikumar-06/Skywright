@@ -98,7 +98,7 @@ func test_rebuilding_a_lost_ship_launches_her_blueprint_whole() -> void:
 	await simulate(0.2)
 	world.launch(world.design.grid)
 	assert_true(await wait_until(func() -> bool: return world.ship != null, 5.0), "she's rebuilt, with you aboard")
-	assert_eq(world.ledger.mine["money"], 1500 - 675, "for half her cost, the rest insured")
+	assert_eq(world.ledger.mine["money"], 1500 - 740, "for half her cost, the rest insured")
 	var rebuilt: Ship = world.ship
 	assert_eq(rebuilt.grid.blocks, StarterShip.build().blocks, "whole")
 	assert_eq(rebuilt.spares, Damage.SPARES_MAX, "with a full load of spares")

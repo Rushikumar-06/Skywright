@@ -19,6 +19,10 @@ var grid: ShipGrid
 ## ship; without one she's her grid made whole.
 var blueprint: ShipGrid
 var spares := 0      ## Spare materials for repairs, 0 to Damage.SPARES_MAX.
+## Units of fuel in her tanks, 0 to fuel_capacity(); below 0 when she's added means
+## fill them. ponytail: fuel weighs nothing, so burning never changes her trim; give
+## it mass in mass_properties if heavy tanks should matter.
+var fuel := -1.0
 var pirate := false
 var born := 0.0      ## The server's clock when she was added.
 var lost := false    ## The Roil took her.
@@ -69,6 +73,9 @@ var _sails: Array[Vector3] = []
 var _sail_normals: Array[Vector3] = []  ## Each sail's facing, in ship space.
 var _zones: Array[Dictionary] = []
 var _power := 0.0  ## The share of full thrust the engines give each propeller.
+var _engines := 0  ## Counted at each rebuild, so nothing per tick walks the grid.
+var _tanks := 0
+var _tended := 0
 var _last_good := Transform3D.IDENTITY
 var _shapes: Array[CollisionShape3D] = []
 var _mesh: MeshInstance3D
@@ -98,6 +105,8 @@ func _ready() -> void:
 	_last_good = global_transform
 	interior = ShipInterior.new()
 	rebuild()
+	if fuel < 0.0:
+		fuel = fuel_capacity()
 	add_child(interior)
 	var helms := grid.cells_of("helm")
 	if not helms.is_empty():
@@ -191,7 +200,10 @@ func rebuild() -> void:
 	for cell in grid.cells_of("sail"):
 		_sails.append(Vector3(cell))
 		_sail_normals.append(Blocks.facing(grid.blocks[cell]["rotation"]))
+	_engines = grid.cells_of("engine").size()
+	_tanks = grid.cells_of("fuel_tank").size()
 	_power = _boosted_power()
+	fuel = minf(fuel, fuel_capacity())  # a tank shot away spills its share
 	_zones = grid.drag_zones()
 	bounds = grid.bounds()
 	if _mesh != null:
@@ -269,9 +281,35 @@ func spot_near(cell: Vector3i) -> Vector3:
 ## The share of full thrust each propeller gets: her engines', driven harder by
 ## Tuning.ENGINE_BOOST for each engine an engineer tends.
 func _boosted_power() -> float:
-	var engines := grid.cells_of("engine").size()
-	var boost := 1.0 + Tuning.ENGINE_BOOST * tended_engines() / engines if engines > 0 else 1.0
+	_tended = tended_engines()
+	var boost := 1.0 + Tuning.ENGINE_BOOST * _tended / _engines if _engines > 0 else 1.0
 	return ShipForces.propeller_power(grid) * boost
+
+
+## Units of fuel her tanks hold.
+func fuel_capacity() -> float:
+	return _tanks * Tuning.FUEL_PER_TANK
+
+
+## Units a second she burns now: her engines by the throttle (an engineer's harder),
+## and her balloons by their trim over 1. Nothing while she's frozen.
+func burn_rate() -> float:
+	if freeze:
+		return 0.0
+	return absf(throttle) * Tuning.ENGINE_BURN * (_engines + Tuning.ENGINE_BOOST * _tended) \
+			+ _balloons.size() * maxf(0.0, trim - 1.0) * Tuning.TRIM_BURN
+
+
+## The most trim she can hold: heating the envelope past 1 takes fuel.
+func trim_limit() -> float:
+	return Tuning.TRIM_MAX if fuel > 0.0 else 1.0
+
+
+func _physics_process(delta: float) -> void:
+	if not simulated:
+		return
+	fuel = maxf(0.0, fuel - burn_rate() * delta)
+	trim = minf(trim, trim_limit())
 
 
 ## Draws flames on cells, and remembers them as what's burning.
@@ -475,9 +513,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if lift > 0.0:
 		state.apply_force(Vector3(0.0, lift, 0.0), lift_moment / lift)
 
-	# Thrust: each propeller pushes the way it faces.
-	for i in _propellers.size():
-		state.apply_force(basis * _thrust_axes[i] * (throttle * _power * Tuning.PROPELLER_THRUST), basis * _propellers[i])
+	# Thrust: each propeller pushes the way it faces, while there's fuel.
+	if fuel > 0.0:
+		for i in _propellers.size():
+			state.apply_force(basis * _thrust_axes[i] * (throttle * _power * Tuning.PROPELLER_THRUST), basis * _propellers[i])
 
 	# Drag and the keel's push on each zone, from its own velocity through the air.
 	var to_ship := basis.transposed()

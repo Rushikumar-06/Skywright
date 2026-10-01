@@ -141,9 +141,10 @@ func test_the_readout() -> void:
 	assert_true(text.contains("Weight     9.6 t"), text)
 	assert_true(text.contains("Thrust     5.0 kN"), text)
 	var lines := text.split("\n")
-	assert_eq(lines.size(), 8)
-	for i in 8:
-		assert_true(lines[i].begins_with(["Blocks     ", "Weight     ", "Lift       ", "Floats at  ", "Ceiling    ", "Thrust     ", "Top speed  ", "Climb      "][i]), lines[i])
+	assert_eq(lines.size(), 9)
+	for i in 9:
+		assert_true(lines[i].begins_with(["Blocks     ", "Weight     ", "Lift       ", "Floats at  ", "Ceiling    ", "Thrust     ", "Top speed  ",
+				"Fuel       ", "Climb      "][i]), lines[i])
 
 
 func test_blocks_not_joined_to_the_helm_are_named() -> void:

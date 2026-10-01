@@ -25,6 +25,7 @@ const PART_COST := {"frame": 4, "deck": 3, "iron": 12, "alloy": 30, "balloon": 2
 		"propeller": 20, "rudder": 10, "sail": 6, "fuel_tank": 20, "ballast_tank": 15, "helm": 40, "cannon": 60,
 		"cargo_bay": 10, "bunk": 8, "ladder": 2}
 const SPARE_PRICE := 5
+const FUEL_PER_CROWN := 4  ## Units of fuel a crown buys.
 const INSURANCE := 0.5  ## A lost ship pays this share of her cost.
 
 ## Parts bought once with money, at towns in region or further in.
@@ -109,17 +110,17 @@ static func sell_price(gen: WorldGen, town: int, good: String) -> int:
 	return roundi(price(gen, town, good) * SELL_SHARE)
 
 
-## A new ship's price: her parts and a full load of spares.
+## A new ship's price: her parts, a full load of spares and full tanks.
 static func cost(grid: ShipGrid) -> int:
-	var total := Damage.SPARES_MAX * SPARE_PRICE
+	var total := Damage.SPARES_MAX * SPARE_PRICE + ceili(grid.cells_of("fuel_tank").size() * Tuning.FUEL_PER_TANK / FUEL_PER_CROWN)
 	for cell: Vector3i in grid.blocks:
 		total += PART_COST[grid.blocks[cell]["type"]]
 	return total
 
 
-## What a ship is worth as she is: her parts by their hit points, and her spares.
-static func value(grid: ShipGrid, spares: int) -> int:
-	var total := float(spares * SPARE_PRICE)
+## What a ship is worth as she is: her parts by their hit points, her spares and her fuel.
+static func value(grid: ShipGrid, spares: int, fuel: float) -> int:
+	var total := float(spares * SPARE_PRICE) + fuel / FUEL_PER_CROWN
 	for cell: Vector3i in grid.blocks:
 		var block: Dictionary = grid.blocks[cell]
 		total += float(PART_COST[block["type"]]) * block["hp"] / Tuning.BLOCKS[block["type"]]["hp"]

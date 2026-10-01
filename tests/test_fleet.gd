@@ -114,33 +114,34 @@ func test_a_late_joiner_boards_the_hosts_ship() -> void:
 
 
 func test_the_client_skips_ships_that_make_no_sense() -> void:
-	assert_eq(SessionScript.PROTOCOL_VERSION, 6, "protocol 6: entries of 12 fields, with the cargo and the hands")
+	assert_eq(SessionScript.PROTOCOL_VERSION, 7, "protocol 7: entries of 13 fields, with the fuel")
 	assert_true(await sail_together(), "the ship arrives")
 	var sync: WorldSync = host_world.sync
 	var guest := client.multiplayer.get_unique_id()
 	var blocks := StarterShip.build().to_bytes()
 	var at := Transform3D(Basis.IDENTITY, host_world.START + Vector3(60, 0, 0))
 	var junk := [
-		"ship", [50], [51, blocks, {}, at, 0, 0, false, blocks, false, 40], ["52", blocks, {}, at, 0, 0, false, blocks, false, 40, [], []],
-		[53, PackedByteArray([1, 2, 3]), {}, at, 0, 0, false, blocks, false, 40, [], []],
-		[54, StarterShip.build().to_blocks(), {}, at, 0, 0, false, blocks, false, 40, [], []],
-		[55, blocks, {"deck": "nope"}, at, 0, 0, false, blocks, false, 40, [], []], [56, blocks, [], at, 0, 0, false, blocks, false, 40, [], []],
-		[57, blocks, {}, Transform3D(Basis.IDENTITY, Vector3(NAN, 0, 0)), 0, 0, false, blocks, false, 40, [], []],
-		[58, blocks, {}, "here", 0, 0, false, blocks, false, 40, [], []],
-		[59, blocks, {}, at, "1", 0, false, blocks, false, 40, [], []], [60, blocks, {}, at, 0, 0.5, false, blocks, false, 40, [], []],
-		[61, blocks, {}, at, 0, 0, "yes", blocks, false, 40, [], []],
-		[62, blocks, {}, Transform3D(Basis(Vector3.RIGHT, Vector3.RIGHT, Vector3.BACK), at.origin), 0, 0, false, blocks, false, 40, [], []],
-		[64, blocks, {}, at, 0, 0, false, PackedByteArray([1, 2, 3]), false, 40, [], []], [65, blocks, {}, at, 0, 0, false, blocks, 1, 40, [], []],
-		[66, blocks, {}, at, 0, 0, false, blocks, false, 41, [], []], [67, blocks, {}, at, 0, 0, false, blocks, false, -1, [], []],
-		[68, blocks, {}, at, 0, 0, false, blocks, false, 4.0, [], []],
-		[69, blocks, {}, at, 0, 0, false, blocks, false, 40, [[0, 0, 0, "grain", "Ann"]], []],
-		[71, blocks, {}, at, 0, 0, false, blocks, false, 40, [], [[-1, "Fenn", "captain", Vector3i(-2, 1, 1), Vector3(-2, 1.45, 0)]]],
-		[72, blocks, {}, at, 0, 0, false, blocks, false, 40, [], "hands"],
-		[0, blocks, {}, at, 0, 0, false, blocks, false, 40, [], []], [1, blocks, {}, at, 0, 0, false, blocks, false, 40, [], []],
+		"ship", [50], [51, blocks, {}, at, 0, 0, false, blocks, false, 40], ["52", blocks, {}, at, 0, 0, false, blocks, false, 40, [], [], 400.0],
+		[53, PackedByteArray([1, 2, 3]), {}, at, 0, 0, false, blocks, false, 40, [], [], 400.0],
+		[54, StarterShip.build().to_blocks(), {}, at, 0, 0, false, blocks, false, 40, [], [], 400.0],
+		[55, blocks, {"deck": "nope"}, at, 0, 0, false, blocks, false, 40, [], [], 400.0], [56, blocks, [], at, 0, 0, false, blocks, false, 40, [], [], 400.0],
+		[57, blocks, {}, Transform3D(Basis.IDENTITY, Vector3(NAN, 0, 0)), 0, 0, false, blocks, false, 40, [], [], 400.0],
+		[58, blocks, {}, "here", 0, 0, false, blocks, false, 40, [], [], 400.0],
+		[59, blocks, {}, at, "1", 0, false, blocks, false, 40, [], [], 400.0], [60, blocks, {}, at, 0, 0.5, false, blocks, false, 40, [], [], 400.0],
+		[61, blocks, {}, at, 0, 0, "yes", blocks, false, 40, [], [], 400.0],
+		[62, blocks, {}, Transform3D(Basis(Vector3.RIGHT, Vector3.RIGHT, Vector3.BACK), at.origin), 0, 0, false, blocks, false, 40, [], [], 400.0],
+		[64, blocks, {}, at, 0, 0, false, PackedByteArray([1, 2, 3]), false, 40, [], [], 400.0], [65, blocks, {}, at, 0, 0, false, blocks, 1, 40, [], [], 400.0],
+		[66, blocks, {}, at, 0, 0, false, blocks, false, 41, [], [], 400.0], [67, blocks, {}, at, 0, 0, false, blocks, false, -1, [], [], 400.0],
+		[68, blocks, {}, at, 0, 0, false, blocks, false, 4.0, [], [], 400.0],
+		[69, blocks, {}, at, 0, 0, false, blocks, false, 40, [[0, 0, 0, "grain", "Ann"]], [], 400.0],
+		[71, blocks, {}, at, 0, 0, false, blocks, false, 40, [], [[-1, "Fenn", "captain", Vector3i(-2, 1, 1), Vector3(-2, 1.45, 0)]], 400.0],
+		[72, blocks, {}, at, 0, 0, false, blocks, false, 40, [], "hands", 400.0],
+		[73, blocks, {}, at, 0, 0, false, blocks, false, 40, [], [], 401.0], [74, blocks, {}, at, 0, 0, false, blocks, false, 40, [], [], "x"],
+		[0, blocks, {}, at, 0, 0, false, blocks, false, 40, [], [], 400.0], [1, blocks, {}, at, 0, 0, false, blocks, false, 40, [], [], 400.0],
 	]
 	for entry: Variant in junk:
 		sync._ship_added.rpc_id(guest, sync.now(), entry)
-	sync._ship_added.rpc_id(guest, "now", [63, blocks, {}, at, 0, 0, false, blocks, false, 40, [], []])
+	sync._ship_added.rpc_id(guest, "now", [63, blocks, {}, at, 0, 0, false, blocks, false, 40, [], [], 400.0])
 	sync._world.rpc_id(guest, sync.now(), junk, [])
 	sync._ship_removed.rpc_id(guest, "1", 0, false)
 	sync._ship_removed.rpc_id(guest, 1, "0", false)
@@ -149,5 +150,5 @@ func test_the_client_skips_ships_that_make_no_sense() -> void:
 	await play(0.3)
 	assert_eq(client_world.sync.ships.keys(), [1], "none of that was taken")
 	sync._ship_added.rpc_id(guest, sync.now(), [70, blocks, {"deck": "c0392b"}, at, 0, 0, false, blocks, false, 40, [[1, 0, -2, "grain", "Ann"]],
-			[[-1, "Fenn", "gunner", Vector3i(-2, 1, 1), Vector3(-1, 1.45, 1)]]])
+			[[-1, "Fenn", "gunner", Vector3i(-2, 1, 1), Vector3(-1, 1.45, 1)]], 400.0])
 	assert_true(await wait_until(func() -> bool: return client_world.sync.ships.has(70), 2.0), "a sensible ship is")

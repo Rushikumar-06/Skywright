@@ -143,6 +143,7 @@ var _buffers: Dictionary = {}   ## Client: ship id -> SnapshotBuffer.
 var _crew: Dictionary = {}      ## Other players' crew: peer id -> {"ship": id, "buffer": SnapshotBuffer, "at": Vector3, "pitch": float}.
 var _avatars: Dictionary = {}   ## Peer id -> CrewAvatar.
 var _keys_heard: Dictionary = {}  ## Server: ship id -> _time its pilot's keys last came.
+var _fuel_told: Dictionary = {}  ## Server: ship id -> the fuel everyone was last told she has.
 var _my_launch_at := -INF  ## _time of this machine's last launch.
 var _launched_at: Dictionary = {}  ## Server: peer id -> _time of their last launch.
 var _next_shot := 1
@@ -193,12 +194,14 @@ func avatar_of(peer: int) -> CrewAvatar:
 
 ## Server: puts a new ship in the world, captain's (0 for nobody's), with pilot at
 ## its helm, and tells everyone in the world. As she is now is her blueprint, made
-## whole. She carries a full load of spares, unless she's a pirate or a wreck.
+## whole. She carries a full load of spares, unless she's a pirate or a wreck, and
+## full tanks, unless she's a wreck.
 func add_ship(grid: ShipGrid, at: Transform3D, captain := 0, test := false, pilot := 0, pirate := false) -> Ship:
 	var id := _next_id
 	_next_id += 1
-	var spares := 0 if pirate or grid.cells_of("helm").is_empty() else Damage.SPARES_MAX
-	var ship := _add(id, grid, at, true, captain, test, pilot, grid.whole(), pirate, spares)
+	var helmless := grid.cells_of("helm").is_empty()
+	var spares := 0 if pirate or helmless else Damage.SPARES_MAX
+	var ship := _add(id, grid, at, true, captain, test, pilot, grid.whole(), pirate, spares, 0.0 if helmless else -1.0)
 	ship_added.emit(ship)
 	var entry := _entry(id)
 	for peer: int in _in_world:
@@ -334,7 +337,7 @@ func record(ship: Ship) -> Dictionary:
 	var o := ship.global_position
 	var q := ship.global_basis.get_rotation_quaternion()
 	return {"captain": name_of(ship.captain) if ship.captain != 0 else "", "at": [o.x, o.y, o.z, q.x, q.y, q.z, q.w],
-			"trim": ship.trim, "anchored": ship.anchored, "spares": ship.spares, "blocks": ship.grid.to_blocks(),
+			"trim": ship.trim, "anchored": ship.anchored, "spares": ship.spares, "fuel": ship.fuel, "blocks": ship.grid.to_blocks(),
 			"blueprint": ship.blueprint.to_blocks(), "paint": ship.grid.paint_names(), "cargo": ship.grid.cargo_list(),
 			"hands": ship.hands.map(func(hand: Dictionary) -> Array:
 				var box := ship.grid.bounds()  # however he got off her, a save keeps him aboard
@@ -351,7 +354,7 @@ func restore(saved: Dictionary, captain: int) -> Ship:
 		return null
 	var id := _next_id
 	_next_id += 1
-	var ship := _add(id, read["grid"], read["at"], true, captain, false, 0, read["blueprint"], false, read["spares"])
+	var ship := _add(id, read["grid"], read["at"], true, captain, false, 0, read["blueprint"], false, read["spares"], read["fuel"])
 	ship.trim = read["trim"]
 	ship.anchored = read["anchored"]
 	ship_added.emit(ship)
@@ -753,6 +756,12 @@ func _raid() -> void:
 
 
 ## Server: calls method with args on every client in the world.
+## Server: tells everyone in the world how much fuel ship has.
+func tell_fuel(ship: Ship) -> void:
+	_fuel_told[id_of(ship)] = ship.fuel
+	tell_world(&"_fuel", [id_of(ship), ship.fuel])
+
+
 func tell_world(method: StringName, args: Array) -> void:
 	for peer: int in _in_world:
 		rpc_id.callv([peer, method] + args)
@@ -852,6 +861,9 @@ func _wear() -> void:
 			ship.at_town = town
 			if town >= 0:
 				docked.emit(ship, town)
+	for ship: Ship in ships.values():
+		if ship.fuel != _fuel_told.get(id_of(ship)):
+			tell_fuel(ship)
 	if ledger != null:
 		ledger.check_scouts()
 	var players := player_positions()
@@ -882,7 +894,7 @@ func _beat(pirate: Ship) -> void:
 ## Adds a ship. The pilot is set before the helm's signals are connected, so it
 ## doesn't go out as a change.
 func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: int, test: bool, pilot: int,
-		blueprint: ShipGrid, pirate: bool, spares: int) -> Ship:
+		blueprint: ShipGrid, pirate: bool, spares: int, fuel: float) -> Ship:
 	var ship := Ship.new(grid)
 	ship.name = "Ship%d" % id
 	ship.simulated = simulated
@@ -893,11 +905,13 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: in
 	ship.blueprint = blueprint
 	ship.pirate = pirate
 	ship.spares = spares
+	ship.fuel = fuel
 	ship.born = now()
 	if simulated:
 		ship.at_town = town_at(at.origin)  # launched at a dock isn't docking there
 	ships[id] = ship
 	get_parent().add_child(ship)
+	_fuel_told[id] = ship.fuel
 	if ship.helm != null:
 		ship.helm.pilot = pilot
 		ship.helm.asked.connect(_on_asked.bind(id))
@@ -915,6 +929,7 @@ func _remove(id: int, successor: Ship, lost := false) -> void:
 	var ship: Ship = ships[id]
 	ship.lost = lost
 	ships.erase(id)
+	_fuel_told.erase(id)
 	_buffers.erase(id)
 	_keys_heard.erase(id)
 	for peer: int in _crew.keys():
@@ -1030,12 +1045,12 @@ func _clear_spot(grid: ShipGrid, at: Transform3D, ignoring: Array, town: int) ->
 
 
 ## A ship as the network carries it: [id, blocks, paint, transform, pilot, captain,
-## test, blueprint, pirate, spares, cargo, hands].
+## test, blueprint, pirate, spares, cargo, hands, fuel].
 func _entry(id: int) -> Array:
 	var ship: Ship = ships[id]
 	return [id, ship.grid.to_bytes(), ship.grid.paint_names(), ship.global_transform,
 			ship.helm.pilot if ship.helm else 0, ship.captain, ship.test, ship.blueprint.to_bytes(), ship.pirate, ship.spares,
-			ship.grid.cargo_list(), CrewHand.hand_list(ship)]
+			ship.grid.cargo_list(), CrewHand.hand_list(ship), ship.fuel]
 
 
 ## Forgets everyone no longer on the roster, and frees the stations they held.
@@ -1326,7 +1341,7 @@ func _ship_removed(id: Variant, successor: Variant, lost: Variant) -> void:
 ## Client: adds the ship an entry describes, drawn from time on, or returns null
 ## when the entry makes no sense.
 func _add_entry(entry: Variant, time: float) -> Ship:
-	if not entry is Array or entry.size() != 12 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
+	if not entry is Array or entry.size() != 13 or not entry[0] is int or entry[0] < 1 or ships.has(entry[0]):
 		return null
 	if not entry[3] is Transform3D or not (entry[3] as Transform3D).is_finite():
 		return null
@@ -1342,8 +1357,8 @@ func _add_entry(entry: Variant, time: float) -> Ship:
 	var blueprint := ShipGrid.from_bytes(entry[7], false)
 	var cargo: Variant = ShipGrid.read_cargo(entry[10], grid) if grid != null else null
 	var hands: Variant = CrewHand.read_hands(entry[11], grid) if grid != null else null
-	if grid == null or paint == null or blueprint == null or cargo == null or hands == null:
-		push_warning("The host sent ship %d with blocks, paint, cargo or hands that don't make a ship; leaving it out." % entry[0])
+	if grid == null or paint == null or blueprint == null or cargo == null or hands == null or not _fits_tanks(entry[12], grid):
+		push_warning("The host sent ship %d with blocks, paint, cargo, hands or fuel that don't make a ship; leaving it out." % entry[0])
 		return null
 	grid.cargo = cargo
 	grid.paint = paint
@@ -1351,7 +1366,7 @@ func _add_entry(entry: Variant, time: float) -> Ship:
 	var buffer := SnapshotBuffer.new()
 	buffer.push(time, at.origin, Vector3.ZERO, at.basis.get_rotation_quaternion())
 	_buffers[entry[0]] = buffer
-	var ship := _add(entry[0], grid, at, false, entry[5], entry[6], entry[4], blueprint, entry[8], entry[9])
+	var ship := _add(entry[0], grid, at, false, entry[5], entry[6], entry[4], blueprint, entry[8], entry[9], entry[12])
 	ship.set_hands(hands)
 	return ship
 
@@ -1427,6 +1442,18 @@ func _fires(id: Variant, cells: Variant) -> void:
 			return
 		burning.append(cell)
 	(ships[id] as Ship).show_fires(burning)
+
+
+## Whether fuel is a finite float that grid's tanks hold.
+static func _fits_tanks(fuel: Variant, grid: ShipGrid) -> bool:
+	return fuel is float and is_finite(fuel) and fuel >= 0.0 and fuel <= grid.cells_of("fuel_tank").size() * Tuning.FUEL_PER_TANK
+
+
+## Server -> clients: ship id has fuel units in her tanks now.
+@rpc("authority", "call_remote", "reliable", 0)
+func _fuel(id: Variant, fuel: Variant) -> void:
+	if not session.is_server() and id is int and ships.has(id) and _fits_tanks(fuel, (ships[id] as Ship).grid):
+		(ships[id] as Ship).fuel = fuel
 
 
 ## Server -> clients: ship id has count spares now.

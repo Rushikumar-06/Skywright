@@ -34,6 +34,7 @@ func launch_own(server_world: Node3D, guest_world: Node3D, guest: SessionScript)
 	var sync: WorldSync = server_world.sync
 	await play_until(func() -> bool: return sync.ship_of(peer, false) != null and guest_world.ship != null \
 			and guest_world.ship.captain == peer, 3.0)
+	(server_world.ledger as Ledger).pay(peer, 200)  # her full tanks left them 20 crowns: enough to trade again
 	await play(0.3)  # where the guest stands now reaches the server
 	return sync.ship_of(peer, false)
 

@@ -20,7 +20,7 @@ signal sailed                   ## The crew set sail: time to load the world.
 
 enum Mode { NONE, SOLO, HOST, CLIENT }
 
-const PROTOCOL_VERSION := 6
+const PROTOCOL_VERSION := 7
 const DEFAULT_PORT := 24650
 const MAX_PLAYERS := 8
 const AUTH_TIMEOUT := 5.0  ## Seconds a joiner has to introduce itself.

@@ -47,7 +47,7 @@ func test_the_starter_ship_has_four_bays_and_two_bunks_and_still_floats_level() 
 	assert_near(stats.list, 0.0, 1e-4, "no list")
 	assert_near(stats.mass, 9566.0, 1.0)
 	assert_eq(grid.blocks.size(), 301)
-	assert_eq(Economy.cost(grid), 1350)
+	assert_eq(Economy.cost(grid), 1480)
 
 
 func test_crates_weigh_the_ship_down_where_they_are_stowed() -> void:

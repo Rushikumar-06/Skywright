@@ -1,7 +1,8 @@
 class_name SaveGame
 ## Saved games (spec §4.10): a save is three files of plain JSON in a folder, world.json,
-## ships.json and player.json, each {"version": 1, "<part>": …}. A slot holds a save
-## made by hand and up to AUTOSAVES autosaves. Everything read back is checked as
+## ships.json and player.json, each {"version": 2, "<part>": …}. A slot holds a save
+## made by hand and up to AUTOSAVES autosaves. Version 1 saves (stage 7's) still load:
+## their ships fill their tanks. Everything read back is checked as
 ## untrusted input, and loading a slot takes the newest save in it that reads, saying
 ## so when that isn't the newest.
 ##
@@ -10,7 +11,8 @@ class_name SaveGame
 
 static var dir := "user://saves"  ## Where slots live. Tests point it elsewhere.
 
-const VERSION := 1
+const VERSION := 2
+const READS := [1, 2]  ## The versions this game reads.
 const FILES := {"world": "world.json", "ships": "ships.json", "players": "player.json"}
 const SLOTS := ["1", "2", "3"]
 const AUTOSAVES := 3
@@ -88,8 +90,8 @@ static func read(path: String) -> Dictionary:
 		if json.parse(text) != OK or not json.data is Dictionary or not json.data.has(part):
 			return {"problem": "%s is damaged." % file_name}
 		var version: Variant = Economy.whole(json.data.get("version"), 0, 1 << 30)
-		if version != VERSION:
-			return {"problem": "This save is version %s; this game reads version %d." % [str(version) if version != null else "?", VERSION]}
+		if not version in READS:
+			return {"problem": "This save is version %s; this game reads versions 1 and 2." % (str(version) if version != null else "?")}
 		parts[part] = json.data[part]
 	var world: Variant = _read_world(parts["world"])
 	if world is String:
@@ -115,7 +117,7 @@ static func read(path: String) -> Dictionary:
 
 ## A ship's record from a save, checked: {"record": the record cleaned, "grid": her
 ## grid with paint and crates, "blueprint", "at": Transform3D, "trim", "anchored",
-## "spares", "captain", "hands": entries with ids from -1 down}, or {"problem"}.
+## "spares", "fuel", "captain", "hands": entries with ids from -1 down}, or {"problem"}.
 static func read_ship(record: Variant) -> Dictionary:
 	if not record is Dictionary:
 		return {"problem": "isn't written as a ship."}
@@ -138,6 +140,10 @@ static func read_ship(record: Variant) -> Dictionary:
 	var read := ShipGrid.read_blocks(record.get("blocks"), false)
 	if read.has("problem"):
 		return {"problem": "has a problem: %s" % (read["problem"] as String).to_lower()}
+	var capacity: float = (read["grid"] as ShipGrid).cells_of("fuel_tank").size() * Tuning.FUEL_PER_TANK
+	var fuel: Variant = record.get("fuel", capacity)  # a version 1 save's ships fill their tanks
+	if not (fuel is float or fuel is int) or not is_finite(float(fuel)) or fuel < 0 or fuel > capacity:
+		return {"problem": "has fuel that doesn't fit her tanks."}
 	var blueprint := ShipGrid.read_blocks(record.get("blueprint"), false)
 	if blueprint.has("problem"):
 		return {"problem": "has a blueprint with a problem: %s" % (blueprint["problem"] as String).to_lower()}
@@ -179,11 +185,11 @@ static func read_ship(record: Variant) -> Dictionary:
 	plan.paint = paint
 	var place := Transform3D(Basis(turn.normalized()), Vector3(at[0], at[1], at[2]))
 	var clean := {"captain": captain, "at": at.map(func(n: Variant) -> float: return float(n)), "trim": float(trim),
-			"anchored": anchored, "spares": spares, "blocks": grid.to_blocks(), "blueprint": plan.to_blocks(),
+			"anchored": anchored, "spares": spares, "fuel": float(fuel), "blocks": grid.to_blocks(), "blueprint": plan.to_blocks(),
 			"paint": grid.paint_names(), "cargo": grid.cargo_list(),
 			"hands": clean_hands}
 	return {"record": clean, "grid": grid, "blueprint": plan, "at": place, "trim": float(trim), "anchored": anchored,
-			"spares": spares, "captain": captain, "hands": hands}
+			"spares": spares, "fuel": float(fuel), "captain": captain, "hands": hands}
 
 
 ## The slot's save to load: {} when it's empty, {"save", "note"} for the newest save in

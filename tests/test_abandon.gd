@@ -62,7 +62,7 @@ func test_abandoning_ship_puts_you_on_the_nearest_quay() -> void:
 func test_an_abandoned_ship_is_insured() -> void:
 	await start()
 	world.abandon_ship()
-	assert_eq(world.ledger.mine["insured"], 675)
+	assert_eq(world.ledger.mine["insured"], 740)
 
 
 func test_a_wrecked_ship_can_be_abandoned_from_ashore() -> void:

@@ -15,6 +15,8 @@ var float_altitude := 0.0      ## m where lift equals weight at trim 1; INF: cli
 var ceiling := 0.0             ## m where lift equals weight at full trim
 var thrust := 0.0              ## N along the bow at full throttle
 var top_speed := 0.0           ## m/s at altitude
+var fuel := 0.0                ## units her tanks hold
+var fuel_range := 0.0          ## m at full throttle on full tanks
 var climb_rate := 0.0          ## m/s at full trim; negative sinks
 var center_of_mass := Vector3.ZERO
 var center_of_lift := Vector3.ZERO
@@ -47,6 +49,10 @@ static func of(grid: ShipGrid, at_altitude: float) -> ShipStats:
 		forward_area += zone["area"].z
 		up_area += zone["area"].y
 	s.top_speed = ShipForces.top_speed(s.thrust, forward_area, at_altitude)
+	s.fuel = grid.cells_of("fuel_tank").size() * Tuning.FUEL_PER_TANK
+	var engines := grid.cells_of("engine").size()
+	if engines > 0:
+		s.fuel_range = s.fuel / (engines * Tuning.ENGINE_BURN) * s.top_speed
 	if up_area > 0.0:
 		var net := stone_lift + Tuning.TRIM_MAX * balloon_lift * density - s.weight
 		s.climb_rate = signf(net) * sqrt(absf(net) / (0.5 * Tuning.AIR_DENSITY * density * Tuning.DRAG_COEFFICIENT * up_area))
@@ -75,6 +81,7 @@ func describe() -> String:
 		"Ceiling    " + _height_text(ceiling),
 		"Thrust     %.1f kN" % (thrust / 1000.0),
 		"Top speed  %d m/s" % roundi(top_speed),
+		"Fuel       %d units, %.1f km at full throttle" % [roundi(fuel), fuel_range / 1000.0],
 		"Climb      %+.1f m/s at full trim" % climb_rate,
 	])
 
@@ -134,5 +141,7 @@ func _find_warnings(grid: ShipGrid) -> void:
 		warnings.append("No engine: her propellers won't turn.")
 	elif thrust <= 0.0:
 		warnings.append("None of her propellers push her forward.")
+	if not grid.cells_of("engine").is_empty() and fuel <= 0.0:
+		warnings.append("No fuel tank: her engines won't run.")
 	if grid.cells_of("rudder").is_empty():
 		warnings.append("No rudder: she can't steer.")

@@ -155,6 +155,7 @@ func test_a_leavers_ship_waits_for_them() -> void:
 	client_world.launch(StarterShip.build())
 	assert_true(await play_until(func() -> bool: return host_sync.ship_of(guest, false) != null and client_world.ship != null \
 			and client_world.ship.captain == guest, 3.0), "the guest's own ship")
+	host_world.ledger.pay(guest, 200)  # her full tanks left them 20 crowns: enough to trade again
 	await play(0.3)
 	(client_world.ledger as Ledger).trade("grain", 1)
 	var theirs := host_sync.ship_of(guest, false)

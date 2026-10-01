@@ -160,7 +160,7 @@ func test_two_players_with_one_name_get_two_names() -> void:
 
 
 func test_the_protocol_is_version_6() -> void:
-	assert_eq(SessionScript.PROTOCOL_VERSION, 6, "stage 7: towns and progression")
+	assert_eq(SessionScript.PROTOCOL_VERSION, 7, "stage 8: campaign and threats")
 
 
 func test_version_check_survives_new_rpcs() -> void:

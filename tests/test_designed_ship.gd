@@ -13,7 +13,7 @@ func after_each() -> void:
 
 
 ## A small ship built only through ShipDesign, mirror on: a 3 × 9 deck on a keel
-## with iron in it, an engine, two propellers and a rudder at the stern, a helm,
+## with iron in it, an engine and a fuel tank, two propellers and a rudder at the stern, a helm,
 ## and posts up to a 3 × 9 × 2 envelope.
 func skiff() -> ShipDesign:
 	var design := ShipDesign.new()
@@ -24,6 +24,8 @@ func skiff() -> ShipDesign:
 		design.place(Vector3i(0, -1, z), "iron" if z == -2 or z == -1 else "frame")
 	design.remove(Vector3i(0, -1, -4))
 	design.place(Vector3i(0, -1, -4), "engine")
+	design.remove(Vector3i(0, -1, 3))
+	design.place(Vector3i(0, -1, 3), "fuel_tank")
 	design.place(Vector3i(2, 0, 4), "propeller")  # beside the deck, so joined to it
 	design.place(Vector3i(0, 0, 5), "rudder")
 	design.place(Vector3i(0, 1, 3), "helm")

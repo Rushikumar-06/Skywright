@@ -2,7 +2,7 @@ class_name StarterShip
 ## The ship every captain starts with: a 5 × 13 m deck on an iron-ballasted keel,
 ## a raised helm deck at the stern with ladders up to it, a balloon envelope on
 ## four posts, one engine driving two propellers, a cannon either side amidships,
-## four cargo bays and two bunks.
+## four cargo bays, two bunks and two fuel tanks.
 ## -Z is the bow. It floats level at about 880 m (882.5 m at trim 1).
 
 const ENVELOPE_FROM := -4
@@ -27,6 +27,9 @@ static func build() -> ShipGrid:
 		grid.set_block(Vector3i(1, 0, z), "cargo_bay")
 	for z in [-3, 3]:
 		grid.set_block(Vector3i(0, -1, z), "bunk")
+	# Two fuel tanks aft in the keel.
+	for z in [4, 6]:
+		grid.set_block(Vector3i(0, -1, z), "fuel_tank")
 	for x in range(-1, 2):
 		grid.set_block(Vector3i(x, 0, -6), "deck")
 	# Rails.
@@ -43,8 +46,9 @@ static func build() -> ShipGrid:
 	for z in range(4, 7):
 		for x in range(-2, 3):
 			grid.set_block(Vector3i(x, 2, z), "deck")
-		grid.set_block(Vector3i(-2, 1, z), "frame")
-		grid.set_block(Vector3i(2, 1, z), "frame")
+		var side := "deck" if z == 5 else "frame"  # planks amidships, lighter, for the tanks' weight
+		grid.set_block(Vector3i(-2, 1, z), side)
+		grid.set_block(Vector3i(2, 1, z), side)
 		grid.set_block(Vector3i(-2, 3, z), "deck")
 		grid.set_block(Vector3i(2, 3, z), "deck")
 	for x in range(-1, 2):

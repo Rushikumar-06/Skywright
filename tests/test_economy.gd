@@ -72,24 +72,25 @@ func test_a_ship_costs_her_parts_and_a_full_load_of_spares() -> void:
 		grid.set_block(Vector3i(x, 0, 0), type)
 		parts += Economy.PART_COST[type]
 		x += 1
-	assert_eq(Economy.cost(grid), parts + 200)
+	assert_eq(Economy.cost(grid), parts + 250, "her spares and a tankful")
 
 
 func test_a_damaged_ship_is_worth_less() -> void:
 	var grid := StarterShip.build()
 	var whole := Economy.cost(grid)
-	assert_eq(Economy.value(grid, 40), whole)
+	assert_eq(Economy.value(grid, 40, 400.0), whole)
 	var frame: Vector3i = grid.cells_of("frame")[0]
 	grid.blocks[frame]["hp"] = 50
-	assert_eq(Economy.value(grid, 40), whole - 2)
-	assert_eq(Economy.value(grid, 30), whole - 52)
+	assert_eq(Economy.value(grid, 40, 400.0), whole - 2)
+	assert_eq(Economy.value(grid, 30, 400.0), whole - 52)
 	grid.blocks.erase(grid.cells_of("cannon")[0])
-	assert_eq(Economy.value(grid, 30), whole - 112)
+	assert_eq(Economy.value(grid, 30, 400.0), whole - 112)
 
 
 func test_launch_costs_the_parts_less_her_trade_in() -> void:
 	var starter := StarterShip.build()
-	var worth := Economy.value(starter, 40)
+	var worth := Economy.value(starter, 40, 400.0)
+	assert_eq(worth, Economy.cost(starter), "she's worth what she cost")
 	assert_eq(Economy.launch_cost(starter, worth), 0, "relaunching her whole")
 	assert_eq(Economy.launch_cost(starter, worth - 52), 52, "relaunching her damaged")
 	var armoured := StarterShip.build()

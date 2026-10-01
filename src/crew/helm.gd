@@ -103,7 +103,7 @@ func _physics_process(delta: float) -> void:
 	ship.throttle = clampf(ship.throttle + throttle_input * Tuning.THROTTLE_RATE * delta, Tuning.THROTTLE_MIN, 1.0)
 	if not autopilot:
 		ship.rudder = rudder_input
-		ship.trim = clampf(ship.trim + climb_input * Tuning.TRIM_RATE * delta, Tuning.TRIM_MIN, Tuning.TRIM_MAX)
+		ship.trim = clampf(ship.trim + climb_input * Tuning.TRIM_RATE * delta, Tuning.TRIM_MIN, ship.trim_limit())
 		return
 	target_heading = wrapf(target_heading - rudder_input * Tuning.AUTOPILOT_TURN_RATE * delta, -PI, PI)
 	target_altitude += climb_input * Tuning.AUTOPILOT_CLIMB_RATE * delta
@@ -112,4 +112,4 @@ func _physics_process(delta: float) -> void:
 	ship.rudder = clampf(-Tuning.AUTOPILOT_HEADING_GAIN * off_course + Tuning.AUTOPILOT_YAW_DAMPING * ship.angular_velocity.y, -1.0, 1.0)
 	var off_altitude := target_altitude - ship.global_position.y
 	ship.trim = clampf(ship.trim_to_float_at(target_altitude) + Tuning.AUTOPILOT_ALTITUDE_GAIN * off_altitude \
-			- Tuning.AUTOPILOT_CLIMB_DAMPING * ship.linear_velocity.y, Tuning.TRIM_MIN, Tuning.TRIM_MAX)
+			- Tuning.AUTOPILOT_CLIMB_DAMPING * ship.linear_velocity.y, Tuning.TRIM_MIN, ship.trim_limit())

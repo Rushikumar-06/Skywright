@@ -188,6 +188,7 @@ static func readout(ship: Ship, wind := Vector3.ZERO) -> String:
 		lines.append("Autopilot off")
 	lines.append("Hull      %3d%%" % roundi(ship.condition() * 100.0))
 	lines.append("Spares    %2d/%d" % [ship.spares, Damage.SPARES_MAX])
+	lines.append("Fuel      %d/%d" % [roundi(ship.fuel), roundi(ship.fuel_capacity())])
 	lines.append("Hold      %d/%d crates" % [ship.grid.cargo.size(), ship.grid.cells_of("cargo_bay").size()])
 	if ship.anchored:
 		lines.append("Anchored")

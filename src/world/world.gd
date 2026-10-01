@@ -470,7 +470,7 @@ func open_shipyard(dock_only := true) -> void:
 ## (hit points and spares), else her insurance.
 func _trade_in() -> int:
 	var own := sync.ship_of(multiplayer.get_unique_id(), false)
-	return Economy.value(own.grid, own.spares) if own != null else ledger.mine["insured"]
+	return Economy.value(own.grid, own.spares, own.fuel) if own != null else ledger.mine["insured"]
 
 
 func _on_account_changed() -> void:

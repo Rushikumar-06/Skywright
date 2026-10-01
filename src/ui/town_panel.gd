@@ -93,6 +93,10 @@ func _process(delta: float) -> void:
 		_check_left = CHECK_EVERY
 		if _summary() != _shown:
 			refresh()
+		elif market_rows.has("fuel"):  # burning at the dock changes it in place, not the rows
+			var ship := _trading_ship()
+			if ship != null:
+				(market_rows["fuel"] as Label).text = _fuel_text(ship)
 
 
 ## What the rows show, to see when it changes: your account and the ship you trade from.
@@ -100,6 +104,10 @@ func _summary() -> String:
 	var ship := _trading_ship()
 	return var_to_str([_ledger.mine, _section, ship.grid.cargo_list() if ship != null else null, ship.spares if ship != null else 0,
 			_ledger.boards.get(_town), _crew_of(ship)])
+
+
+static func _fuel_text(ship: Ship) -> String:
+	return "Fuel      %d/%d   %d units a crown" % [roundi(ship.fuel), roundi(ship.fuel_capacity()), Economy.FUEL_PER_CROWN]
 
 
 ## Who's aboard ship, without where they stand: a walking repairer mustn't rebuild the
@@ -146,6 +154,12 @@ func _build_market() -> void:
 	spares.add_child(_mono("Spares    %d/%d   %d crowns each" % [ship.spares, Damage.SPARES_MAX, Economy.SPARE_PRICE]))
 	spares.add_child(UiTheme.button("Fill", _ledger.buy_spares))
 	_rows.add_child(spares)
+	var fuel := HBoxContainer.new()
+	var gauge := _mono(_fuel_text(ship))
+	fuel.add_child(gauge)
+	market_rows["fuel"] = gauge
+	fuel.add_child(UiTheme.button("Fill", _ledger.buy_fuel))
+	_rows.add_child(fuel)
 	_rows.add_child(_mono("Hold      %d/%d crates" % [ship.grid.cargo.size(), ship.grid.cells_of("cargo_bay").size()]))
 
 

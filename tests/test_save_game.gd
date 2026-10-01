@@ -42,11 +42,11 @@ func good_save(saved := 1790000000.0) -> Dictionary:
 	grid.blocks.erase(Vector3i(-2, 1, 0))
 	grid.cargo = {Vector3i(-1, 0, -2): {"good": "grain", "owner": "Ann"}, Vector3i(1, 0, 4): {"good": "mail", "owner": "Ann"}}
 	var ann_ship := {"captain": "Ann", "at": [100.5, 880.25, 7000.0, 0.0, 0.258819, 0.0, 0.965926], "trim": 1.02, "anchored": false,
-			"spares": 12, "blocks": grid.to_blocks(), "blueprint": StarterShip.build().to_blocks(), "paint": {"deck": "c0392b"},
+			"spares": 12, "fuel": 312.5, "blocks": grid.to_blocks(), "blueprint": StarterShip.build().to_blocks(), "paint": {"deck": "c0392b"},
 			"cargo": grid.cargo_list(), "hands": [["Fenn", "gunner", -2, 1, 1, -1.0, 1.45, 1.0], ["Marta", "repairer", 0, 0, 0, 0.0, 3.45, 5.0]]}
 	var wreck := StarterShip.build()
 	wreck.blocks.erase(wreck.cells_of("helm")[0])
-	var bo_ship := {"captain": "Bo", "at": [-300.0, 700.0, 6500.0, 0.0, 0.0, 0.0, 1.0], "trim": 1.0, "anchored": true, "spares": 0,
+	var bo_ship := {"captain": "Bo", "at": [-300.0, 700.0, 6500.0, 0.0, 0.0, 0.0, 1.0], "trim": 1.0, "anchored": true, "spares": 0, "fuel": 0.0,
 			"blocks": wreck.to_blocks(), "blueprint": StarterShip.build().to_blocks(), "paint": {}, "cargo": [], "hands": []}
 	var ann := Economy.new_account()
 	ann["money"] = 2340
@@ -91,7 +91,8 @@ func test_saves_are_checked() -> void:
 	var cases := [
 		["missing", "This save is missing ships.json."],
 		["damaged", "world.json is damaged."],
-		["version", "This save is version 2; this game reads version 1."],
+		["version", "This save is version 3; this game reads versions 1 and 2."],
+		["fuel", "ships.json: ship 1 has fuel that doesn't fit her tanks."],
 		["seed", "world.json"],
 		["block", "ships.json: ship 1"],
 		["crate", "ships.json: ship 1"],
@@ -109,6 +110,8 @@ func test_saves_are_checked() -> void:
 				save["ships"][0]["cargo"].append([0, 0, 0, "grain", "Ann"])
 			"money":
 				save["players"]["Bo"]["money"] = -5
+			"fuel":
+				save["ships"][0]["fuel"] = 401.0
 			"huge":
 				save["world"]["host"] = "x".repeat(SaveGame.MAX_FILE_SIZE + 1)
 		assert_eq(SaveGame.write(path, save), OK)
@@ -118,9 +121,39 @@ func test_saves_are_checked() -> void:
 			"damaged":
 				write_text(path.path_join("world.json"), "{")
 			"version":
-				write_text(path.path_join("world.json"), JSON.stringify({"version": 2, "world": save["world"]}))
+				write_text(path.path_join("world.json"), JSON.stringify({"version": 3, "world": save["world"]}))
 		var problem: String = SaveGame.read(path).get("problem", "")
 		assert_true(problem.begins_with(each[1]), "%s: %s" % [each[0], problem])
+
+
+## Rewrites the save at path as version 1 (stage 7's): no fuel in its ships, no logs
+## in its accounts.
+func make_version_1(path: String) -> void:
+	for part: String in SaveGame.FILES:
+		var file_path := path.path_join(SaveGame.FILES[part])
+		var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(file_path))
+		data["version"] = 1
+		match part:
+			"ships":
+				for record: Dictionary in data["ships"]:
+					record.erase("fuel")
+			"players":
+				for account: Dictionary in data["players"].values():
+					account.erase("logs")
+		write_text(file_path, JSON.stringify(data))
+
+
+func test_a_version_1_save_still_loads() -> void:
+	fresh()
+	var path := SaveGame.slot_path("1")
+	assert_eq(SaveGame.write(path, good_save()), OK)
+	make_version_1(path)
+	var read := SaveGame.read(path)
+	assert_false(read.has("problem"), read.get("problem", ""))
+	var ships: Array = read["save"]["ships"]
+	assert_eq(ships.map(func(record: Dictionary) -> float: return record["fuel"]), [400.0, 400.0], "full tanks")
+	for account: Dictionary in read["save"]["players"].values():
+		assert_eq(account["logs"], [], "no logs")
 
 
 func test_a_broken_save_falls_back_to_the_previous_autosave() -> void:

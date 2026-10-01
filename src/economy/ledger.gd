@@ -90,6 +90,14 @@ func buy_spares() -> void:
 		_buy_spares.rpc_id(1)
 
 
+## This machine's player fills the tanks of the ship they're aboard, at a dock.
+func buy_fuel() -> void:
+	if sync.session.is_server():
+		_buy_fuel_for(multiplayer.get_unique_id())
+	else:
+		_buy_fuel.rpc_id(1)
+
+
 ## This machine's player buys (count 1) or sells (count -1) a crate of good at the
 ## dock they're at, aboard a ship.
 func trade(good: String, count: int) -> void:
@@ -131,7 +139,7 @@ func charge_launch(peer: int, design: ShipGrid, own: Ship) -> String:
 ## Server: what peer's old ship counts for at a launch: own as she is, or with no
 ## ship of their own, her insurance.
 func trade_in(peer: int, own: Ship) -> int:
-	return Economy.value(own.grid, own.spares) if own != null else account_of(peer)["insured"]
+	return Economy.value(own.grid, own.spares, own.fuel) if own != null else account_of(peer)["insured"]
 
 
 ## Server: captain's ship, built to blueprint, is lost: she's insured for part of her cost.
@@ -268,6 +276,27 @@ func _buy_spares_for(peer: int) -> void:
 	sync.tell_world(&"_spares", [sync.id_of(ship), ship.spares])
 	pay(peer, -count * Economy.SPARE_PRICE)
 	tell(peer, "Bought %d spares for %d crowns." % [count, count * Economy.SPARE_PRICE])
+
+
+## Server: as much fuel as her tanks take and the buyer can pay for.
+func _buy_fuel_for(peer: int) -> void:
+	var ship := _docked_ship(peer)
+	if ship == null:
+		tell(peer, "Buy fuel at a town's dock, aboard a ship.")
+		return
+	var room := ship.fuel_capacity() - ship.fuel
+	if room < 1.0:
+		tell(peer, "Her tanks are full.")
+		return
+	var units := minf(room, account_of(peer)["money"] * Economy.FUEL_PER_CROWN)
+	if units < 1.0:
+		tell(peer, "You can't afford fuel.")
+		return
+	var price := ceili(units / Economy.FUEL_PER_CROWN)
+	ship.fuel += units
+	sync.tell_fuel(ship)
+	pay(peer, -price)
+	tell(peer, "Bought %d fuel for %d crowns." % [roundi(units), price])
 
 
 ## Server: a buy goes in the first free bay, owned by the buyer; a sale takes the
@@ -618,6 +647,14 @@ func _drop(id: Variant) -> void:
 	var peer := multiplayer.get_remote_sender_id()
 	if sync.session.is_server() and id is int and _may_ask(peer):
 		_drop_for(peer, id)
+
+
+## Client -> server: fill the tanks of the ship I'm aboard.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _buy_fuel() -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and _may_ask(peer):
+		_buy_fuel_for(peer)
 
 
 ## Client -> server: fill the ship I'm aboard with spares.

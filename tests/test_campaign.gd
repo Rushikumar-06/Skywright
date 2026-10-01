@@ -140,6 +140,8 @@ func test_the_wallbreaker_flies() -> void:
 	assert_eq(grid.cells_of("engine").size(), 2)
 	assert_eq(grid.cells_of("propeller").size(), 4)
 	assert_eq(grid.paint, {"balloon": Color("2f5d8a")})
+	assert_eq(stats.fuel, 800.0, "four tanks")
+	assert_eq(Economy.cost(grid), 1742)
 
 
 func test_raids_follow_the_table() -> void:

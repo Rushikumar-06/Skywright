@@ -57,6 +57,8 @@ var _sky: WorldSky
 var _pause: PanelContainer
 var _resume: Button
 var _abandon: Button
+var _save_button: Button
+var _pause_note: Label
 
 
 func _ready() -> void:
@@ -653,7 +655,11 @@ func _build_pause_menu() -> void:
 	column.add_child(_resume)
 	_abandon = UiTheme.button("Abandon ship", _on_abandon_pressed)
 	column.add_child(_abandon)
-	column.add_child(UiTheme.button("Leave game", session.leave))
+	_save_button = UiTheme.button("Save game", _save_from_menu)
+	column.add_child(_save_button)
+	column.add_child(UiTheme.button("Leave game", leave_game))
+	_pause_note = UiTheme.caption("")
+	column.add_child(_pause_note)
 	column.add_child(UiTheme.caption("World seed %d" % session.world_seed))
 
 
@@ -666,8 +672,23 @@ func _on_abandon_pressed() -> void:
 	abandon_ship()
 
 
+## Leaves the game, autosaving first on a server with a slot.
+## ponytail: closing the window leaves without saving; the last autosave is at most five
+## minutes old. Save on NOTIFICATION_WM_CLOSE_REQUEST if players lose progress.
+func leave_game() -> void:
+	_autosave()
+	session.leave()
+
+
+func _save_from_menu() -> void:
+	var error := save_game()
+	_pause_note.text = "Saved to slot %s." % session.save_slot if error == OK else "Couldn't save (%s)." % error_string(error)
+
+
 func _toggle_pause() -> void:
 	_pause.visible = not _pause.visible
+	_pause_note.text = ""
+	_save_button.visible = session.is_server() and not session.save_slot.is_empty()
 	_abandon.text = "Abandon ship"
 	_abandon.visible = sync.ship_of(multiplayer.get_unique_id(), false) != null
 	if player != null:

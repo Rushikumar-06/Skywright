@@ -1,5 +1,6 @@
 extends Node3D
 ## The main menu: play solo, host, join, settings and quit, over a drifting sky.
+## Playing solo or hosting first chooses a saved game's slot to continue or start over.
 ## Hosting or joining opens the lobby, where the crew wait until the host sets sail.
 ## The join panel lists the games on the local network as they answer.
 
@@ -19,6 +20,9 @@ var _waiting: Label
 var _sail_button: Button
 var _leave_button: Button
 var _settings: SettingsPanel
+var _saves: VBoxContainer
+var _hosting := false  ## The saved games panel is choosing a game to host, not to play solo.
+var _new_game_buttons: Dictionary = {}  ## Slot -> its New game button.
 
 
 func _ready() -> void:
@@ -55,6 +59,9 @@ func _ready() -> void:
 
 	_join_panel = _build_join_panel()
 	column.add_child(_join_panel)
+	_saves = VBoxContainer.new()
+	_saves.add_theme_constant_override("separation", 12)
+	column.add_child(_saves)
 	_lobby = _build_lobby()
 	column.add_child(_lobby)
 	_settings = SettingsPanel.new()
@@ -119,6 +126,7 @@ func _build_lobby() -> VBoxContainer:
 func _show_menu() -> void:
 	_stop_browsing()
 	_menu.visible = true
+	_saves.visible = false
 	_join_panel.visible = false
 	_lobby.visible = false
 	_settings.visible = false
@@ -211,10 +219,63 @@ func _back() -> void:
 
 
 func _play_solo() -> void:
-	Session.start_solo(Settings.player_name)
+	_open_saves(false)
 
 
 func _host() -> void:
+	_open_saves(true)
+
+
+## Lists the slots, each with Continue and New game, to play solo or to host.
+func _open_saves(hosting: bool) -> void:
+	_hosting = hosting
+	_menu.visible = false
+	for child in _saves.get_children():
+		child.free()
+	_saves.add_child(UiTheme.caption("Saved games"))
+	for slot: String in SaveGame.SLOTS:
+		var row := HBoxContainer.new()
+		var summary := SaveGame.summary(slot)
+		var label := Label.new()
+		label.text = summary
+		row.add_child(label)
+		var resume := UiTheme.button("Continue", _continue.bind(slot))
+		resume.disabled = summary.ends_with("empty") or summary.ends_with("can't be read")
+		row.add_child(resume)
+		var fresh := UiTheme.button("New game", _new_game.bind(slot))
+		fresh.set_meta("empty", summary.ends_with("empty"))
+		_new_game_buttons[slot] = fresh
+		row.add_child(fresh)
+		_saves.add_child(row)
+	_saves.add_child(UiTheme.button("Back", _back))
+	_saves.visible = true
+
+
+## Plays slot's newest save that reads.
+func _continue(slot: String) -> void:
+	var loaded := SaveGame.prepare(Session, slot)
+	if loaded.has("problem"):
+		_show_problem(loaded["problem"])
+		return
+	_start()
+
+
+## Starts a new game in slot. Over a used slot, the first press asks again.
+func _new_game(slot: String) -> void:
+	var button: Button = _new_game_buttons[slot]
+	if not button.get_meta("empty") and button.text != "Start over: press again":
+		button.text = "Start over: press again"
+		return
+	Session.save_slot = slot
+	Session.loaded = {}
+	Session.requested_seed = -1
+	_start()
+
+
+func _start() -> void:
+	if not _hosting:
+		Session.start_solo(Settings.player_name)
+		return
 	var err := Session.host(Settings.player_name)
 	if err == ERR_CANT_CREATE:
 		_show_problem("Port %d is already in use. Is another game running?" % Session.DEFAULT_PORT)

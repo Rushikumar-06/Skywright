@@ -2,7 +2,7 @@ extends Node
 ## Moves between the main menu and the world as the crew set sail and sessions end, carries
 ## the reason a session ended back to the menu, and applies launch options (see
 ## LaunchOptions), for example: godot --path . -- --host --name=Ann
-## A dedicated server: godot --headless --path . -- --server
+## A dedicated server, which plays the "server" save slot: godot --headless --path . -- --server
 
 const MENU_SCENE := "res://src/ui/main_menu.tscn"
 const WORLD_SCENE := "res://src/world/world.tscn"
@@ -22,6 +22,11 @@ func _apply_launch_options(options: Dictionary) -> void:
 	Session.requested_seed = options.get("seed", -1)
 	if options.has("server"):
 		Engine.max_fps = Engine.physics_ticks_per_second  # nothing to draw, so no faster than it simulates
+		var loaded := SaveGame.prepare(Session, "server")
+		if loaded.has("problem"):
+			printerr("%s; starting a new world." % loaded["problem"])
+		elif not loaded.get("note", "").is_empty():
+			print(loaded["note"])
 		var server_port: int = options.get("port", Session.DEFAULT_PORT)
 		if Session.host(player_name, server_port, true) != OK:
 			printerr("Port %d is already in use. Is another game running?" % server_port)

@@ -8,7 +8,9 @@ extends Node3D
 ## arrive, and your own ship whenever one arrives: launch a design and you're at its
 ## helm, and B brings you back from a test flight. When the ship you're on goes, you
 ## board its successor, or the ship you came from, or your own, or the host's (never
-## a wreck), and with none of those you step off into the air. Stepping off a deck
+## a wreck), and with none of those you step off into the air, or when she was lost
+## wake on the nearest town's quay. Abandoning ship (the pause menu) loses your own
+## ship the same way. Stepping off a deck
 ## puts you ashore, on foot in this world; landing on a deck (a wreck's too), or E
 ## next to a hull (not a wreck's), puts you aboard; and falling into the Roil puts
 ## you back aboard (not on a wreck), or with no ship left onto the nearest town's
@@ -45,10 +47,12 @@ var _reveal_left := 0.0        ## Seconds until the next look around.
 var _came_from: Ship           ## The ship you were on before this one, while it's still here.
 var _yard_town := 0            ## The town whose dock the shipyard was last opened at.
 var _down_left := 0.0          ## s until you come to, while knocked down.
+var _abandoning := false       ## You asked to abandon your ship, and she isn't gone yet.
 
 var _sky: WorldSky
 var _pause: PanelContainer
 var _resume: Button
+var _abandon: Button
 
 
 func _ready() -> void:
@@ -205,10 +209,29 @@ func _arrive(crew: CrewMember) -> void:
 ## pirate), you arrive standing on the first town's quay.
 func _on_world_arrived() -> void:
 	if player == null and not session.dedicated:
-		var crew := CrewMember.new(null, Dock.quay_spot(gen.towns[0]["dock"]))
-		add_child(crew)
+		come_ashore(Dock.quay_spot(gen.towns[0]["dock"]))
+
+
+## Puts you standing at at in the world, making your controls if you have none yet.
+func come_ashore(at: Vector3) -> void:
+	var crew := CrewMember.new(null, at)
+	add_child(crew)
+	if player == null:
 		_arrive(crew)
-		ship = null
+	else:
+		if ship != null and sync.id_of(ship) != 0:
+			player.leave_station()
+		_swap_crew(crew)
+	ship = null
+
+
+## Gives up your own ship: she's lost (and insured), and you wake on the nearest quay
+## unless you're aboard another ship.
+func abandon_ship() -> void:
+	if sync.ship_of(multiplayer.get_unique_id(), false) == null:
+		return
+	_abandoning = true
+	sync.abandon()
 
 
 ## Steps you off your ship into this world, where you are, keeping the ship's
@@ -311,13 +334,7 @@ func recover(prefer: Ship, at_bunk := false) -> Ship:
 			var on: Ship = next
 			come_aboard(on, on.respawn_spot() if at_bunk else on.crew_spawn(my_slot()))
 			return on
-	var dock: Vector3 = gen.towns[_nearest_town(player.world_position())]["dock"]
-	if ship != null and sync.id_of(ship) != 0:
-		player.leave_station()
-	var crew := CrewMember.new(null, Dock.quay_spot(dock))
-	add_child(crew)
-	ship = null
-	_swap_crew(crew)
+	come_ashore(Dock.quay_spot(gen.towns[_nearest_town(player.world_position())]["dock"]))
 	return null
 
 
@@ -443,6 +460,10 @@ func _on_ship_added(added: Ship) -> void:
 func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 	if removed.lost and player != null:
 		_on_ship_lost(removed)
+		if _abandoning and removed.captain == multiplayer.get_unique_id():
+			_abandoning = false
+			if ship == null:
+				recover(null)  # ashore: back to a quay, as from aboard her
 	if _came_from == removed:
 		_came_from = null
 	if left == removed:
@@ -455,7 +476,10 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 			if removed.test and removed.captain == multiplayer.get_unique_id() and not _pause.visible:
 				open_shipyard(false)  # back from a test flight
 			return
-	go_ashore()  # nowhere to go: into the air where she was
+	if removed.lost:
+		recover(null)  # nowhere to go: the nearest quay
+	else:
+		go_ashore()  # nowhere to go: into the air where she was
 	left = null
 
 
@@ -467,7 +491,10 @@ func _on_ship_lost(removed: Ship) -> void:
 		return
 	if removed.captain == multiplayer.get_unique_id() and not removed.test:
 		design = ShipDesign.new(removed.blueprint)
-		hud.show_message("Your ship is lost to the Roil. The shipyard has her blueprint, and her insurance pays half of her.")
+		if _abandoning:
+			hud.show_message("You abandon ship. The shipyard has her blueprint, and her insurance pays half of her.")
+		else:
+			hud.show_message("Your ship is lost to the Roil. The shipyard has her blueprint, and her insurance pays half of her.")
 	elif ship == removed:
 		hud.show_message("She's lost to the Roil.")
 
@@ -538,12 +565,25 @@ func _build_pause_menu() -> void:
 	_pause.add_child(column)
 	_resume = UiTheme.button("Resume", _toggle_pause)
 	column.add_child(_resume)
+	_abandon = UiTheme.button("Abandon ship", _on_abandon_pressed)
+	column.add_child(_abandon)
 	column.add_child(UiTheme.button("Leave game", session.leave))
 	column.add_child(UiTheme.caption("World seed %d" % session.world_seed))
 
 
+## The first press asks again; the second abandons ship.
+func _on_abandon_pressed() -> void:
+	if _abandon.text == "Abandon ship":
+		_abandon.text = "Abandon ship: press again"
+		return
+	_toggle_pause()
+	abandon_ship()
+
+
 func _toggle_pause() -> void:
 	_pause.visible = not _pause.visible
+	_abandon.text = "Abandon ship"
+	_abandon.visible = sync.ship_of(multiplayer.get_unique_id(), false) != null
 	if player != null:
 		player.enabled = not _pause.visible and _down_left <= 0.0
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if _pause.visible else Input.MOUSE_MODE_CAPTURED

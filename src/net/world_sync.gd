@@ -286,6 +286,22 @@ func launch(grid: ShipGrid, test: bool, town := 0) -> bool:
 	return true
 
 
+## This machine's player abandons their own ship. The server decides.
+func abandon() -> void:
+	if session.is_server():
+		_abandon_for(multiplayer.get_unique_id())
+	else:
+		_abandon.rpc_id(1)
+
+
+## Server: peer's own ship (not a test flight), if they have one, is lost: insured,
+## with her cargo gone with her.
+func _abandon_for(peer: int) -> void:
+	var own := ship_of(peer, false)
+	if own != null:
+		remove_ship(own, null, true)
+
+
 ## This machine's player ends their test flight.
 func end_test() -> void:
 	if session.is_server():
@@ -1379,6 +1395,14 @@ func _launch(blocks: Variant, paint: Variant, test: Variant, town: Variant) -> v
 		return
 	grid.paint = colours
 	_launch_for(peer, grid, test, town)
+
+
+## Client -> server: abandon my own ship.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _abandon() -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if session.is_server() and _in_world.has(peer):
+		_abandon_for(peer)
 
 
 ## Client -> server: end my test flight.

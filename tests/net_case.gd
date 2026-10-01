@@ -48,6 +48,7 @@ func make_session(branch_name: String, script: GDScript = SessionScript) -> Sess
 	session.requested_seed = SEED
 	session.pirates = false  # no raids unless a test asks for them
 	session.lightning = false  # nor strikes
+	session.leviathans = false  # nor leviathans
 	session.discovery_port = free_port()  # each its own, so tests never answer each other's queries
 	branch.add_child(session)
 	return session

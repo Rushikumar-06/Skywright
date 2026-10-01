@@ -60,5 +60,14 @@ func simulate(seconds: float, before_tick := Callable()) -> void:
 	Engine.max_fps = cap
 
 
+## Runs physics a tick at a time until condition holds, for at most seconds.
+func simulate_until(condition: Callable, seconds: float) -> bool:
+	for tick in roundi(seconds * Engine.physics_ticks_per_second):
+		if condition.call():
+			return true
+		await simulate(1.0 / Engine.physics_ticks_per_second)
+	return condition.call()
+
+
 func _fail(what: String, message: String) -> void:
 	failures.append(what if message.is_empty() else "%s: %s" % [message, what])

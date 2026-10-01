@@ -229,6 +229,14 @@ func pirate_beaten(at: Vector3) -> void:
 			send_account(peer)
 
 
+## Server: pays amount to each player within Economy.BOUNTY_REACH of at (not on a test
+## flight), and tells them text.
+func reward_near(at: Vector3, amount: int, text: String) -> void:
+	for peer: int in _players_near(at, Economy.BOUNTY_REACH):
+		pay(peer, amount)
+		tell(peer, text)
+
+
 ## Server: each player within Economy.SCOUT_REACH of a landmark they're scouting has
 ## scouted it.
 func check_scouts() -> void:

@@ -60,15 +60,6 @@ static func changed(on: Ship, extra := {}) -> Array[Vector3i]:
 	return found
 
 
-## Runs physics a tick at a time until condition holds, for at most seconds.
-func simulate_until(condition: Callable, seconds: float) -> bool:
-	for tick in roundi(seconds * Engine.physics_ticks_per_second):
-		if condition.call():
-			return true
-		await simulate(1.0 / Engine.physics_ticks_per_second)
-	return condition.call()
-
-
 func test_a_shot_follows_its_arc() -> void:
 	var p := Projectiles.position_at(Vector3.ZERO, Vector3(0, 0, -100), 2.0)
 	assert_true(p.distance_to(Vector3(0, -19.62, -200)) <= 0.001, "two seconds out (%s)" % p)

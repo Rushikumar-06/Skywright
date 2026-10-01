@@ -40,15 +40,6 @@ func add_wreck(offset: Vector3) -> Ship:
 	return sync.add_ship(grid, ship.global_transform.translated(offset))
 
 
-## Runs physics a tick at a time until condition holds, for at most seconds.
-func simulate_until(condition: Callable, seconds: float) -> bool:
-	for tick in roundi(seconds * Engine.physics_ticks_per_second):
-		if condition.call():
-			return true
-		await simulate(1.0 / Engine.physics_ticks_per_second)
-	return condition.call()
-
-
 func test_the_part_with_the_helm_stays_the_ship() -> void:
 	await start()
 	var count := sync.ships.size()

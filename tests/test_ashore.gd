@@ -37,15 +37,6 @@ func ashore_at(p: Vector3) -> CrewMember:
 	return crew
 
 
-## Runs physics a tick at a time until condition holds, for at most seconds.
-func simulate_until(condition: Callable, seconds: float) -> bool:
-	for tick in roundi(seconds * Engine.physics_ticks_per_second):
-		if condition.call():
-			return true
-		await simulate(1.0 / Engine.physics_ticks_per_second)
-	return condition.call()
-
-
 func test_jumping_on_deck_stays_aboard() -> void:
 	assert_true(await start(), "settled")
 	player.crew.position = Vector3(0, 1.45, 0)

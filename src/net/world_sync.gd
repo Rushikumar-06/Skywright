@@ -130,6 +130,7 @@ var gen: WorldGen                         ## The world's shape, for where pirate
 var sites: Array[Vector3] = []            ## The middle of each world wreck (WorldGen.wrecks' order). Likewise.
 var salvaged: Dictionary = {}             ## World wreck index -> true, once she's stripped.
 var ledger: Ledger                        ## The world's books. Set by the World.
+var leviathans: Leviathans                ## The world's leviathans. Set by the World.
 var stored: Dictionary = {}               ## Server: captain name -> the record of their ship, while they're away.
 ## The world's shots and ropes. Likewise; the server hears their hits here.
 var projectiles: Projectiles:
@@ -776,6 +777,11 @@ func tell_world(method: StringName, args: Array) -> void:
 ## blocks it flew into (a shell then bursts among them, and a harpoon whose block
 ## held ties a rope from the gun to it). Anything else just ends it.
 func _on_shot_hit(shot: Dictionary, collider: Object, point: Vector3, direction: Vector3) -> void:
+	if collider is Leviathan:
+		if leviathans != null:
+			leviathans.shot(collider, shot["ammo"], ships.get(shot["ship"]))
+		_burst_on_crew(shot, point)
+		return
 	var ammo: String = shot["ammo"]
 	var spec: Dictionary = Damage.AMMO[ammo]
 	var target := collider as Ship
@@ -822,6 +828,23 @@ func _burst_on_crew(shot: Dictionary, point: Vector3) -> void:
 	for peer: int in crew:
 		if (crew[peer] as Vector3).distance_to(point) <= blast:
 			_knock_out(peer)
+
+
+## Server: a ram at at (world) hurts ship: a blast of damage within radius, in her space
+## and clamped into her box (to her outermost cells' middles); it knocks down everyone within radius + 1 of at, and
+## shoves her by push (m/s) unless she's frozen.
+func ram(ship: Ship, at: Vector3, radius: float, damage: float, push: Vector3) -> void:
+	if id_of(ship) == 0:
+		return
+	var cells := ship.bounds.grow(-0.5)  # her outermost cells' middles: a ram lands on a block, not beside it
+	var local := (ship.global_transform.affine_inverse() * at).clamp(cells.position, cells.end)
+	damage_ship(ship, Damage.blast(ship.grid, local, radius, damage))
+	var crew := crew_positions()
+	for peer: int in crew:
+		if (crew[peer] as Vector3).distance_to(at) <= radius + 1.0:
+			_knock_out(peer)
+	if id_of(ship) != 0 and not ship.freeze:
+		ship.apply_central_impulse(push * ship.mass)
 
 
 ## Server: peer is knocked down: they let go of every station, shots pass them by

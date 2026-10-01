@@ -30,6 +30,7 @@ const AUTOSAVE_GAP := 30.0     ## and the least before docking autosaves again.
 var session: Node
 var sync: WorldSync
 var ledger: Ledger             ## The world's books, beside the Sync.
+var leviathans: Leviathans     ## Its leviathans, beside the Ledger.
 var ship: Ship                 ## The ship you're aboard. Null while ashore.
 var left: Ship                 ## The ship you last stepped off, while it's here.
 var player: PlayerController   ## You, once the ship has arrived.
@@ -91,6 +92,9 @@ func _ready() -> void:
 	ledger.told.connect(_on_told)
 	ledger.account_changed.connect(_on_account_changed)
 	add_child(ledger)
+	leviathans = Leviathans.new(sync, not session.dedicated)
+	sync.leviathans = leviathans
+	add_child(leviathans)
 	projectiles = Projectiles.new(sync, not session.dedicated)
 	sync.projectiles = projectiles
 	add_child(projectiles)  # after the Sync, so shots fly on this tick's clock

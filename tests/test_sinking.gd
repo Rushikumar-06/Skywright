@@ -142,3 +142,23 @@ func test_a_guest_sees_their_ship_lost() -> void:
 	assert_eq(client_world.design.grid.blocks, StarterShip.build().blocks, "and has her blueprint")
 	assert_true(host_sync.id_of(ours) != 0, "the host's ship is still here")
 	assert_eq(ours.grid.blocks, blocks, "untouched")
+
+
+func test_a_joiner_with_no_ship_to_board_stands_on_the_quay() -> void:
+	host = make_session("Server")
+	var port := free_port()
+	host.host("Skyport", port, true)
+	host_world = add_world(host)
+	await get_tree().process_frame
+	var host_sync: WorldSync = host_world.sync
+	host_sync.remove_ship(host_sync.home_ship())
+	assert_true(host_sync.ships.is_empty(), "the server has no ships")
+	client = make_session("Client")
+	client.join("Guest", "127.0.0.1", port)
+	assert_true(await play_until(func() -> bool: return client.sailing, 5.0), "a guest joins")
+	client_world = add_world(client)
+	var guest_on_quay := func() -> bool:
+		var guest: PlayerController = client_world.player
+		return guest != null and guest.ship == null and guest.crew.is_on_floor() \
+				and guest.world_position().distance_to(Dock.quay_spot(client_world.gen.towns[0]["dock"])) < 3.0
+	assert_true(await play_until(guest_on_quay, 5.0), "and stands on the first town's quay")

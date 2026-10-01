@@ -61,6 +61,7 @@ func test_bad_blueprints_are_refused_with_the_first_problem() -> void:
 		[text_of("[[0, 0, 0, \"helm\", 24]]"), "Block 1 has rotation 24; rotations go from 0 to 23."],
 		[text_of("[%s, [0, 0, 0, \"frame\", 0]]" % helm), "Block 2 is in the same place as another block."],
 		[text_of("[[0, 0, 0, \"frame\", 0]]"), "Every ship needs a helm."],
+		[text_of("[%s, [1, 0, 0, \"helm\", 0]]" % helm), "A ship has one helm; this one has 2."],
 		[text_of("[%s]" % helm, ', "paint": {"balloon": "zzz"}'), "The paint colours aren't valid."],
 	]
 	for item: Array in cases:

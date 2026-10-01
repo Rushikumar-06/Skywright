@@ -109,7 +109,7 @@ Every town has a dock, and you start at the first one. Each player has a slipway
 | F | Test flight |
 | B | Back from a test flight |
 
-The panels show what your design will do: weight, lift, where she floats, thrust, top speed and climb rate. Two markers show the centre of mass and the centre of lift. If they don't line up, she lists or trims that way. Warnings say what's wrong before you fly: "Lists 8° to port", "Too heavy to fly", "Every ship needs a helm", or blocks that aren't joined to the helm and would fall away when she's hit.
+The panels show what your design will do: weight, lift, where she floats, thrust, top speed and climb rate. Two markers show the centre of mass and the centre of lift. If they don't line up, she lists or trims that way. Warnings say what's wrong before you fly: "Lists 8° to port", "Too heavy to fly", "Every ship needs a helm" (and only one), or blocks that aren't joined to the helm and would fall away when she's hit.
 
 **Test flight.** F puts a copy of your design in the air with you at its helm. Fly it, then press B: you're back in the shipyard at once, with your design as you left it. You can have one test flight at a time.
 

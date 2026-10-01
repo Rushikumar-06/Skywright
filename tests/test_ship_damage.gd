@@ -151,3 +151,16 @@ func test_rebuilding_a_hit_ship_is_quick() -> void:
 	var big := rebuild_time(wide)
 	assert_true(small < 15.0, "the starter ship in %.1f ms" % small)
 	assert_true(big < 25.0, "500 blocks in %.1f ms" % big)
+
+
+func test_a_ship_without_her_helm_loses_power() -> void:
+	var ship := launch(StarterShip.build())
+	ship.helm.set_autopilot(true)
+	ship.throttle = 1.0
+	await simulate(0.5)
+	ship.rudder = 0.6  # as the autopilot would leave it mid-turn
+	ship.damage({ship.helm.cell: 0})
+	await get_tree().process_frame
+	assert_true(ship.is_wreck(), "a wreck")
+	assert_eq(ship.throttle, 0.0, "her engines stop")
+	assert_eq(ship.rudder, 0.0, "and her rudder centres")

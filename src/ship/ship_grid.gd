@@ -171,9 +171,19 @@ static func read_blocks(data: Variant, needs_helm := true) -> Dictionary:
 		if grid.blocks.has(cell):
 			return {"problem": "Block %d is in the same place as another block." % n}
 		grid.blocks[cell] = {"type": type, "rotation": numbers[3], "hp": hp}
-	if needs_helm and grid.cells_of("helm").is_empty():
-		return {"problem": "Every ship needs a helm."}
+	if needs_helm and not helm_problem(grid).is_empty():
+		return {"problem": helm_problem(grid)}
 	return {"grid": grid}
+
+
+## What's wrong with grid's helms for a ship to fly: "" when she has exactly one.
+static func helm_problem(grid: ShipGrid) -> String:
+	var helms := grid.cells_of("helm").size()
+	if helms == 0:
+		return "Every ship needs a helm."
+	if helms > 1:
+		return "A ship has one helm; this one has %d." % helms
+	return ""
 
 
 ## Whether cell is inside the build area.

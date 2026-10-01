@@ -10,7 +10,6 @@ signal launch_requested(grid: ShipGrid)
 signal close_requested
 
 const SWATCHES := ["e9dfc9", "c0392b", "2f5d8a", "2e7d4f", "e8a948", "3d3a3f", "7d5a6b", "f2ead8"]
-const NO_HELM := "Every ship needs a helm."
 const HELP := "Left click place · Right click remove · Right-drag or WASD orbit · Wheel zoom · R turn · T tip"
 const DRAG_THRESHOLD := 6.0  ## Pixels a right-drag moves before it orbits instead of removing.
 const KEY_ORBIT := 600.0     ## Pixels' worth of orbit a second while W A S D are held.
@@ -20,6 +19,7 @@ var view: BuildView
 var stats: ShipStats
 var selected := "frame"
 var block_rotation := 0  ## The way the selected block faces. (CanvasLayer has its own rotation.)
+var _last_helm_problem := ""  ## What the note last said about the helm, to clear when it's fixed.
 var blueprint_dir := Blueprint.DIR
 var blueprint_name := Blueprint.DEFAULT_NAME
 
@@ -89,8 +89,8 @@ func click(point: Vector2, button: MouseButton) -> void:
 
 
 func save_blueprint(ship_name: String) -> void:
-	if design.grid.cells_of("helm").is_empty():
-		_note.text = NO_HELM
+	if not ShipGrid.helm_problem(design.grid).is_empty():
+		_note.text = ShipGrid.helm_problem(design.grid)
 		return
 	var clean := Blueprint.clean_name(ship_name)
 	var path := Blueprint.path_for(clean, blueprint_dir)
@@ -202,13 +202,14 @@ func _refresh() -> void:
 	_stats.text = stats_text()
 	_warnings.text = warnings_text()
 	_warnings.add_theme_color_override("font_color", UiTheme.WARNING if not stats.warnings.is_empty() else UiTheme.TEXT_DIM)
-	var no_helm := design.grid.cells_of("helm").is_empty()
-	_test_button.disabled = no_helm
-	_launch_button.disabled = no_helm
-	if no_helm:
-		_note.text = NO_HELM
-	elif _note.text == NO_HELM:
+	var helm_problem := ShipGrid.helm_problem(design.grid)
+	_test_button.disabled = not helm_problem.is_empty()
+	_launch_button.disabled = not helm_problem.is_empty()
+	if not helm_problem.is_empty():
+		_note.text = helm_problem
+	elif _note.text == _last_helm_problem:
 		_note.text = ""
+	_last_helm_problem = helm_problem
 	_undo_button.disabled = not design.can_undo()
 	_redo_button.disabled = not design.can_redo()
 	_mirror_button.text = "Mirror: %s (M)" % ("on" if design.mirror else "off")

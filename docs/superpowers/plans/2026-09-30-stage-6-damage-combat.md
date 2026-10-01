@@ -608,6 +608,14 @@ Tasks 1–5 ran with an implementer and a reviewer each. From Task 6 on, at the 
 | A captain whose own ship was wrecked couldn't rebuild her if she sank. | A lost ship with a captain gives back her blueprint, wreck or not. Only nobody's wrecks and pirates sink without a word. |
 | Late joiners didn't see fires already burning. | They get each burning ship's `_fires` after `_world`, as they get cannon gunners. |
 
+The final whole-branch review: "with fixes", no critical findings, three important ones and nine minor. Each fix below has a test that failed first.
+
+| Problem | Fix |
+|---|---|
+| A ship that lost her helm kept her last throttle and rudder, so pirate wrecks circled under power and your own wreck couldn't be stopped. | Losing the helm stops her engines and centres her rudder; she drifts (`test_a_ship_without_her_helm_loses_power`). |
+| A player who joined when no ship could be boarded never got a player at all. On a dedicated server that could be permanent once its starter ship was wrecked, sunk or salvaged. | A client whose world arrives with nothing to board stands on the first town's quay (`WorldSync.world_arrived`; `test_a_joiner_with_no_ship_to_board_stands_on_the_quay`). |
+| With two helm blocks, `Damage.split` and `Ship` disagreed about which helm kept the ship, and a broken-off piece could become a nobody's ship with 40 spares. | A ship has exactly one helm. `ShipGrid.helm_problem` refuses a second in blueprints, launches and the network; the shipyard disables test and launch; the stats warn. |
+
 **Frame rate.** On the Radeon 680M (`--gpu-index 0`, seed 7, 1920 × 1080, vsync off), a scripted two-minute fight was measured: your anchored ship in the Shattered Belt with the world streaming, a pirate circling and firing, and your cannon firing shells, chain shot and round shot back every 2 s.
 - With a warm shader cache it averaged 226 fps. The slowest second was 183 fps, and the worst frame after loading was 18 ms.
 - On the very first run, with a cold shader cache, one frame took 384 ms. That was the driver compiling shaders, and it didn't recur.
@@ -619,4 +627,13 @@ Tasks 1–5 ran with an implementer and a reviewer each. From Task 6 on, at the 
 **Deferred:**
 - A ship whose helm is shot off is a wreck you can't repair, because helms need a shipyard. If she still floats, you're stranded far from a dock. Consider an "abandon ship" back to the nearest quay, or repairs that rebuild a helm, in stage 7 or 8.
 - Right after a loss, the Roil's quay rescue replaces "Your ship is lost to the Roil…" within a second, so the rebuild hint may go unseen. Playtest item 9.
+- From the final review (minor, deferred):
+  - At the caps (8 wrecks and 4 pirates), snapshots alone reach about 64 KB/s, because a ship state is 156 bytes. That's for the stage 10 network pass; send wrecks less often, or cull ships far from each peer.
+  - The server doesn't enforce knock-downs against a modified client.
+  - A shell that hits a crew member bursts on crew only.
+  - A lost ship's blueprint replaces an unsaved design without a word.
+  - Salvage with no ship anywhere says "No room".
+  - The cost of a break on the 680M is unmeasured; playtest item 11 should include severing an envelope.
+  - The rescue message replaces the loss message.
+  - `_repair` accepts a cell that isn't a block.
 - Smaller items: `Projectiles.untie` broadcasts through `WorldSync.tell_world`; `_down` is never pruned; a wreck keeps a mannable cannon; clients set `Ship.born` on arrival; the aim line leaves out the ship's motion on guests.

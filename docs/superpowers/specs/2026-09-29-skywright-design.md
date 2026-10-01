@@ -45,7 +45,7 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 
 ### 3.3 Ships and building
 
-- **Grid:** ships are built on a 1 m grid. There's a limit of 4,000 blocks per ship, and every ship needs at least one helm.
+- **Grid:** ships are built on a 1 m grid. There's a limit of 4,000 blocks per ship, and every ship has exactly one helm (stage 6: a second helm would make break-apart ambiguous).
 - **Block catalogue:** frames, deck planks, iron and alloy plates, balloon cells, lift stones, engines, propellers, rudders and fins, sails, fuel tanks, ballast tanks, helm, cannons, cargo bays, bunks and ladders. Starting values are in §4.4.
 - **Weight and forces:** every block has weight. Balloons and propellers push from where they're mounted. Wind and drag act on every exposed face.
 - **Shipyard readouts:** weight, lift at the current altitude, thrust, estimated top speed and climb rate. Markers show the centre of mass against the centre of lift, with warnings such as "lists 8° to port" or "too heavy to hold altitude".
@@ -435,3 +435,6 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-10-01 | A helm on a piece under 4 blocks doesn't keep the ship: the hull stays, a wreck, and the helm goes as a splinter |
 | 2026-10-01 | The starter ship's envelope is joined to her hull, so she breaks only where she's cut |
 | 2026-10-01 | Pirate captains steer against the wind's drift, so they circle where they mean to |
+| 2026-10-01 | A ship has exactly one helm; designs and blueprints with more are refused |
+| 2026-10-01 | A ship that loses her helm loses power: throttle and rudder go to zero, and she drifts |
+| 2026-10-01 | A player who arrives with no ship to board stands on the first town's quay |

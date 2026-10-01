@@ -113,6 +113,10 @@ func test_stats_and_warnings_follow_the_design() -> void:
 	press_button(shipyard, "Undo")
 	assert_eq(shipyard.warnings_text(), "No warnings. She should fly.")
 	assert_false(button(shipyard, "Test flight (F)").disabled, "test flight again")
+	shipyard.design.place(helm + Vector3i.UP, "helm", 0)  # a free cell above the first
+	assert_true(shipyard.warnings_text().contains("A ship has one helm; this one has 2."), shipyard.warnings_text())
+	assert_true(button(shipyard, "Launch").disabled, "no launch with two helms")
+	assert_eq(shipyard.note_text(), "A ship has one helm; this one has 2.")
 
 
 func test_clicking_places_on_the_face_you_point_at() -> void:

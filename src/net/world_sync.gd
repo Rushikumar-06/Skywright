@@ -80,6 +80,8 @@ signal ship_removed(ship: Ship, successor: Ship)
 signal knocked_out
 ## This machine's player salvaged: spares gained, 0 for nothing left there, -1 for no room.
 signal salvage_result(spares: int)
+## Client: the server's world has arrived, every ship in it added.
+signal world_arrived
 
 const SessionScript := preload("res://src/net/session.gd")
 const SEND_EVERY := 2  ## Physics ticks between snapshots: 30 Hz at 60 ticks a second.
@@ -1035,6 +1037,7 @@ func _world(time: Variant, entries: Variant, stripped: Variant) -> void:
 			added.append(ship)
 	for ship in added:
 		ship_added.emit(ship)
+	world_arrived.emit()
 
 
 ## Server -> clients: a ship added mid-game, as an entry (see _entry), at time.

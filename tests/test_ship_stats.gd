@@ -154,3 +154,9 @@ func test_blocks_not_joined_to_the_helm_are_named() -> void:
 			str(ShipStats.of(loose, ALT).warnings))
 	for warning in ShipStats.of(StarterShip.build(), ALT).warnings:
 		assert_false(warning.contains("joined"), "the starter ship is one piece: " + warning)
+
+
+func test_a_ship_has_one_helm() -> void:
+	var grid := StarterShip.build()
+	grid.set_block(grid.cells_of("helm")[0] + Vector3i(0, 0, 2), "helm")
+	assert_true(ShipStats.of(grid, ALT).warnings.has("A ship has one helm; this one has 2."), "%s" % ShipStats.of(grid, ALT).warnings)

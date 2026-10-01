@@ -79,6 +79,7 @@ func _ready() -> void:
 	add_child(projectiles)  # after the Sync, so shots fly on this tick's clock
 	sync.knocked_out.connect(knock_out)
 	sync.salvage_result.connect(_on_salvage_result)
+	sync.world_arrived.connect(_on_world_arrived)
 	if not session.dedicated:
 		add_child(Weather.new(gen, sync.now))
 	if session.is_server():
@@ -161,24 +162,7 @@ func come_aboard(target: Ship, local: Vector3) -> void:
 	var crew := CrewMember.new(target, local)
 	target.interior.add_child(crew)
 	if player == null:
-		player = PlayerController.new(crew)
-		add_child(player)
-		sync.player = player
-		player.left_ship.connect(go_ashore)
-		player.landed_on.connect(func(on: Ship) -> void: come_aboard(on, on.to_local(player.crew.global_position)))
-		player.climbing.connect(board)
-		player.lost.connect(rescue)
-		player.repairing.connect(func(cell: Vector3i) -> void: sync.repair(ship, cell))
-		player.idle_interact.connect(salvage)
-		hud = Hud.new(player, session)
-		hud.wind = wind
-		hud.gen = gen
-		hud.exploration = exploration
-		add_child(hud)
-		map = MapView.new(gen, exploration, sync, _you)
-		map.visible = false
-		hud.add_child(map)
-		map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_arrive(crew)
 	else:
 		var from := ship if ship != null else left
 		var here := sync.id_of(from) != 0  # a ship on its way out can't be gone back to
@@ -188,6 +172,38 @@ func come_aboard(target: Ship, local: Vector3) -> void:
 			_came_from = from if here else null
 		_swap_crew(crew)
 	ship = target
+
+
+## You arrive in the world as crew: your controls, camera, HUD and map are made.
+func _arrive(crew: CrewMember) -> void:
+	player = PlayerController.new(crew)
+	add_child(player)
+	sync.player = player
+	player.left_ship.connect(go_ashore)
+	player.landed_on.connect(func(on: Ship) -> void: come_aboard(on, on.to_local(player.crew.global_position)))
+	player.climbing.connect(board)
+	player.lost.connect(rescue)
+	player.repairing.connect(func(cell: Vector3i) -> void: sync.repair(ship, cell))
+	player.idle_interact.connect(salvage)
+	hud = Hud.new(player, session)
+	hud.wind = wind
+	hud.gen = gen
+	hud.exploration = exploration
+	add_child(hud)
+	map = MapView.new(gen, exploration, sync, _you)
+	map.visible = false
+	hud.add_child(map)
+	map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+
+## Client: with the world here and no ship to board (every one gone, wrecked or a
+## pirate), you arrive standing on the first town's quay.
+func _on_world_arrived() -> void:
+	if player == null and not session.dedicated:
+		var crew := CrewMember.new(null, Dock.quay_spot(gen.towns[0]["dock"]))
+		add_child(crew)
+		_arrive(crew)
+		ship = null
 
 
 ## Steps you off your ship into this world, where you are, keeping the ship's

@@ -185,6 +185,8 @@ func rebuild() -> void:
 		helm.queue_free()
 		helm = null
 		anchored = false
+		throttle = 0.0  # nobody can stop her engines now, so they stop
+		rudder = 0.0
 	for cannon in cannons.duplicate():
 		if grid.type_at(cannon.cell) != "cannon":
 			cannon.leave(cannon.gunner)

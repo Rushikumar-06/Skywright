@@ -71,6 +71,15 @@ func buy_spares() -> void:
 		_buy_spares.rpc_id(1)
 
 
+## This machine's player buys (count 1) or sells (count -1) a crate of good at the
+## dock they're at, aboard a ship.
+func trade(good: String, count: int) -> void:
+	if sync.session.is_server():
+		_trade_for(multiplayer.get_unique_id(), good, count)
+	else:
+		_trade.rpc_id(1, good, count)
+
+
 ## Server: whether to hear peer's ask now. This machine's player is always heard.
 func _may_ask(peer: int) -> bool:
 	if peer == multiplayer.get_unique_id():
@@ -109,6 +118,46 @@ func _buy_spares_for(peer: int) -> void:
 	tell(peer, "Bought %d spares for %d crowns." % [count, count * Economy.SPARE_PRICE])
 
 
+## Server: a buy goes in the first free bay, owned by the buyer; a sale takes the
+## seller's own crate of good, first in cell order. The town whose dock she's at is the
+## market. Junk is ignored.
+func _trade_for(peer: int, good: String, count: int) -> void:
+	if (count != 1 and count != -1) or not Economy.GOODS.has(good):
+		return
+	var good_name: String = Economy.GOODS[good]["name"]
+	if Economy.GOODS[good]["price"] == 0:
+		tell(peer, "%s isn't for sale." % good_name)
+		return
+	var ship := _docked_ship(peer)
+	if ship == null:
+		tell(peer, "Trade at a town's dock, aboard a ship.")
+		return
+	var town := sync.town_at(ship.global_position)
+	var cargo := ship.grid.cargo.duplicate(true)
+	var owner := sync.name_of(peer)
+	if count == 1:
+		var free := ship.grid.free_bays()
+		var price := Economy.price(sync.gen, town, good)
+		if free.is_empty():
+			tell(peer, "Her hold is full.")
+		elif account_of(peer)["money"] < price:
+			tell(peer, "You can't afford %s (%d crowns)." % [good_name, price])
+		else:
+			cargo[free[0]] = {"good": good, "owner": owner}
+			sync.set_cargo(ship, cargo)
+			pay(peer, -price)
+		return
+	var cells := cargo.keys()
+	cells.sort()
+	for cell: Vector3i in cells:
+		if cargo[cell]["good"] == good and cargo[cell]["owner"] == owner:
+			cargo.erase(cell)
+			sync.set_cargo(ship, cargo)
+			pay(peer, Economy.sell_price(sync.gen, town, good))
+			return
+	tell(peer, "You have no %s aboard." % good_name)
+
+
 ## Server -> its owner: their account.
 @rpc("authority", "call_remote", "reliable", 0)
 func _account(account: Variant) -> void:
@@ -125,6 +174,14 @@ func _account(account: Variant) -> void:
 func _say(text: Variant) -> void:
 	if not sync.session.is_server() and text is String and text.length() <= MAX_TEXT:
 		told.emit(text)
+
+
+## Client -> server: buy (1) or sell (-1) a crate of good where I am.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _trade(good: Variant, count: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and good is String and count is int and _may_ask(peer):
+		_trade_for(peer, good, count)
 
 
 ## Client -> server: fill the ship I'm aboard with spares.

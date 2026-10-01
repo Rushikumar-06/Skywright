@@ -279,7 +279,7 @@ func test_the_hud_says_b_opens_the_shipyard_at_the_dock() -> void:
 	await get_tree().process_frame
 	world.player.crew.position = Vector3(0, 1, -4)  # at the bow, out of the helm's reach
 	await get_tree().process_frame
-	assert_eq(world.hud._prompt.text, "B   Shipyard")
+	assert_eq(world.hud._prompt.text, "B   Shipyard   T   Town")
 	var ship: Ship = world.ship
 	ship.global_position = Vector3(0, START_HEIGHT, 0)  # the Eye, where there are no towns
 	ship.reset_physics_interpolation()

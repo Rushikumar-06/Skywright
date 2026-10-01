@@ -119,6 +119,10 @@ repair={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":82)]
 }
+town={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":84)]
+}
 
 [physics]
 

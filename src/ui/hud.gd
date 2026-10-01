@@ -140,7 +140,7 @@ func _process(delta: float) -> void:
 	elif player.ship == null and not player.crew.is_on_floor() and player.crew.velocity.y < 0.0 and not player.crew.gliding:
 		_prompt.text = "Hold Space   Glide"
 	elif at_dock and player.crew.station == null and not test_flight:
-		_prompt.text = "B   Shipyard"
+		_prompt.text = "B   Shipyard   T   Town"
 	else:
 		_prompt.text = ""
 	if compass != null and is_instance_valid(player.camera):

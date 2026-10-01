@@ -37,6 +37,7 @@ func test_input_actions_have_their_default_keys() -> void:
 		"test_flight": [KEY_F],
 		"ammo": [KEY_Q],
 		"repair": [KEY_R],
+		"town": [KEY_T],
 	}
 	for action: String in expected:
 		assert_true(InputMap.has_action(action), "%s exists" % action)

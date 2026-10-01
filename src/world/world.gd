@@ -32,6 +32,7 @@ var player: PlayerController   ## You, once the ship has arrived.
 var hud: Hud
 var towns: Array[Node3D] = []  ## Every town, in WorldGen.towns' order, under the Towns node.
 var shipyard: Shipyard         ## Null while closed.
+var town_panel: TownPanel      ## The town you're doing business in, opened with T. Null while closed.
 var design: ShipDesign         ## Your design, kept for the whole game.
 var gen: WorldGen              ## The world made from the session's seed.
 var wind: Wind                 ## Its wind, on the world's clock.
@@ -277,6 +278,8 @@ func _on_salvage_result(spares: int, money: int) -> void:
 func _on_told(text: String) -> void:
 	if shipyard != null:
 		shipyard.say(text)
+	elif town_panel != null:
+		town_panel.say(text)
 	elif hud != null:
 		hud.show_message(text)
 
@@ -364,6 +367,36 @@ func close_shipyard() -> void:
 	get_viewport().disable_3d = false
 
 
+## Opens the town whose dock you're at (aboard or ashore), to do business there.
+func open_town() -> void:
+	if town_panel != null or shipyard != null or player == null or on_test_flight():
+		return
+	var town := town_at(player.world_position())
+	if town < 0:
+		hud.show_message("The market is at the dock.")
+		return
+	if map != null and map.visible:
+		_toggle_map()
+	town_panel = TownPanel.new(ledger, town, func() -> Ship: return ship)
+	town_panel.layer = 3
+	town_panel.close_requested.connect(close_town)
+	add_child(town_panel)
+	player.enabled = false
+	hud.visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## Closes the town, and gives you back the controls.
+func close_town() -> void:
+	if town_panel == null:
+		return
+	town_panel.queue_free()
+	town_panel = null
+	player.enabled = _down_left <= 0.0
+	hud.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
 ## Gives your controls to crew, and lets the crew member you had go.
 func _swap_crew(crew: CrewMember) -> void:
 	var old := player.crew
@@ -432,6 +465,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		if shipyard != null:
 			close_shipyard()
+		elif town_panel != null:
+			close_town()
 		elif map != null and map.visible:
 			_toggle_map()
 		else:
@@ -439,6 +474,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("map") and shipyard == null and not _pause.visible and map != null:
 		_toggle_map()  # M is the shipyard's mirror key too
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("town") and shipyard == null and not _pause.visible:
+		if town_panel != null:  # T is the shipyard's tip key too
+			close_town()
+		else:
+			open_town()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("shipyard") and not _pause.visible:
 		if shipyard != null:

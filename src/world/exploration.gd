@@ -7,6 +7,7 @@ const CELL := 128.0     ## m: the side of a cell.
 const SIZE := 128       ## Cells across, covering -8,192 to 8,192 m.
 const SIGHT := 1200.0   ## m: a cell whose centre is this close, sideways, is seen.
 const HALF := CELL * SIZE / 2.0
+const PNG_SIGNATURE := [137, 80, 78, 71, 13, 10, 26, 10]
 
 var image := Image.create(SIZE, SIZE, false, Image.FORMAT_L8)  ## 255 where seen.
 var revision := 0  ## Counts every reveal that saw something new, so a map knows to redraw.
@@ -28,6 +29,29 @@ func reveal(p: Vector3) -> bool:
 	if found:
 		revision += 1
 	return found
+
+
+## What's been seen, for a save: the image as PNG, in base64.
+func to_text() -> String:
+	return Marshalls.raw_to_base64(image.save_png_to_buffer())
+
+
+## Takes what's been seen from to_text()'s text. False, changing nothing, unless it's
+## a SIZE × SIZE PNG.
+func read_text(text: String) -> bool:
+	var bytes := Marshalls.base64_to_raw(text)
+	var read := Image.new()
+	if Array(bytes.slice(0, 8)) != PNG_SIGNATURE or read.load_png_from_buffer(bytes) != OK or read.get_width() != SIZE or read.get_height() != SIZE:
+		return false
+	read.convert(Image.FORMAT_L8)
+	image = read
+	_count = 0
+	for j in SIZE:
+		for i in SIZE:
+			if image.get_pixel(i, j).r > 0.0:
+				_count += 1
+	revision += 1
+	return true
 
 
 ## Whether p's cell has been seen. Outside the grid, never.

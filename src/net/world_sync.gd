@@ -129,6 +129,7 @@ var gen: WorldGen                         ## The world's shape, for where pirate
 var sites: Array[Vector3] = []            ## The middle of each world wreck (WorldGen.wrecks' order). Likewise.
 var salvaged: Dictionary = {}             ## World wreck index -> true, once she's stripped.
 var ledger: Ledger                        ## The world's books. Set by the World.
+var stored: Dictionary = {}               ## Server: captain name -> the record of their ship, while they're away.
 ## The world's shots and ropes. Likewise; the server hears their hits here.
 var projectiles: Projectiles:
 	set(value):
@@ -309,6 +310,48 @@ func mend(ship: Ship, cell: Vector3i) -> bool:
 	damage_ship(ship, changes)
 	tell_world(&"_spares", [id_of(ship), ship.spares])
 	return true
+
+
+## ship as a save keeps her (see SaveGame.read_ship).
+func record(ship: Ship) -> Dictionary:
+	var o := ship.global_position
+	var q := ship.global_basis.get_rotation_quaternion()
+	return {"captain": name_of(ship.captain) if ship.captain != 0 else "", "at": [o.x, o.y, o.z, q.x, q.y, q.z, q.w],
+			"trim": ship.trim, "anchored": ship.anchored, "spares": ship.spares, "blocks": ship.grid.to_blocks(),
+			"blueprint": ship.blueprint.to_blocks(), "paint": ship.grid.paint_names(), "cargo": ship.grid.cargo_list(),
+			"hands": ship.hands.map(func(hand: Dictionary) -> Array: return [hand["name"], hand["role"], hand["post"].x, hand["post"].y,
+					hand["post"].z, hand["at"].x, hand["at"].y, hand["at"].z])}
+
+
+## Server: puts the ship a record describes back in the world, captain's, as she was
+## and not moving, with her hands (new ids, gunners at their posts), and tells everyone.
+## Null when the record doesn't read.
+func restore(saved: Dictionary, captain: int) -> Ship:
+	var read := SaveGame.read_ship(saved)
+	if read.has("problem"):
+		return null
+	var id := _next_id
+	_next_id += 1
+	var ship := _add(id, read["grid"], read["at"], true, captain, false, 0, read["blueprint"], false, read["spares"])
+	ship.trim = read["trim"]
+	ship.anchored = read["anchored"]
+	ship_added.emit(ship)
+	var entry := _entry(id)
+	for peer: int in _in_world:
+		_ship_added.rpc_id(peer, _time, entry)
+	var hands := []
+	for hand: Dictionary in read["hands"]:
+		var aboard := hand.duplicate()
+		aboard["id"] = next_hand_id()
+		hands.append(aboard)
+	if not hands.is_empty():
+		set_hands(ship, hands)
+	return ship
+
+
+## Server: sets the world's clock, as a saved game had it.
+func set_clock(time: float) -> void:
+	_time = time
 
 
 ## Server: stows cargo (see ShipGrid.cargo) aboard ship, and tells everyone in the world.
@@ -1004,6 +1047,8 @@ func _let_leavers_go() -> void:
 		return
 	for ship: Ship in ships.values():
 		if ship.captain != 0 and not session.players.has(ship.captain):
+			if not ship.test:
+				stored[name_of(ship.captain)] = record(ship)  # she waits for them
 			remove_ship(ship)
 			continue
 		if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
@@ -1209,6 +1254,11 @@ func _enter_world() -> void:
 		if not ship.burning.is_empty():
 			_fires.rpc_id(peer, id, _fire_bytes(ship))
 	peer_entered.emit(peer)
+	var captain_name := name_of(peer)
+	if stored.has(captain_name):  # back: her ship with them
+		var saved: Dictionary = stored[captain_name]
+		stored.erase(captain_name)
+		restore(saved, peer)
 
 
 ## Server -> client: the server's clock, every ship, as entries (see _entry), and the

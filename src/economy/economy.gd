@@ -201,8 +201,8 @@ static func bearing_word(from: Vector3, to: Vector3) -> String:
 static func read_account(data: Variant) -> Variant:
 	if not data is Dictionary:
 		return null
-	var money: Variant = _whole(data.get("money"), 0, 1 << 52)
-	var insured: Variant = _whole(data.get("insured"), 0, 1 << 52)
+	var money: Variant = whole(data.get("money"), 0, 1 << 52)
+	var insured: Variant = whole(data.get("insured"), 0, 1 << 52)
 	var unlocks: Variant = data.get("unlocks")
 	var contracts: Variant = data.get("contracts")
 	if money == null or insured == null or not unlocks is Array or not contracts is Array or contracts.size() > MAX_CONTRACTS:
@@ -224,23 +224,24 @@ static func read_account(data: Variant) -> Variant:
 static func read_contract(data: Variant) -> Variant:
 	if not data is Dictionary:
 		return null
-	var id: Variant = _whole(data.get("id"), 1, 1 << 52)
+	var id: Variant = whole(data.get("id"), 1, 1 << 52)
 	var kind: Variant = data.get("kind")
 	var title: Variant = data.get("title")
-	var reward: Variant = _whole(data.get("reward"), 0, MAX_REWARD)
-	var target: Variant = _whole(data.get("target"), -1, 1 << 30)
-	var count: Variant = _whole(data.get("count"), 1, MAX_COUNT)
+	var reward: Variant = whole(data.get("reward"), 0, MAX_REWARD)
+	var target: Variant = whole(data.get("target"), -1, 1 << 30)
+	var count: Variant = whole(data.get("count"), 1, MAX_COUNT)
 	if id == null or not kind is String or not kind in KINDS or not title is String or title.length() > MAX_TITLE \
 			or reward == null or target == null or count == null:
 		return null
-	var done: Variant = _whole(data.get("done"), 0, count)
+	var done: Variant = whole(data.get("done"), 0, count)
 	if done == null:
 		return null
 	return {"id": id, "kind": kind, "title": title, "reward": reward, "target": target, "count": count, "done": done}
 
 
-## value as an int when it's a whole number (or a whole float) from low to high, else null.
-static func _whole(value: Variant, low: int, high: int) -> Variant:
+## value as an int when it's a whole number (or a whole float, as JSON gives) from low
+## to high, else null.
+static func whole(value: Variant, low: int, high: int) -> Variant:
 	if value is float and is_finite(value) and value == floorf(value):
 		value = int(value)
 	if not value is int or value < low or value > high:

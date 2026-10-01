@@ -24,6 +24,8 @@ extends Node3D
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
 const START := WorldGen.START
 const REVEAL_EVERY := 0.5  ## Seconds between looks around, for the map.
+const AUTOSAVE_EVERY := 300.0  ## s of play between autosaves,
+const AUTOSAVE_GAP := 30.0     ## and the least before docking autosaves again.
 
 var session: Node
 var sync: WorldSync
@@ -48,6 +50,8 @@ var _came_from: Ship           ## The ship you were on before this one, while it
 var _yard_town := 0            ## The town whose dock the shipyard was last opened at.
 var _down_left := 0.0          ## s until you come to, while knocked down.
 var _abandoning := false       ## You asked to abandon your ship, and she isn't gone yet.
+var _since_save := 0.0         ## Server: s of play since the last save.
+var _arrival_note := ""        ## Said when you arrive: why an older save was loaded.
 
 var _sky: WorldSky
 var _pause: PanelContainer
@@ -93,7 +97,12 @@ func _ready() -> void:
 	sync.world_arrived.connect(_on_world_arrived)
 	if not session.dedicated:
 		add_child(Weather.new(gen, sync.now))
-	if session.is_server():
+	sync.docked.connect(func(_ship: Ship, _town: int) -> void:
+		if _since_save >= AUTOSAVE_GAP:
+			_autosave())
+	if session.is_server() and not session.loaded.is_empty():
+		_restore(session.loaded)
+	elif session.is_server():
 		sync.add_ship(StarterShip.build(), Dock.slipway(START, 0), 0 if session.dedicated else 1)
 	streamer = WorldStreamer.new(gen, not session.dedicated)
 	streamer.focus = sync.focus_points
@@ -116,10 +125,84 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if session.is_server() and not session.save_slot.is_empty():
+		_since_save += delta
+		if _since_save >= AUTOSAVE_EVERY:
+			_autosave()
 	if _down_left > 0.0:
 		_down_left -= delta
 		if _down_left <= 0.0:
 			_come_to()
+
+
+## The world as a save keeps it (see SaveGame): every ship but pirates, nobody's wrecks
+## and test flights, the ships waiting for their captains, every account, the clock, the
+## stripped wrecks, and your map.
+func capture() -> Dictionary:
+	var records := []
+	for each: Ship in sync.ships.values():
+		if not (each.test or each.pirate or (each.is_wreck() and each.captain == 0)):
+			records.append(sync.record(each))
+	records.append_array(sync.stored.values())
+	var stripped := sync.salvaged.keys()
+	stripped.sort()
+	return {"world": {"seed": session.world_seed, "time": sync.now(), "salvaged": stripped,
+			"exploration": exploration.to_text() if player != null else "",
+			"host": "" if session.dedicated else sync.name_of(multiplayer.get_unique_id()), "saved": Time.get_unix_time_from_system()},
+			"ships": records, "players": ledger.accounts.duplicate(true)}
+
+
+## Server: saves the game to its slot (an autosave when auto). With no slot it writes
+## nothing.
+func save_game(auto := false) -> Error:
+	if not session.is_server() or session.save_slot.is_empty():
+		return ERR_UNCONFIGURED
+	var slot: String = session.save_slot
+	var error := SaveGame.write(SaveGame.autosave_path(slot) if auto else SaveGame.slot_path(slot), capture())
+	if error == OK:
+		_since_save = 0.0
+	return error
+
+
+func _autosave() -> void:
+	if not session.is_server() or session.save_slot.is_empty():
+		return
+	var error := save_game(true)
+	if error != OK and hud != null:
+		hud.show_message("Couldn't autosave (%s)." % error_string(error))
+
+
+## Server: plays a saved game (see SaveGame.load_slot): the host keeps their progress
+## under a new name, captains here get their ships back, and the ships of captains who
+## aren't wait for them.
+func _restore(loaded: Dictionary) -> void:
+	_arrival_note = loaded.get("note", "")
+	session.loaded = {}
+	var save: Dictionary = (loaded["save"] as Dictionary).duplicate(true)
+	var world: Dictionary = save["world"]
+	var me := multiplayer.get_unique_id()
+	if not session.dedicated and not (world["host"] as String).is_empty():
+		SaveGame.rename(save, world["host"], sync.name_of(me))
+	sync.set_clock(world["time"])
+	for index: int in world["salvaged"]:
+		if index < sync.sites.size():
+			sync.salvaged[index] = true
+	if not session.dedicated:
+		exploration.read_text(world["exploration"])
+	ledger.accounts = save["players"]
+	if not session.dedicated:
+		ledger.send_account(me)
+	for saved: Dictionary in save["ships"]:
+		var captain := 0
+		for peer: int in session.players:
+			if sync.name_of(peer) == saved["captain"]:
+				captain = peer
+		if captain == 0 and not (saved["captain"] as String).is_empty():
+			sync.stored[saved["captain"]] = saved
+		else:
+			sync.restore(saved, captain)
+	if player == null and not session.dedicated:
+		come_ashore(Dock.quay_spot(START))
 
 
 ## Your place in the roster, which is where you stand when you board: crew board
@@ -195,6 +278,9 @@ func _arrive(crew: CrewMember) -> void:
 	player.idle_interact.connect(salvage)
 	hud = Hud.new(player, session)
 	hud.ledger = ledger
+	if not _arrival_note.is_empty():
+		hud.show_message.call_deferred(_arrival_note)
+		_arrival_note = ""
 	hud.wind = wind
 	hud.gen = gen
 	hud.exploration = exploration

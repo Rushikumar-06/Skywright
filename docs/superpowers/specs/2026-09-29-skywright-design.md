@@ -1,7 +1,7 @@
 # Skywright: design spec
 
 - **Date:** 2026-09-29
-- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 and 2026-10-01 with what stages 2 to 6 settled.
+- **Status:** Design parts 1–3 agreed in chat on 2026-09-29; this document consolidates them. Updated on 2026-09-30 and 2026-10-01 with what stages 2 to 7 settled.
 - **Tracker:** [Skywright Build Log](https://claude.ai/artifact/N8W3J8xUU77JcdYdhcSZCx)
 
 ## 1. Summary
@@ -49,7 +49,7 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 - **Block catalogue:** frames, deck planks, iron and alloy plates, balloon cells, lift stones, engines, propellers, rudders and fins, sails, fuel tanks, ballast tanks, helm, cannons, cargo bays, bunks and ladders. Starting values are in §4.4.
 - **Weight and forces:** every block has weight. Balloons and propellers push from where they're mounted. Wind and drag act on every exposed face.
 - **Shipyard readouts:** weight, lift at the current altitude, thrust, estimated top speed and climb rate. Markers show the centre of mass against the centre of lift, with warnings such as "lists 8° to port" or "too heavy to hold altitude".
-- **Cargo:** crates are stowed in cargo bays, and their weight counts where they're stowed.
+- **Cargo:** crates are stowed in cargo bays, one a bay, and each adds 100 kg (`Tuning.CRATE_MASS`) where it's stowed, so weight and balance follow the crates. A destroyed bay loses its crate, and a piece that breaks away takes its crates. The starter ship carries four bays in her main deck at (±1, 0, −2) and (±1, 0, 4), and two bunks in her keel at (0, −1, ±3), placed so she weighs and trims as she did without them.
 - **Damage:** every block has hit points, and destroyed blocks are removed; the ship flies on what's left. Any section no longer connected to the helm's section breaks away as its own wreck, and a severed balloon floats away. A helm shot loose on fewer than 4 blocks is lost with them, and the ship becomes a wreck that can't be steered.
 - **Shipyard warning:** blocks not joined through faces to the helm's piece are flagged, because they'd fall away at the first hit.
 - **Shipyard:** the shipyard opens within 150 m of any town's dock, which has a slipway for each player. A launch or test flight goes from the slipways of the town whose shipyard it was made in, even after you come back from a test flight somewhere else. Blocks are placed, removed, turned, tipped and mirrored, with undo and redo. Mirror mode makes every edit on both sides of the keel.
@@ -58,11 +58,11 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 
 ### 3.4 Crew and stations
 
-- Players walk the deck in first person, climb ladders and use stations: the helm and cannons. (An engine station waits for fuel, stage 7.)
-- **Repairs:** holding R at a block within 6 m puts out fires around it, or else uses one of the ship's spares to heal it or rebuild a lost block beside it from her blueprint, four times a second. That patches the envelope from the deck. Helms and cannons need a shipyard. A ship carries up to 40 spares, filled free at any town's dock until stage 7 prices them.
+- Players walk the deck in first person, climb ladders and use stations: the helm and cannons. (An engine station waits for fuel, stage 8.)
+- **Repairs:** holding R at a block within 6 m puts out fires around it, or else uses one of the ship's spares to heal it or rebuild a lost block beside it from her blueprint, four times a second. That patches the envelope from the deck. Helms and cannons need a shipyard. A ship carries up to 40 spares, bought at any town's dock for 5 crowns each.
 - At the helm, the camera can switch to a third-person chase view.
 - The helm has an autopilot that holds heading and altitude, so a solo player can leave the helm to man a gun.
-- AI crew hired in towns staff stations: gunner, engineer and repairer.
+- **Hired hands** (stage 7) are hired at a town's dock for a one-off fee (gunner 150 crowns, repairer 120, engineer 200), one per bunk, and are server-side brains on their ship. A gunner mans one cannon and fires only at pirates within 600 m, aiming as pirate captains do (at the target's block nearest her centre of mass). A repairer walks the ship in straight lines at 4 m/s, putting out fires first and then mending with her spares, through the same server path as a player's repair. An engineer tends an engine, and her propellers push 25% (`Tuning.ENGINE_BOOST`) harder for each one tended, shared over her engines: about 12% more speed. Hands aren't hit or knocked down, never leave their ship, never steer, and never fire at players. They're lost with their ship, and move to the ship that replaces theirs at a launch while she has bunks and posts; the rest stay ashore.
 - Players can leave the ship on foot to explore islands, and glide back to it. Stepping off the deck puts you ashore, where you walk in the world with ordinary gravity; holding Space in the air opens a glider. Landing on a ship's deck, or pressing E beside her hull, puts you aboard. Falling into the Roil puts you back aboard.
 - A pilot can anchor the ship (G at the helm). An anchored ship is held still where she is, whatever the wind, until the pilot weighs anchor.
 
@@ -71,18 +71,20 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 - **Pirates:** ships built from the same blocks and flying on the same physics, with AI captains that chase, circle and fire broadsides. One design (`PirateShip`, four cannons). The server raids crewed ships more than 1,200 m from every dock every 30 s: a 25% chance in the Calm Reaches with at most one pirate near you, 50% and two further in, four in the world at most. Captains fire the guns themselves (no pirate crew), steer against the wind's drift, and don't steer around islands. Pirates far from every player leave.
 - **Sky leviathans:** roaming giants in the Gale Expanse, plus one boss.
 - **Weather:** storm cells bring lightning and turbulence.
-- **Cannon ammunition:** round shot (block damage, about two planks), chain shot (shreds balloons), explosive shells (3 m bursts that start fires) and harpoons (a rope between the ships for 45 s). Cannons never run out until ammunition becomes cargo (stage 7).
+- **Cannon ammunition:** round shot (block damage, about two planks), chain shot (shreds balloons), explosive shells (3 m bursts that start fires) and harpoons (a rope between the ships for 45 s). Cannons never run out: spares already make fighting cost money, and the reload already limits fire (stage 7 decided against ammunition as cargo).
 - **Being hit:** a shot through a player, or a shell bursting within 3 m, knocks them down for 5 s; they come to at a bunk or by the helm. There's no health bar.
 - **Fire:** wood and cloth burn, losing 5 hit points a second, spreading, and burning out after 30 s.
-- **Salvage:** each world wreck gives 12 spares once a session; a broken-off wreck gives a spare per 10 blocks and is broken up. Loot beyond spares waits for inventory (stage 7).
-- **The Roil:** below 200 m a ship takes storm damage, and below 0 m it is lost. You keep the blueprint and can rebuild the ship at a shipyard, free until stage 7 sets a price.
+- **Salvage:** each world wreck gives 150 crowns and 12 spares (as many as fit) once, and the world remembers; a broken-off wreck gives a spare per 10 blocks and a crown a block, and is broken up.
+- **The Roil:** below 200 m a ship takes storm damage, and below 0 m it is lost. You keep the blueprint, and she's insured for half her cost: your next launch counts the insurance as her trade-in. Whoever was aboard wakes on the nearest town's quay at once.
+- **Abandon ship:** the pause menu's Abandon ship (pressed twice) loses your own ship wherever she is, insured like a sunk one, and puts you on the nearest town's quay unless you're aboard another ship. It rescues a captain whose helm was shot off far from a shipyard.
 
 ### 3.6 Economy and progression
 
-- Money and inventory. Markets whose prices differ between towns make trade routes worthwhile.
-- Contracts: deliveries, bounties, salvage and scouting.
-- Part tiers: wood, then iron, then alloy. Balloons come first, then lift stones, which give strong lift that doesn't weaken with altitude.
-- Blueprints and parts come from shipyards, wrecks and story progress.
+- **Money:** crowns, in a purse per player (1,500 to start), kept by the server by player name. A player's inventory is the crates they own, wherever they're stowed; crates are saved with the ships that carry them.
+- **Markets** at every town's dock buy and sell crates of grain, timber, cloth, tools and spirits. Each town makes two goods (sold at 0.6 of base) and wants two (bought at 1.5), with ±10% noise, all from the world seed; a market pays 85% of its price. Prices don't move with trade. Mail is never traded.
+- **Contracts:** each town's board offers three, drawn when first asked for: deliveries of 1–3 mail crates to one of the three nearest towns (paid when a ship carrying them docks there), bounties for 1–2 pirates beaten within 1.5 km of you, salvaging one of the three nearest unstripped wrecks, and scouting one of the three nearest landmarks (within 400 m). Rewards grow with distance. A player holds three at most and can drop one anywhere, which unloads a delivery's mail. Titles say how far and which way; the map doesn't mark targets, and contracts have no deadlines.
+- **Part tiers:** wood and iron from the start (the starter ship's keel is iron). Alloy plates unlock for 2,000 crowns at a town in the Shattered Belt or further in, and lift stones for 4,000 at a town in the Gale Expanse or further in. Money is the only way to unlock, until story progress (stage 8). A design with locked parts can be test-flown but not launched.
+- **Launch prices:** a ship costs her parts (`Economy.PART_COST`) and a full load of 40 spares (the starter ship: 1,350 crowns). A launch costs that less the trade-in: what the old ship is worth now (parts by hit points, and spares), or with no ship of your own her insurance. A smaller ship pays nothing back. Crates aboard the old ship move to the new one, which must have bays for them.
 
 ### 3.7 Campaign
 
@@ -93,7 +95,7 @@ Build a ship at a shipyard, fly out, explore, take contracts (deliveries, bounti
 
 ### 3.8 Multiplayer
 
-- **Co-op:** friends join the host's world and either crew the host's ship or fly their own alongside it (from stage 4, which brings ships of your own; in stage 3 everyone crews the host's ship). Each player has one ship and one test flight at a time, and a leaver's ships go with them. The world is saved on the host's machine.
+- **Co-op:** friends join the host's world and either crew the host's ship or fly their own alongside it (from stage 4, which brings ships of your own; in stage 3 everyone crews the host's ship). Each player has one ship and one test flight at a time, and a leaver's ships go with them. The world is saved on the host's machine, with every player's account by name. A leaver's ship waits in the world's save (not in the world) until they come back under the same name. Names are unique on a roster: a second "Ann" becomes "Ann 2". Guests' maps (exploration) aren't saved, since the host never sees them.
 - **Lobby:** the host's crew gather in a lobby until the host sets sail. Anyone who joins after that goes straight aboard.
 - **Skirmish:** team ship battles on arena maps using your own blueprints, and sky-river races with checkpoints. Players can board enemy ships with grapple lines and fight with cutlass and pistol.
 - **Size:** up to 8 players.
@@ -133,7 +135,9 @@ src/ship/                 blocks, grid, mass properties, forces, meshes, damage 
 src/crew/                 ship-space physics, player controller, stations        (stage 2+)
 src/builder/              shipyard build mode                                     (stage 4)
 src/world/                world scene, generation, streaming, wind, weather, towns, the Roil   (stage 5)
-src/combat/ src/ai/ src/economy/ src/campaign/ src/audio/ src/save/               (later stages)
+src/combat/ src/ai/        projectiles and cannons; pirates and hired hands          (stage 6, 7)
+src/economy/ src/save/     the economy's rules and the Ledger; saved games            (stage 7)
+src/campaign/ src/audio/                                                             (later stages)
 src/ui/                   menus, HUD, map, compass
 tests/                    run_tests.gd, test_case.gd, test_*.gd
 docs/superpowers/         specs and plans
@@ -180,7 +184,7 @@ Player names are trimmed and capped at 24 characters. An empty name becomes "Cap
 | Alloy plate | 110 | 260 | Light armour (late) |
 | Balloon cell | 8 | 30 | 900 N lift × air density |
 | Lift stone | 250 | 400 | 6,000 N lift, not affected by altitude |
-| Engine | 300 | 200 | Powers propellers; burns fuel |
+| Engine | 300 | 200 | Powers propellers (fuel waits for stage 8) |
 | Propeller | 50 | 60 | Up to 2,500 N thrust along its axis |
 | Rudder / fin | 30 | 60 | Control surface |
 | Sail | 20 | 40 | 6 m² of wind area |
@@ -194,7 +198,7 @@ Player names are trimmed and capped at 24 characters. An empty name becomes "Cap
 
 Sanity check: a starter ship with a 12 × 4 hull and about 5 t of blocks needs about 70 balloon cells to float at 800 m. That's an envelope about the size of the hull, which reads as an airship. Two propellers giving 5 kN reach about 27 m/s.
 
-The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 balloon cells. Iron in the middle of its keel puts its weight right under its lift, so it floats level at 877 m. Its two propellers reach 20 m/s. Stage 6 joined her envelope to her hull (her posts run into it) and gave her two cannons and more balloons: 9.6 t, 301 blocks, 137 balloon cells, level at 882 m.
+The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 balloon cells. Iron in the middle of its keel puts its weight right under its lift, so it floats level at 877 m. Its two propellers reach 20 m/s. Stage 6 joined her envelope to her hull (her posts run into it) and gave her two cannons and more balloons: 9.6 t, 301 blocks, 137 balloon cells, level at 882 m. Stage 7 swapped four deck planks for cargo bays and two keel frames for bunks with no change to her weight or trim. A crate weighs 100 kg (`Tuning.CRATE_MASS`) at its bay, and an engineer drives an engine 25% harder (`Tuning.ENGINE_BOOST`).
 
 **Mass properties:**
 - Total mass is the sum of the blocks.
@@ -205,7 +209,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 > ponytail: only the diagonal of the inertia tensor is kept (Godot takes principal moments). Fine for mirror-symmetric ships. Rotate into principal axes if asymmetric ships feel wrong.
 
 **Forces each physics tick** (at world position `p`, air density factor `ρ(h) = exp(−(h − 200) / 2500)` for h ≥ 200, and 1 below). Every constant is in `src/ship/tuning.gd`:
-- **Balloon lift:** `900 N × ρ × trim` per cell. The pilot sets trim between 0.8 and 1.1, and trim above 1.0 burns fuel once fuel exists (stage 7). Lift stones give a fixed 6,000 N.
+- **Balloon lift:** `900 N × ρ × trim` per cell. The pilot sets trim between 0.8 and 1.1, and trim above 1.0 will burn fuel once fuel exists (stage 8; until then fuel tanks are dead weight and trim is free). Lift stones give a fixed 6,000 N.
 - **Thrust:** `throttle × engine power share × 2,500 N` per propeller, along its facing. One engine drives up to two propellers at full power. A propeller facing aft pushes the ship astern.
 - **Drag:** cells are grouped into 4 × 4 × 4 zones. Each zone stores its exposed face area per local axis and its centre. Zone drag is `−½ × 1.2 × ρ × Cd × A_axis × |v_axis| × v_axis`, per local axis, with Cd 0.45. It uses the air-relative velocity at the zone centre: body velocity at that point minus the wind. Rotational damping falls out of this, and the body adds spin damping of 0.5 per second.
 - **Keel:** each zone also pushes back against slipping sideways while it moves forward: `−½ × 1.2 × ρ × 8 × A_x × |v_forward| × v_side`, along the ship's x axis. It works the way a keel does in water. Without it a ship skids instead of turning. With it the starter ship turns at about 6°/s and keeps about two-thirds of its speed through a hard turn. It needs forward speed, so a hovering ship still drifts with the wind.
@@ -250,7 +254,7 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
 - **Crew (30 Hz):** each client sends `{ship id, local position, velocity, yaw, pitch}` to the server. The server checks it (finite, at most 50 m/s, within 35 m of the ship's blocks), stamps it with its own clock and relays it to everyone else. Clients draw other crew 100 ms in the past, on their ship as it's drawn. A report with ship id 0 is of someone ashore: its position and velocity are in world space, and the server checks they are finite, at most 50 m/s (plus 0.01 m/s of slack), within 11,000 m of the centre, and between 0 and 5,000 m high.
 - **Stations:** a client asks the server for the helm. The server grants it only if the asker last reported standing aboard that ship within reach (1.8 m, plus 0.5 m of slack), and tells everyone who holds it. Only the pilot's helm keys are applied (clamped to −1…1), and only the pilot can switch the autopilot.
 - **Events (reliable):** ship spawned (with compressed blocks, paint and damage), ship removed, blocks destroyed, ship split, projectile fired (`origin`, `velocity`, `type`, `server time`), projectile hit, station claimed or released, and economy changes. Every machine simulates a projectile's arc from its launch data, and only the server decides hits.
-- **Protocol 3 (stage 4):** `_ship_added` and `_ship_removed` carry ships that come and go mid-game, and `_world` sends every ship's entry `[id, blocks, paint, transform, pilot, captain, test]`. A client asks with `_launch(blocks, paint, test)` (at most one a second; the server checks the bytes) and ends a test with `_end_test`. A launch or a test replaces the player's last ship or test, and `_ship_removed` names the ship that takes over its crew. The server trusts a client to be at the dock until launching costs money (stage 7).
+- **Protocol 3 (stage 4):** `_ship_added` and `_ship_removed` carry ships that come and go mid-game, and `_world` sends every ship's entry `[id, blocks, paint, transform, pilot, captain, test]`. A client asks with `_launch(blocks, paint, test)` (at most one a second; the server checks the bytes) and ends a test with `_end_test`. A launch or a test replaces the player's last ship or test, and `_ship_removed` names the ship that takes over its crew. From stage 7 the server launches or test-flies a design only for a player who last said they were at that town's dock.
 - **Protocol 4 (stage 5):**
   - `_welcome(roster, under_way, seed)` adds the world seed, an `int` from 0 to 2,147,483,647, so a guest makes the host's world before it loads. A client refuses anything else and ends with "The host sent a world this game can't make."
   - `_launch(blocks, paint, test, town)` adds the town whose dock to launch from, an index into the world's towns. Anything else is ignored.
@@ -264,6 +268,12 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
   - Shots: `_fired(shot, ammo, origin, velocity, time, ship)` and `_hit(shot, point, time)`; every machine flies the arc, clients 100 ms behind like ships. Ropes: `_tether` and `_untether`.
   - Stations: `_man`, `_gunner` and `_fire` for cannons, as for the helm. Repairs: `_repair`, `_fires` (3 bytes a burning cell), `_spares`. Salvage: `_salvage`, `_salvaged`, `_salvage_result`. Knock-downs: `_knocked_out`.
   - A broadside of four is under 1 KB. A fight with a pirate measured under 32 KB/s down to a guest.
+- **Protocol 6 (stage 7):**
+  - Ship entries gain her cargo, `[[x, y, z, good, owner], …]`, and her hands, `[[id, name, role, post, at], …]` (ids below 0): 12 fields.
+  - `WorldSync`: `_cargo(id, cargo)` and `_hands(id, hands)` (a walking repairer's place, twice a second); `_salvage_result(spares, money)`; `_abandon()`.
+  - A second RPC node, `World/Ledger`, keeps the books: `_account(account)` (to its owner, under 1 KB) and `_say(text)` (at most 200 characters) from the server; `_buy_spares`, `_trade(good, count)`, `_ask_board` and `_board(town, offers)`, `_take(id)`, `_drop(id)`, `_unlock(part)`, `_hire(role)` and `_dismiss(id)` from clients. The server takes at most one economy ask from each peer every 0.1 s and checks it against where the asker last said they were.
+  - `_launch` keeps its arguments; the server now checks the town, the unlocks and the price, and refusals come back through `_say`.
+  - Names are made unique by the host as players join.
 - **Joining mid-game:** only peers whose world has loaded get world traffic. A client's world asks to enter when it's ready, and receives the world clock and every ship (blocks as bytes, paint, transform, pilot, captain and test). The world seed comes with the handshake; later stages add the list of changes to the world. The crew roster comes with the handshake.
 - **Budget:** at most 64 KB/s down per client. Twelve ships at 30 Hz is about 22 KB/s.
 
@@ -314,9 +324,11 @@ The stage 2 starter ship came out bigger: 8.9 t on a 5 × 13 m deck, with 127 ba
   - Validation happens on load: known format and version, 1 to 4,000 blocks, coordinates in −64…63, known block types, rotation 0–23, and at least one helm.
   - Numbers may be whole floats (`3.0` is 3). Files over 1 MB are refused.
   - Other players' blueprints are untrusted input.
-- **Saves:** `user://saves/<slot>/world.json`, `ships.json` and `player.json`, each with a `version`.
-  - The game autosaves every 5 minutes and when docking, and keeps the last three autosaves.
-  - A save that fails to load falls back to the previous autosave, and the game tells the player.
+- **Saves:** slots `1`, `2` and `3`, and `server` for a dedicated server. A save is a folder of three files, `world.json` (seed, clock, stripped wrecks, the host's map as base64 PNG, the host's name, when it was saved), `ships.json` (each ship's captain by name, place, trim, anchoring, spares, blocks with hit points, blueprint, paint, crates and hands) and `player.json` (every account by name), each `{"version": 1, "<part>": …}` and written whole (`.tmp`, then renamed). A save by hand goes in `user://saves/<slot>/`, autosaves in `<slot>/auto-1` to `auto-3` (the first missing, else the oldest).
+  - What's saved: every ship but pirates, nobody's wrecks and test flights, plus the ships waiting for absent captains. Contract boards, pirates, wrecks, fires and shots aren't.
+  - Everything read back is checked as untrusted input (files over 16 MB are refused, blocks through `ShipGrid.read_blocks`, crates, hands and accounts through their readers), and a problem names its file.
+  - The host's game autosaves every 5 minutes of play, when a ship docks (at least 30 s after the last save) and when leaving the game; closing the window doesn't save.
+  - Loading a slot takes the newest save in it that reads (by its `saved` time); when that isn't the newest, the player is told which failed and which was loaded. A save made under another host name gives that player's progress to the new name.
 
 ### 4.11 Performance budgets
 
@@ -377,7 +389,7 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | Game full | Refused with "The game is full (8 players)." |
 | Port in use when hosting | "Port 24650 is already in use. Is another game running?" |
 | Broken settings file | Defaults are used and the file is rewritten on the next save. |
-| Broken save | The previous autosave loads, and the player is told. |
+| Broken save | The newest save in the slot that reads loads, and the player is told: "The latest save in slot 1 couldn't be read (ships.json is damaged), so the one from 2026-10-01 14:02 was loaded." With none readable, the menu says "Slot 1 couldn't be read: …" and a dedicated server starts a new world. |
 | Invalid blueprint | It's refused with the first problem found, and nothing is loaded. The checks are in `Blueprint.parse` and `ShipGrid.read_blocks`. |
 | Physics blow-up | The physics guard in §4.4 applies. |
 
@@ -428,7 +440,7 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-09-30 | Piers stand 1.5 m off a ship at each slipway, and docks are frictionless so a ship blown onto one slides along it; launches keep 1 m from dock obstacles and 2 m from ships |
 | 2026-09-30 | Crew ashore report in world space (ship id 0), at most 50 m/s overall, with 0.01 m/s of slack on the server |
 | 2026-09-30 | The world seed travels in the handshake (protocol 4), and a guest makes the world from it |
-| 2026-10-01 | Ships carry spares (0–40) for repairs, filled free at docks, and lost ships rebuild free, until stage 7 prices them |
+| 2026-10-01 | Ships carry spares (0–40) for repairs, filled free at docks, and lost ships rebuild free, until stage 7 prices them (it did) |
 | 2026-10-01 | One mesh per ship, rebuilt whole at most once a frame; 16³ sections wait for big ships to stutter |
 | 2026-10-01 | Crew are hit by where they last reported standing; a hit knocks you down for 5 s, with no health bar |
 | 2026-10-01 | Pirates' guns are fired by their captains; there's no pirate crew, and pirates never board |
@@ -438,3 +450,12 @@ Online co-op comes third on purpose. Networking a physics game late is where pro
 | 2026-10-01 | A ship has exactly one helm; designs and blueprints with more are refused |
 | 2026-10-01 | A ship that loses her helm loses power: throttle and rudder go to zero, and she drifts |
 | 2026-10-01 | A player who arrives with no ship to board stands on the first town's quay |
+| 2026-10-01 | A player's inventory is the crates they own, stowed in ships and saved with them; there's no separate store of weightless items |
+| 2026-10-01 | Iron is unlocked from the start; alloy and lift stones unlock with money at towns further in |
+| 2026-10-01 | No fuel until stage 8: fuel tanks are dead weight and trim is free; an engineer's boost stands in for the engine station |
+| 2026-10-01 | Ammunition stays unlimited; spares cost money and reloads limit fire |
+| 2026-10-01 | Spares cost 5 crowns; a launch costs the design's parts and spares less the old ship's worth, and a lost or abandoned ship is insured for half her cost |
+| 2026-10-01 | Abandon ship (pause menu, twice) rescues a stranded captain; any loss puts the crew on the nearest quay at once |
+| 2026-10-01 | Player names are unique on a roster ("Ann 2"), because progress is saved by name |
+| 2026-10-01 | Saves keep every account by name; a leaver's ship waits in the save; guests' maps aren't saved |
+| 2026-10-01 | Hired gunners aim at the target's block nearest her centre of mass, which can lie in the open air between deck and envelope |

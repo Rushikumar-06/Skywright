@@ -138,7 +138,7 @@ func test_the_client_skips_ships_that_make_no_sense() -> void:
 	for entry: Variant in junk:
 		sync._ship_added.rpc_id(guest, sync.now(), entry)
 	sync._ship_added.rpc_id(guest, "now", [63, blocks, {}, at, 0, 0, false, blocks, false, 40])
-	sync._world.rpc_id(guest, sync.now(), junk)
+	sync._world.rpc_id(guest, sync.now(), junk, [])
 	sync._ship_removed.rpc_id(guest, "1", 0)
 	sync._ship_removed.rpc_id(guest, 1, "0")
 	sync._ship_removed.rpc_id(guest, 99, 0)

@@ -13,7 +13,8 @@ extends Node3D
 ## next to a hull (not a wreck's), puts you aboard; and falling into the Roil puts
 ## you back aboard (not on a wreck). Its Projectiles fly and draw every shot. A shot
 ## that hits you knocks you down for a few seconds, and you come to at a bunk.
-## Holding R repairs the ship you're aboard, through the WorldSync. A
+## Holding R repairs the ship you're aboard, and E by a wreck salvages her, both
+## through the WorldSync. A
 ## dedicated server's world has no player, HUD, pause menu or Weather.
 
 ## Where the ship starts: over the Calm Reaches, 7 km from the Eye.
@@ -68,11 +69,14 @@ func _ready() -> void:
 	sync.ship_removed.connect(_on_ship_removed)
 	for town: Dictionary in gen.towns:
 		sync.docks.append(town["dock"])
+	for wreck: Dictionary in gen.wrecks:
+		sync.sites.append(Sites.wreck_center(wreck))
 	add_child(sync)
 	projectiles = Projectiles.new(sync, not session.dedicated)
 	sync.projectiles = projectiles
 	add_child(projectiles)  # after the Sync, so shots fly on this tick's clock
 	sync.knocked_out.connect(knock_out)
+	sync.salvage_result.connect(_on_salvage_result)
 	if not session.dedicated:
 		add_child(Weather.new(gen, sync.now))
 	if session.is_server():
@@ -90,6 +94,7 @@ func _process(delta: float) -> void:
 	if hud != null:
 		hud.test_flight = on_test_flight()
 		hud.at_dock = at_dock()
+		hud.salvage = not salvage_in_reach().is_empty()
 	_reveal_left -= delta
 	if player != null and _reveal_left <= 0.0:
 		_reveal_left = REVEAL_EVERY
@@ -162,6 +167,7 @@ func come_aboard(target: Ship, local: Vector3) -> void:
 		player.climbing.connect(board)
 		player.lost.connect(rescue)
 		player.repairing.connect(func(cell: Vector3i) -> void: sync.repair(ship, cell))
+		player.idle_interact.connect(salvage)
 		hud = Hud.new(player, session)
 		hud.wind = wind
 		hud.gen = gen
@@ -208,6 +214,42 @@ func rescue() -> void:
 			board(next)
 			hud.show_message("The Roil nearly took you. Back aboard!")
 			return
+
+
+## What E would salvage where you are: ["site", index] for a world wreck not yet
+## stripped within Damage.SITE_REACH, else ["ship", wreck] for a wreck ship (nobody's)
+## whose box grown Damage.SALVAGE_REACH holds you, else [].
+func salvage_in_reach() -> Array:
+	if player == null:
+		return []
+	var here := player.world_position()
+	for i in sync.sites.size():
+		if not sync.salvaged.has(i) and here.distance_to(sync.sites[i]) <= Damage.SITE_REACH:
+			return ["site", i]
+	for wreck: Ship in sync.ships.values():
+		if wreck.is_wreck() and wreck.captain == 0 and (wreck.global_transform * wreck.bounds).grow(Damage.SALVAGE_REACH).has_point(here):
+			return ["ship", wreck]
+	return []
+
+
+## Salvages what's in reach, if anything. The server decides.
+func salvage() -> void:
+	var found := salvage_in_reach()
+	if found.is_empty():
+		return
+	if found[0] == "site":
+		sync.salvage_site(found[1])
+	else:
+		sync.salvage_ship(found[1])
+
+
+func _on_salvage_result(spares: int) -> void:
+	if spares > 0:
+		hud.show_message("Salvaged %d spares." % spares)
+	elif spares == 0:
+		hud.show_message("Nothing left to salvage here.")
+	else:
+		hud.show_message("No room for more spares.")
 
 
 ## A shot knocked you down: your controls stop until you come to, KNOCKOUT_TIME later.

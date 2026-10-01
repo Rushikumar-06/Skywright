@@ -47,12 +47,7 @@ static func create_wreck(wreck: Dictionary, visuals: bool) -> Node3D:
 	var grid := wreck_grid(wreck)
 	var node := Node3D.new()
 	node.name = "Wreck"
-	var lowest := INF
-	for cell: Vector3i in grid.blocks:
-		lowest = minf(lowest, cell.y - 0.5)
-	var basis := Basis(Vector3.UP, wreck["yaw"]) * Basis(Vector3.BACK, wreck["roll"])
-	var rest: Vector3 = wreck["at"] + Vector3(0.0, IslandMesh.height(wreck["island"], 0.0, 0.0) - WRECK_SINK, 0.0)
-	node.transform = Transform3D(basis, rest - basis * Vector3(0.0, lowest, 0.0))
+	node.transform = _wreck_place(wreck, grid)
 	var body := StaticBody3D.new()
 	node.add_child(body)
 	for box in grid.merged_boxes():
@@ -60,6 +55,23 @@ static func create_wreck(wreck: Dictionary, visuals: bool) -> Node3D:
 	if visuals:
 		node.add_child(ShipMesh.build(grid))
 	return node
+
+
+## The middle of a world wreck's blocks, where she lies in the world.
+static func wreck_center(wreck: Dictionary) -> Vector3:
+	var grid := wreck_grid(wreck)
+	return _wreck_place(wreck, grid) * grid.bounds().get_center()
+
+
+## Where a wreck of grid lies: turned by its yaw and rolled by its roll, its lowest
+## block WRECK_SINK into the top at its island's centre.
+static func _wreck_place(wreck: Dictionary, grid: ShipGrid) -> Transform3D:
+	var lowest := INF
+	for cell: Vector3i in grid.blocks:
+		lowest = minf(lowest, cell.y - 0.5)
+	var basis := Basis(Vector3.UP, wreck["yaw"]) * Basis(Vector3.BACK, wreck["roll"])
+	var rest: Vector3 = wreck["at"] + Vector3(0.0, IslandMesh.height(wreck["island"], 0.0, 0.0) - WRECK_SINK, 0.0)
+	return Transform3D(basis, rest - basis * Vector3(0.0, lowest, 0.0))
 
 
 ## The landmark on its island, on the ground at the island's centre, in stone, with

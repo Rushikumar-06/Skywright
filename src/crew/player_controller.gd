@@ -13,6 +13,7 @@ signal landed_on(ship: Ship)   ## Ashore, you came down on ship's deck.
 signal lost                    ## Ashore, you fell into the Roil.
 signal climbing(ship: Ship)    ## Ashore, E next to ship's hull.
 signal repairing(cell: Vector3i)  ## A repair action at cell of your ship, every Damage.REPAIR_EVERY while R is held.
+signal idle_interact           ## E with no station or hull to use: the World may salvage.
 
 const MOUSE_TURN := 0.0025     ## Radians per pixel of mouse movement at sensitivity 1.
 const CHASE_DISTANCE := 40.0   ## Metres from the chase camera to the ship.
@@ -281,6 +282,8 @@ func _interact() -> void:
 		(near as Cannon).ask_man(peer, true)
 	elif prompt() == "Climb aboard":
 		climbing.emit(ship_in_reach())
+	else:
+		idle_interact.emit()
 
 
 ## You're at the helm while it says you're its pilot, else at the cannon that says

@@ -13,6 +13,7 @@ var player: PlayerController
 var session: Node
 var test_flight := false  ## You're on a test flight. Set by the World each frame.
 var at_dock := false      ## You're at the dock. Set by the World each frame.
+var salvage := false      ## There's a wreck in reach to salvage. Likewise.
 var wind: Wind            ## The world's wind, shown at the helm. Set by the World.
 var gen: WorldGen         ## The world's shape, for the compass. Set by the World, with exploration.
 var exploration: Exploration
@@ -128,6 +129,8 @@ func _process(delta: float) -> void:
 		_prompt.text = "E   " + action
 	elif holder != 0 and holder != player.peer:
 		_prompt.text = "%s is at the helm" % name_of(holder)
+	elif salvage:
+		_prompt.text = "E   Salvage"
 	elif not repair.is_empty():
 		_prompt.text = repair
 	elif player.ship == null and not player.crew.is_on_floor() and player.crew.velocity.y < 0.0 and not player.crew.gliding:

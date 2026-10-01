@@ -25,6 +25,13 @@ extends Node
 ## it. Fires burn once a second as the server wears ships, and docks fill the spares
 ## of the ships at them; everyone hears what burns and how many spares are left.
 ##
+## Salvage belongs to the server too. A player's E by a world wreck, or by a wreck
+## ship, comes here; within reach, a world wreck gives Damage.SALVAGE_SPARES once
+## (everyone, late joiners too, learns she's stripped), and a wreck ship gives a
+## spare per 10 blocks and is broken up. The spares go to the ship the salvager is
+## aboard, else their own, else the home ship; with no room, nothing is taken. The
+## salvager hears how many they got.
+##
 ## Pirates belong to the server too. Every RAID_EVERY, a crewed ship away from the
 ## towns may draw a pirate, by her region's odds and up to its limit; a pirate is a
 ## ship built from PirateShip with a PirateCaptain aboard, here only, and clients
@@ -69,6 +76,8 @@ signal ship_added(ship: Ship)
 signal ship_removed(ship: Ship, successor: Ship)
 ## This machine's player was knocked down by a shot.
 signal knocked_out
+## This machine's player salvaged: spares gained, 0 for nothing left there, -1 for no room.
+signal salvage_result(spares: int)
 
 const SessionScript := preload("res://src/net/session.gd")
 const SEND_EVERY := 2  ## Physics ticks between snapshots: 30 Hz at 60 ticks a second.
@@ -107,6 +116,8 @@ var player: PlayerController  ## This machine's player, whose crew it reports. N
 var docks: Array[Vector3] = []            ## Where each town's slipway 0 is. Set by the World.
 var wind: Wind                            ## The world's wind, which every ship feels. Likewise.
 var gen: WorldGen                         ## The world's shape, for where pirates can come in. Likewise.
+var sites: Array[Vector3] = []            ## The middle of each world wreck (WorldGen.wrecks' order). Likewise.
+var salvaged: Dictionary = {}             ## World wreck index -> true, once she's stripped.
 ## The world's shots and ropes. Likewise; the server hears their hits here.
 var projectiles: Projectiles:
 	set(value):
@@ -418,6 +429,88 @@ func crew_positions() -> Dictionary:
 		if _down.get(peer, -INF) > now():
 			found.erase(peer)
 	return found
+
+
+## This machine's player salvages world wreck index (into sites). The server decides.
+func salvage_site(index: int) -> void:
+	if session.is_server():
+		_salvage_for(multiplayer.get_unique_id(), "site", index)
+	else:
+		_salvage.rpc_id(1, "site", index)
+
+
+## This machine's player breaks up wreck for spares. The server decides.
+func salvage_ship(wreck: Ship) -> void:
+	if session.is_server():
+		_salvage_for(multiplayer.get_unique_id(), "ship", id_of(wreck))
+	else:
+		_salvage.rpc_id(1, "ship", id_of(wreck))
+
+
+## Server: peer salvages world wreck index (kind "site") or wreck ship index (kind
+## "ship"), if they last said they were in reach of her. Anything else is ignored.
+func _salvage_for(peer: int, kind: String, index: int) -> void:
+	var where: Variant = _world_position_of(peer)
+	if where == null:
+		return
+	var at: Vector3 = where
+	var amount := 0
+	var wreck: Ship = null
+	if kind == "site":
+		if index < 0 or index >= sites.size() or at.distance_to(sites[index]) > Damage.SITE_REACH + REACH_SLACK:
+			return
+		amount = 0 if salvaged.has(index) else Damage.SALVAGE_SPARES
+	elif kind == "ship":
+		wreck = ships.get(index)
+		if wreck == null or not wreck.is_wreck() or wreck.captain != 0 \
+				or not (wreck.global_transform * wreck.bounds).grow(Damage.SALVAGE_REACH + REACH_SLACK).has_point(at):
+			return
+		amount = ceili(wreck.grid.blocks.size() / 10.0)
+	else:
+		return
+	var gained := amount
+	if amount > 0:
+		var to := _salvage_goes_to(peer)
+		var room := Damage.SPARES_MAX - to.spares if to != null else 0
+		gained = mini(amount, room) if room > 0 else -1
+		if gained > 0:
+			to.spares += gained
+			tell_world(&"_spares", [id_of(to), to.spares])
+			if wreck != null:
+				remove_ship(wreck)
+			else:
+				salvaged[index] = true
+				tell_world(&"_salvaged", [index])
+	if peer == multiplayer.get_unique_id():
+		salvage_result.emit(gained)
+	else:
+		_salvage_result.rpc_id(peer, gained)
+
+
+## Server: where peer last was in the world, or null when they're nowhere.
+func _world_position_of(peer: int) -> Variant:
+	if peer == multiplayer.get_unique_id():
+		return player.world_position() if player != null else null
+	if not _crew.has(peer):
+		return null
+	var heard: Dictionary = _crew[peer]
+	if heard["ship"] == 0:
+		return heard["at"]
+	return (ships[heard["ship"]] as Ship).global_transform * (heard["at"] as Vector3) if ships.has(heard["ship"]) else null
+
+
+## Server: the ship peer's salvage goes to: the one they're aboard if she isn't a
+## wreck, else their own, else the home ship; or null.
+func _salvage_goes_to(peer: int) -> Ship:
+	var aboard: Ship = null
+	if peer == multiplayer.get_unique_id():
+		aboard = player.ship if player != null else null
+	elif _crew.has(peer):
+		aboard = ships.get(_crew[peer]["ship"])
+	if aboard != null and id_of(aboard) != 0 and not aboard.is_wreck():
+		return aboard
+	var own := ship_of(peer, false)
+	return own if own != null else home_ship()
 
 
 ## Server: a pirate comes in PIRATE_DISTANCE from near, at her height (kept between
@@ -902,7 +995,7 @@ func _enter_world() -> void:
 	if not session.is_server() or not session.players.has(peer) or _in_world.has(peer):
 		return
 	_in_world[peer] = true
-	_world.rpc_id(peer, _time, ships.keys().map(_entry))
+	_world.rpc_id(peer, _time, ships.keys().map(_entry), salvaged.keys())
 	for id: int in ships:
 		var ship: Ship = ships[id]
 		for cannon in ship.cannons:
@@ -912,13 +1005,17 @@ func _enter_world() -> void:
 			_fires.rpc_id(peer, id, _fire_bytes(ship))
 
 
-## Server -> client: the server's clock and every ship, as entries (see _entry).
-## Every ship is added before ship_added fires for any, so home_ship() is right.
+## Server -> client: the server's clock, every ship, as entries (see _entry), and the
+## world wrecks already stripped. Every ship is added before ship_added fires for
+## any, so home_ship() is right.
 @rpc("authority", "call_remote", "reliable", 0)
-func _world(time: Variant, entries: Variant) -> void:
-	if session.is_server() or not _is_time(time) or not entries is Array:
+func _world(time: Variant, entries: Variant, stripped: Variant) -> void:
+	if session.is_server() or not _is_time(time) or not entries is Array or not stripped is Array:
 		return
 	_hear_clock(time)
+	for index: Variant in stripped:
+		if index is int and index >= 0 and index < sites.size():
+			salvaged[index] = true
 	var added: Array[Ship] = []
 	for entry: Variant in entries:
 		var ship := _add_entry(entry, time)
@@ -1052,6 +1149,20 @@ func _fires(id: Variant, cells: Variant) -> void:
 func _spares(id: Variant, count: Variant) -> void:
 	if not session.is_server() and id is int and ships.has(id) and count is int and count >= 0 and count <= Damage.SPARES_MAX:
 		(ships[id] as Ship).spares = count
+
+
+## Server -> clients: world wreck index is stripped.
+@rpc("authority", "call_remote", "reliable", 0)
+func _salvaged(index: Variant) -> void:
+	if not session.is_server() and index is int and index >= 0 and index < sites.size():
+		salvaged[index] = true
+
+
+## Server -> the salvager: spares gained, 0 for nothing left there, -1 for no room.
+@rpc("authority", "call_remote", "reliable", 0)
+func _salvage_result(spares: Variant) -> void:
+	if not session.is_server() and spares is int and spares >= -1 and spares <= Damage.SPARES_MAX:
+		salvage_result.emit(spares)
 
 
 ## Server -> clients: a snapshot of every ship (see _ship_states), at time.
@@ -1219,6 +1330,15 @@ func _fire(ship_id: Variant, cell: Variant, yaw: Variant, pitch: Variant, ammo: 
 	cannon.aim_pitch = clampf(pitch, Cannon.PITCH_MIN, Cannon.PITCH_MAX)
 	cannon.ammo = Damage.AMMO.keys()[ammo]
 	fire_cannon(ships[ship_id], cannon)
+
+
+## Client -> server: salvage world wreck index (kind "site") or wreck ship index
+## (kind "ship").
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _salvage(kind: Variant, index: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if session.is_server() and _in_world.has(peer) and kind is String and index is int:
+		_salvage_for(peer, kind, index)
 
 
 ## Client -> server: one repair action aimed at cell of ship ship_id.

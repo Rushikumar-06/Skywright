@@ -171,8 +171,8 @@ func come_aboard(target: Ship, local: Vector3) -> void:
 	else:
 		var from := ship if ship != null else left
 		var here := sync.id_of(from) != 0  # a ship on its way out can't be gone back to
-		if ship != null and here and player.crew.station != null:
-			ship.helm.ask_helm(player.peer, false)  # or nobody else could take her helm until you left
+		if ship != null and here:
+			player.leave_station()  # or nobody else could take it until you left
 		if not on_test_flight() and target != from:  # from a second test flight, B still goes back where the first came from
 			_came_from = from if here else null
 		_swap_crew(crew)
@@ -190,8 +190,8 @@ func go_ashore() -> void:
 	var facing := from.global_basis * (Basis(Vector3.UP, old.look_yaw) * Vector3.FORWARD)
 	crew.look_yaw = atan2(-facing.x, -facing.z)
 	add_child(crew)
-	if sync.id_of(from) != 0 and old.station != null:
-		from.helm.ask_helm(player.peer, false)
+	if sync.id_of(from) != 0:
+		player.leave_station()
 	left = from
 	ship = null
 	_swap_crew(crew)
@@ -238,8 +238,8 @@ func recover(prefer: Ship, at_bunk := false) -> Ship:
 	for town: Dictionary in gen.towns:
 		if (town["dock"] as Vector3).distance_to(here) < dock.distance_to(here):
 			dock = town["dock"]
-	if ship != null and sync.id_of(ship) != 0 and player.crew.station != null:
-		ship.helm.ask_helm(player.peer, false)
+	if ship != null and sync.id_of(ship) != 0:
+		player.leave_station()
 	var crew := CrewMember.new(null, Dock.quay_spot(dock))
 	add_child(crew)
 	ship = null

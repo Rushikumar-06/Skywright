@@ -33,9 +33,11 @@ extends Node
 ## checks each report, stamps it with its own clock and passes it on. Everyone draws
 ## everyone else as a CrewAvatar, DELAY behind, on their ship as it's drawn.
 ##
-## Stations belong to the server. A client's helm passes asks on here; the server
-## takes the helm for the asker only if they last said they were aboard and in
-## reach, and tells everyone who has it. The pilot's keys come here at 30 Hz.
+## Stations belong to the server. A client's helm or cannon passes asks on here; the
+## server gives the station to the asker only if they last said they were aboard and
+## in reach, and tells everyone who holds it. The pilot's keys come here at 30 Hz. A
+## gunner's shot comes here with its aim and ammunition, and the server fires it if
+## they man that cannon and it's loaded.
 ##
 ## A player asks the server to launch a design, as a test flight or as their own
 ## ship, at most once a second. The server builds it whole at their slipway (or its
@@ -309,6 +311,15 @@ func fire(ship: Ship, cell: Vector3i, direction: Vector3, ammo: String) -> int:
 	return id
 
 
+## Server: fires cannon of ship as it's aimed and loaded, and starts its reload.
+## Returns the shot's id, or 0 while it's reloading or when it can't fire.
+func fire_cannon(ship: Ship, cannon: Cannon) -> int:
+	if not session.is_server() or cannon.reload_left > 0.0 or ship.grid.type_at(cannon.cell) != "cannon":
+		return 0
+	cannon.reload_left = Cannon.RELOAD
+	return fire(ship, cannon.cell, cannon.direction(), cannon.ammo)
+
+
 ## Server: where everyone not knocked down is in the world: peer id -> this
 ## machine's player where they are, and the others where they last said they were.
 func crew_positions() -> Dictionary:
@@ -431,6 +442,10 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: in
 		ship.helm.pilot = pilot
 		ship.helm.asked.connect(_on_asked.bind(id))
 		ship.helm.pilot_changed.connect(_on_pilot_changed.bind(id))
+	for cannon in ship.cannons:
+		cannon.asked.connect(_on_cannon_asked.bind(id, cannon.cell))
+		cannon.gunner_changed.connect(_on_gunner_changed.bind(id, cannon))
+		cannon.fire_asked.connect(_on_fire_asked.bind(id, cannon))
 	return ship
 
 
@@ -525,8 +540,12 @@ func _let_leavers_go() -> void:
 	for ship: Ship in ships.values():
 		if ship.captain != 0 and not session.players.has(ship.captain):
 			remove_ship(ship)
-		elif ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
+			continue
+		if ship.helm != null and ship.helm.pilot != 0 and not session.players.has(ship.helm.pilot):
 			ship.helm.leave(ship.helm.pilot)
+		for cannon in ship.cannons:
+			if cannon.gunner != 0 and not session.players.has(cannon.gunner):
+				cannon.leave(cannon.gunner)
 
 
 ## Server: holds every ship still, engines stopped, while nobody is aboard, and
@@ -557,6 +576,37 @@ func _on_pilot_changed(id: int) -> void:
 	if session.is_server():
 		for peer: int in _in_world:
 			_pilot.rpc_id(peer, id, (ships[id] as Ship).helm.pilot)
+
+
+## Client: a cannon here was asked to be manned or left; the server decides.
+func _on_cannon_asked(on: bool, id: int, cell: Vector3i) -> void:
+	_man.rpc_id(1, id, cell, on)
+
+
+## Server: tell everyone who mans cannon of ship id now.
+func _on_gunner_changed(id: int, cannon: Cannon) -> void:
+	if session.is_server():
+		tell_world(&"_gunner", [id, cannon.cell, cannon.gunner])
+
+
+## This machine's player fires cannon of ship id: the server fires it; a client
+## sends the aim and ammunition to the server, and starts its own reload for the HUD.
+func _on_fire_asked(id: int, cannon: Cannon) -> void:
+	if session.is_server():
+		fire_cannon(ships[id], cannon)
+		return
+	_fire.rpc_id(1, id, cannon.cell, cannon.aim_yaw, cannon.aim_pitch, Damage.AMMO.keys().find(cannon.ammo))
+	cannon.reload_left = Cannon.RELOAD
+
+
+## The cannon at cell of ship ship_id, or null. Either may have come from another machine.
+func _cannon_at(ship_id: Variant, cell: Variant) -> Cannon:
+	if not ship_id is int or not ships.has(ship_id) or not cell is Vector3i:
+		return null
+	for cannon in (ships[ship_id] as Ship).cannons:
+		if cannon.cell == cell:
+			return cannon
+	return null
 
 
 func _physics_process(delta: float) -> void:
@@ -684,6 +734,10 @@ func _enter_world() -> void:
 		return
 	_in_world[peer] = true
 	_world.rpc_id(peer, _time, ships.keys().map(_entry))
+	for id: int in ships:
+		for cannon in (ships[id] as Ship).cannons:
+			if cannon.gunner != 0:
+				_gunner.rpc_id(peer, id, cannon.cell, cannon.gunner)
 
 
 ## Server -> client: the server's clock and every ship, as entries (see _entry).
@@ -929,6 +983,45 @@ func _pilot(ship_id: Variant, peer: Variant) -> void:
 	var helm: Helm = (ships[ship_id] as Ship).helm
 	if helm != null:
 		helm.pilot = peer
+
+
+## Client -> server: man (on) or leave the cannon at cell of ship ship_id.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _man(ship_id: Variant, cell: Variant, on: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	var cannon := _cannon_at(ship_id, cell)
+	if not session.is_server() or not _in_world.has(peer) or cannon == null or not on is bool:
+		return
+	if not on:
+		cannon.leave(peer)
+	elif _crew.has(peer) and _crew[peer]["ship"] == ship_id and cannon.in_reach(_crew[peer]["at"], REACH_SLACK):
+		cannon.take(peer)
+
+
+## Server -> clients: peer (0 for nobody) now mans the cannon at cell of ship ship_id.
+@rpc("authority", "call_remote", "reliable", 0)
+func _gunner(ship_id: Variant, cell: Variant, peer: Variant) -> void:
+	var cannon := _cannon_at(ship_id, cell)
+	if not session.is_server() and cannon != null and peer is int:
+		cannon.gunner = peer
+
+
+## Client -> server: fire the cannon at cell of ship ship_id, aimed yaw and pitch,
+## with ammo (an index into Damage.AMMO's keys). Only its gunner may, once it's loaded.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _fire(ship_id: Variant, cell: Variant, yaw: Variant, pitch: Variant, ammo: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	var cannon := _cannon_at(ship_id, cell)
+	if not session.is_server() or cannon == null or cannon.gunner != peer or cannon.reload_left > 0.0:
+		return
+	if not yaw is float or not is_finite(yaw) or not pitch is float or not is_finite(pitch):
+		return
+	if not ammo is int or ammo < 0 or ammo >= Damage.AMMO.size():
+		return
+	cannon.aim_yaw = clampf(yaw, -Cannon.ARC, Cannon.ARC)
+	cannon.aim_pitch = clampf(pitch, Cannon.PITCH_MIN, Cannon.PITCH_MAX)
+	cannon.ammo = Damage.AMMO.keys()[ammo]
+	fire_cannon(ships[ship_id], cannon)
 
 
 func _is_crew_state(ship_id: Variant, position: Variant, velocity: Variant, yaw: Variant, pitch: Variant) -> bool:

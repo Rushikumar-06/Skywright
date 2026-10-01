@@ -1,8 +1,9 @@
 class_name PlayerController
 extends Node3D
 ## The local player's eyes and hands. It reads the keyboard and mouse, walks their
-## crew member (aboard or ashore) or steers from the helm, and places the camera:
-## first person, or a chase view behind the ship while at the helm (spec §3.4). What
+## crew member (aboard or ashore), steers from the helm or aims and fires a cannon,
+## and places the camera: first person, or a chase view behind the ship while at the
+## helm (spec §3.4). At a cannon it draws the arc its shot would fly. What
 ## your crew member does that moves you between ships and the world, it passes on
 ## for the World to act on.
 
@@ -13,6 +14,8 @@ signal climbing(ship: Ship)    ## Ashore, E next to ship's hull.
 
 const MOUSE_TURN := 0.0025     ## Radians per pixel of mouse movement at sensitivity 1.
 const CHASE_DISTANCE := 40.0   ## Metres from the chase camera to the ship.
+const AIM_SECONDS := 8.0       ## The aim line shows this much of a shot's flight,
+const AIM_STEPS := 48          ## in this many steps.
 
 var crew: CrewMember
 var ship: Ship                 ## Null while ashore.
@@ -25,6 +28,7 @@ var peer := 1                  ## This player's peer id.
 var _avatar: CrewAvatar
 var _chase_yaw := 0.0
 var _chase_pitch := -0.3
+var _aim_line: MeshInstance3D
 
 
 func _init(player_crew: CrewMember) -> void:
@@ -40,6 +44,16 @@ func _ready() -> void:
 	camera.make_current()
 	_avatar = CrewAvatar.new()
 	add_child(_avatar)
+	_aim_line = MeshInstance3D.new()
+	_aim_line.mesh = ImmediateMesh.new()
+	_aim_line.top_level = true
+	_aim_line.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # redrawn every frame
+	var chalk := StandardMaterial3D.new()
+	chalk.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	chalk.albedo_color = Color(1.0, 1.0, 1.0, 0.6)
+	chalk.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_aim_line.material_override = chalk
+	add_child(_aim_line)
 	peer = multiplayer.get_unique_id()
 	board(crew)
 
@@ -47,20 +61,23 @@ func _ready() -> void:
 ## Makes new_crew yours, aboard its ship or ashore: the keys, E and the camera
 ## follow it, and the crew member you had is no longer heard from.
 func board(new_crew: CrewMember) -> void:
-	if is_instance_valid(ship) and ship.helm != null and ship.helm.pilot_changed.is_connected(_on_pilot_changed):
-		ship.helm.pilot_changed.disconnect(_on_pilot_changed)
+	if is_instance_valid(ship):
+		for station: Node in _stations_of(ship):
+			if _changes_of(station).is_connected(_on_station_changed):
+				_changes_of(station).disconnect(_on_station_changed)
 	if is_instance_valid(crew) and crew.left_ship.is_connected(left_ship.emit):
 		crew.left_ship.disconnect(left_ship.emit)
 		crew.landed_on.disconnect(landed_on.emit)
 		crew.lost.disconnect(lost.emit)
 	crew = new_crew
 	ship = crew.ship
-	if ship != null and ship.helm != null:
-		ship.helm.pilot_changed.connect(_on_pilot_changed)
+	if ship != null:
+		for station: Node in _stations_of(ship):
+			_changes_of(station).connect(_on_station_changed)
 	crew.left_ship.connect(left_ship.emit)
 	crew.landed_on.connect(landed_on.emit)
 	crew.lost.connect(lost.emit)
-	_on_pilot_changed()
+	_on_station_changed()
 	chase = false
 
 
@@ -75,10 +92,15 @@ func world_position() -> Vector3:
 
 ## What E does right now, for the HUD, or "" when it does nothing.
 func prompt() -> String:
+	if crew.station is Cannon:
+		return "Leave the cannon"
 	if crew.station != null:
 		return "Leave the helm"
-	if helm_in_reach() and ship.helm.pilot == 0:
+	var near := station_in_reach()
+	if near is Helm and (near as Helm).pilot == 0:
 		return "Take the helm"
+	if near is Cannon and (near as Cannon).gunner == 0:
+		return "Man the cannon"
 	if ship == null and crew.is_on_floor() and ship_in_reach() != null:
 		return "Climb aboard"
 	return ""
@@ -87,6 +109,19 @@ func prompt() -> String:
 ## Whether you're standing close enough to the helm to use it.
 func helm_in_reach() -> bool:
 	return ship != null and ship.helm != null and ship.helm.in_reach(crew.position)
+
+
+## The station of your ship (her helm or a cannon) nearest you in reach, or null.
+func station_in_reach() -> Node:
+	return ship.station_near(crew.position) if ship != null else null
+
+
+## Asks to let go of the station you hold, if any.
+func leave_station() -> void:
+	if crew.station is Helm:
+		(crew.station as Helm).ask_helm(peer, false)
+	elif crew.station is Cannon:
+		(crew.station as Cannon).ask_man(peer, false)
 
 
 ## Ashore: the nearest ship whose box, grown 3 m, holds you, or null. Never a wreck.
@@ -115,16 +150,27 @@ func _unhandled_input(event: InputEvent) -> void:
 			look_pitch = clampf(look_pitch - turn.y, -1.5, 1.5)
 	elif event.is_action_pressed("interact"):
 		_interact()
-	elif event.is_action_pressed("toggle_camera") and crew.station != null:
+	elif event.is_action_pressed("toggle_camera") and crew.station is Helm:
 		chase = not chase
-	elif event.is_action_pressed("autopilot") and crew.station != null:
+	elif event.is_action_pressed("autopilot") and crew.station is Helm:
 		ship.helm.ask_autopilot(peer, not ship.helm.autopilot)
-	elif event.is_action_pressed("anchor") and crew.station != null:
+	elif event.is_action_pressed("anchor") and crew.station is Helm:
 		ship.helm.ask_anchor(peer, not ship.anchored)
+	elif event.is_action_pressed("fire") and crew.station is Cannon:
+		(crew.station as Cannon).ask_fire(peer)
+	elif event.is_action_pressed("ammo") and crew.station is Cannon:
+		(crew.station as Cannon).next_ammo()
 
 
 func _physics_process(_delta: float) -> void:
 	var keys := 1.0 if enabled else 0.0
+	if crew.station is Cannon:
+		# The aim follows your look, within the cannon's limits.
+		var cannon := crew.station as Cannon
+		var facing := cannon.facing()
+		cannon.aim_yaw = clampf(wrapf(crew.look_yaw - atan2(-facing.x, -facing.z), -PI, PI), -Cannon.ARC, Cannon.ARC)
+		cannon.aim_pitch = clampf(look_pitch, Cannon.PITCH_MIN, Cannon.PITCH_MAX)
+		return
 	if crew.station != null:
 		ship.helm.throttle_input = Input.get_axis("move_back", "move_forward") * keys
 		ship.helm.rudder_input = Input.get_axis("move_left", "move_right") * keys
@@ -153,20 +199,63 @@ func _process(_delta: float) -> void:
 	else:
 		var eye := Transform3D(Basis.from_euler(Vector3(look_pitch, crew.look_yaw, 0.0)), body + Vector3(0.0, CrewMember.EYE_HEIGHT, 0.0))
 		camera.global_transform = ship_place * eye
+	_draw_aim(ship_place)
+
+
+## At a cannon, draws the arc its shot would fly from its muzzle, with the ship
+## where she's drawn. ponytail: a client's copy of a ship has no velocity, so there
+## the line leaves out her motion; pass the snapshot's velocity if that shows.
+func _draw_aim(ship_place: Transform3D) -> void:
+	var lines := _aim_line.mesh as ImmediateMesh
+	lines.clear_surfaces()
+	var cannon := crew.station as Cannon
+	_aim_line.visible = cannon != null and not chase
+	if not _aim_line.visible:
+		return
+	var direction := cannon.direction()
+	var origin := ship_place * (Vector3(cannon.cell) + direction * WorldSync.MUZZLE)
+	var velocity := ship.point_velocity(origin) + ship_place.basis * direction * float(Damage.AMMO[cannon.ammo]["speed"])
+	lines.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	for point in Projectiles.arc(origin, velocity, AIM_SECONDS, AIM_STEPS):
+		lines.surface_add_vertex(point)
+	lines.surface_end()
 
 
 func _interact() -> void:
+	var near := station_in_reach()
 	if crew.station != null:
-		ship.helm.ask_helm(peer, false)
-	elif helm_in_reach():
-		ship.helm.ask_helm(peer, true)
+		leave_station()
+	elif near is Helm:
+		(near as Helm).ask_helm(peer, true)
+	elif near is Cannon:
+		(near as Cannon).ask_man(peer, true)
 	elif prompt() == "Climb aboard":
 		climbing.emit(ship_in_reach())
 
 
-## You're at the helm exactly while it says you're its pilot.
-func _on_pilot_changed() -> void:
-	var at_helm := ship != null and ship.helm != null and ship.helm.pilot == peer
-	crew.station = ship.helm if at_helm else null
-	if not at_helm:
+## You're at the helm while it says you're its pilot, else at the cannon that says
+## you man it, else at no station.
+func _on_station_changed() -> void:
+	var at: Node = null
+	if ship != null:
+		for station: Node in _stations_of(ship):
+			if (station is Helm and (station as Helm).pilot == peer) or (station is Cannon and (station as Cannon).gunner == peer):
+				at = station
+				break
+	crew.station = at
+	if not at is Helm:
 		chase = false
+
+
+## ship's helm, first, and her cannons.
+static func _stations_of(of: Ship) -> Array[Node]:
+	var stations: Array[Node] = []
+	if of.helm != null:
+		stations.append(of.helm)
+	stations.append_array(of.cannons)
+	return stations
+
+
+## The signal a station gives when who holds it changes.
+static func _changes_of(station: Node) -> Signal:
+	return (station as Helm).pilot_changed if station is Helm else (station as Cannon).gunner_changed

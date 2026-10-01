@@ -1,11 +1,13 @@
 class_name Hud
 extends CanvasLayer
 ## Everything drawn over the world: the session and crew, a dot to aim with, what
-## E or B does, the helm's instruments while you steer, a banner on a test flight, and
-## short messages.
+## E or B does, the helm's instruments while you steer or the cannon's while you man
+## one, a banner on a test flight, and short messages.
 
 const MESSAGE_TIME := 4.0  ## Seconds a message stays up.
 const SessionScript := preload("res://src/net/session.gd")
+const HELM_KEYS := "W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · G anchor · V view · E leave"
+const CANNON_KEYS := "Mouse aim · Click fire · Q ammo · E leave"
 
 var player: PlayerController
 var session: Node
@@ -24,8 +26,9 @@ var map_open := false:    ## The map is showing, which hides the compass. Set by
 var _status: Label
 var _crew: Label
 var _prompt: Label
-var _helm: PanelContainer
+var _helm: PanelContainer  ## The station panel: the helm's or a cannon's.
 var _readout: Label
+var _keys: Label
 var _message: Label
 var _banner: PanelContainer
 var _message_left := 0.0
@@ -105,7 +108,8 @@ func _ready() -> void:
 	_readout = Label.new()
 	_readout.add_theme_font_override("font", monospace())
 	helm_column.add_child(_readout)
-	helm_column.add_child(UiTheme.caption("W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · G anchor · V view · E leave"))
+	_keys = UiTheme.caption(HELM_KEYS)
+	helm_column.add_child(_keys)
 
 	session.players_changed.connect(_refresh_session)
 	_refresh_session()
@@ -137,9 +141,13 @@ func _process(delta: float) -> void:
 	_message_left -= delta
 	_message.visible = _message_left > 0.0
 	_helm.visible = player.crew.station != null
-	if _helm.visible:
+	if player.crew.station is Cannon:
+		_readout.text = cannon_readout(player.crew.station as Cannon)
+		_keys.text = CANNON_KEYS
+	elif _helm.visible:
 		var ship := player.ship
 		_readout.text = readout(ship, wind.at(ship.global_position, wind.now()) if wind != null else Vector3.ZERO)
+		_keys.text = HELM_KEYS
 
 
 ## A player's name, from the session's roster.
@@ -170,6 +178,12 @@ static func readout(ship: Ship, wind := Vector3.ZERO) -> String:
 	if ship.anchored:
 		lines.append("Anchored")
 	return "\n".join(lines)
+
+
+## A cannon's readout: its ammunition, and whether it's loaded.
+static func cannon_readout(cannon: Cannon) -> String:
+	var state := "Ready" if cannon.reload_left <= 0.0 else "Reloading %.1f s" % cannon.reload_left
+	return "Cannon    %s\n%s" % [Damage.AMMO[cannon.ammo]["name"], state]
 
 
 func _refresh_session() -> void:

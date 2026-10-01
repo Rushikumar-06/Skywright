@@ -104,7 +104,7 @@ func test_the_starter_ship_balances_under_its_envelope() -> void:
 	assert_true(lift.y - com.y > 5.0, "the lift is well above the weight, so she rights herself")
 	var weight: float = props["mass"] * 9.81
 	var floats_at := Tuning.ROIL_ALTITUDE + Tuning.AIR_SCALE_HEIGHT * log(balloons.size() * Tuning.BALLOON_LIFT / weight)
-	assert_near(floats_at, 877.0, 5.0, "at trim 1 she floats at about 877 m")
+	assert_near(floats_at, 881.0, 5.0, "at trim 1 she floats at about 881 m")
 
 
 func test_to_blocks_and_back() -> void:

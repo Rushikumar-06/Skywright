@@ -35,6 +35,7 @@ func test_input_actions_have_their_default_keys() -> void:
 		"undo": [KEY_Z],
 		"redo": [KEY_Y, KEY_Z],
 		"test_flight": [KEY_F],
+		"ammo": [KEY_Q],
 	}
 	for action: String in expected:
 		assert_true(InputMap.has_action(action), "%s exists" % action)
@@ -46,6 +47,14 @@ func test_input_actions_have_their_default_keys() -> void:
 				keys.append((event as InputEventKey).physical_keycode)
 		for key: int in expected[action]:
 			assert_true(keys.has(key), "%s is bound to %s" % [action, OS.get_keycode_string(key)])
+
+
+func test_fire_is_the_left_mouse_button() -> void:
+	var buttons := []
+	for event in InputMap.action_get_events("fire") if InputMap.has_action("fire") else []:
+		if event is InputEventMouseButton:
+			buttons.append((event as InputEventMouseButton).button_index)
+	assert_eq(buttons, [MOUSE_BUTTON_LEFT])
 
 
 func test_undo_and_redo_take_ctrl() -> void:

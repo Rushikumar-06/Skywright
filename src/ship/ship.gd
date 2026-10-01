@@ -21,6 +21,7 @@ var born := 0.0      ## The server's clock when she was added.
 var lost := false    ## The Roil took her.
 var interior: ShipInterior  ## Where the crew walk.
 var helm: Helm              ## The ship's first helm, or null.
+var cannons: Array[Cannon] = []  ## One for each cannon block.
 var bounds: AABB            ## The box around its blocks, in ship space.
 var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
@@ -87,6 +88,10 @@ func _ready() -> void:
 	if not helms.is_empty():
 		helm = Helm.new(self, helms[0])
 		add_child(helm)
+	for cell in grid.cells_of("cannon"):
+		var cannon := Cannon.new(self, cell)
+		cannons.append(cannon)
+		add_child(cannon)
 
 
 ## Puts hit-point changes (cell -> hit points, 0 for destroyed) into the grid. When
@@ -118,8 +123,8 @@ func _rebuild_soon() -> void:
 
 
 ## Rebuilds everything that comes from the blocks, now: mass, shapes, the parts
-## that fly her, the mesh and the interior's hull. A lost helm lets its pilot go,
-## and she drifts, a wreck.
+## that fly her, the mesh and the interior's hull. A lost helm or cannon lets its
+## crew go first; without a helm she drifts, a wreck.
 func rebuild() -> void:
 	_rebuild_pending = false
 	if grid.blocks.is_empty() or not is_inside_tree():
@@ -172,6 +177,11 @@ func rebuild() -> void:
 		helm.queue_free()
 		helm = null
 		anchored = false
+	for cannon in cannons.duplicate():
+		if grid.type_at(cannon.cell) != "cannon":
+			cannon.leave(cannon.gunner)
+			cannons.erase(cannon)
+			cannon.queue_free()
 	blocks_changed.emit()
 
 
@@ -180,10 +190,28 @@ func is_wreck() -> bool:
 	return helm == null
 
 
-## Lets peer go from any station they hold on her: the helm.
+## Lets peer go from any station they hold on her: the helm and her cannons.
 func release(peer: int) -> void:
 	if helm != null:
 		helm.leave(peer)
+	for cannon in cannons:
+		cannon.leave(peer)
+
+
+## The station (her helm or a cannon) in reach of where, in ship space, the
+## nearest; or null.
+func station_near(where: Vector3) -> Node:
+	var nearest: Node = null
+	var best := INF
+	if helm != null and helm.in_reach(where):
+		nearest = helm
+		best = where.distance_to(Vector3(helm.cell))
+	for cannon in cannons:
+		var d := where.distance_to(Vector3(cannon.cell))
+		if cannon.in_reach(where) and d < best:
+			nearest = cannon
+			best = d
+	return nearest
 
 
 ## Where crew come to after being knocked down, in ship space: standing on her

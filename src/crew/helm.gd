@@ -36,10 +36,12 @@ func _init(helm_ship: Ship, helm_cell: Vector3i) -> void:
 	cell = helm_cell
 
 
-## Puts peer at the helm. Returns false when someone else has it.
+## Puts peer at the helm, letting go of any other station of hers they hold.
+## Returns false when someone else has it.
 func take(peer: int) -> bool:
 	if pilot != 0:
 		return false
+	ship.release(peer)
 	pilot = peer
 	return true
 

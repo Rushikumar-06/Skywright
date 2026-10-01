@@ -16,7 +16,7 @@ func test_the_starter_ship_by_the_numbers() -> void:
 	var s := ShipStats.of(grid, ALT)
 	assert_eq(s.mass, grid.mass_properties()["mass"])
 	assert_near(s.weight, s.mass * 9.81, 0.001)
-	assert_near(s.lift, 131.0 * 900.0 * ShipForces.air_density(ALT), 1.0)
+	assert_near(s.lift, 137.0 * 900.0 * ShipForces.air_density(ALT), 1.0)
 	var ship := Ship.new(grid)
 	add_child(ship)
 	assert_near(ship.trim_to_float_at(s.float_altitude), 1.0, 1e-4)
@@ -137,8 +137,8 @@ func test_an_empty_design_only_needs_a_helm() -> void:
 
 func test_the_readout() -> void:
 	var text := ShipStats.of(StarterShip.build(), ALT).describe()
-	assert_true(text.contains("Blocks     295 of 4000"), text)
-	assert_true(text.contains("Weight     9.2 t"), text)
+	assert_true(text.contains("Blocks     301 of 4000"), text)
+	assert_true(text.contains("Weight     9.6 t"), text)
 	assert_true(text.contains("Thrust     5.0 kN"), text)
 	var lines := text.split("\n")
 	assert_eq(lines.size(), 8)

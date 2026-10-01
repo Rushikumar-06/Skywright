@@ -11,6 +11,7 @@ const RIVER := Color("7fb2e6")
 const GOLD := Color("f0c24b")
 const WRECK := Color("9a9a9a")
 const PIRATE := Color("d9534f")
+const BEAST := Color("9b7fd4")
 const RING := Color(1, 1, 1, 0.12)
 const FONT_SIZE := 16
 
@@ -133,6 +134,9 @@ func _draw() -> void:
 	if _sync != null:
 		for ship: Ship in _sync.ships.values():
 			draw_circle(place_of(ship.global_position), 3.0, ship_color(ship))
+		if _sync.leviathans != null:
+			for beast: Leviathan in _sync.leviathans.beasts.values():
+				draw_circle(place_of(beast.global_position), 5.0 if beast.kind == "warden" else 3.5, BEAST)
 	var you: Array = _you.call()
 	var heading := Vector2(-sin(you[1]), -cos(you[1]))
 	var tip := place_of(you[0])

@@ -467,6 +467,13 @@ func home_ship() -> Ship:
 
 ## Server: the ships someone is aboard, by this machine's player or a remote
 ## player's last report.
+## Server: the peers whose world has loaded.
+func peers_in_world() -> Array[int]:
+	var peers: Array[int] = []
+	peers.assign(_in_world.keys())
+	return peers
+
+
 func crewed_ships() -> Array[Ship]:
 	var crewed: Array[Ship] = []
 	if player != null and player.ship != null and id_of(player.ship) != 0:

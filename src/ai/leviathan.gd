@@ -33,6 +33,7 @@ const BACK_OFF := 6.0       ## s it swims away after a ram before charging again
 const SINK := 15.0          ## m/s a slain one sinks.
 const SLAIN_TIME := 25.0    ## s a slain one is kept before it's taken away.
 const HEIGHT_EVERY := 30.0  ## s between a drifting one's new wished heights.
+const GALE_RING := 3100.0   ## m from the centre that a drifting leviathan heads for, outside the Gale.
 
 const COLORS := {"leviathan": Color("55626f"), "warden": Color("3b2f3a")}
 const EYE_CALM := Color("e8f0ff")
@@ -220,9 +221,13 @@ func _pace(ship: Ship) -> void:
 	_wish_height = ship.global_position.y
 
 
+## Wanders at cruise; a leviathan outside the Gale Expanse heads back for it.
 func _drift(now: float) -> void:
 	_wish_speed = _spec["cruise"]
 	_wish_heading = wrapf(_wish_heading + _sync.rng.randf_range(-0.2, 0.2), -PI, PI)
+	var flat := Vector3(global_position.x, 0.0, global_position.z)
+	if kind == "leviathan" and WorldGen.region_at(flat) != WorldGen.Region.GALE and flat.length() > 1.0:
+		_wish_heading = _heading_to(flat.normalized() * GALE_RING + Vector3(0.0, global_position.y, 0.0))
 	if now >= _next_height_at:
 		_next_height_at = now + HEIGHT_EVERY
 		_wish_height = _sync.rng.randf_range(LOW, HIGH)

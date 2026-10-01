@@ -134,12 +134,18 @@ func _fire() -> void:
 ## bear. Whether it fired. It aims at her centre of mass, or at aim_cell (in her space)
 ## when given. Hired gunners aim with it too.
 static func fire_at(world_sync: WorldSync, ship: Ship, cannon: Cannon, target: Ship, ammo: String, aim_cell: Variant = null) -> bool:
+	var aim_point := target.global_transform * (Vector3(aim_cell as Vector3i) if aim_cell is Vector3i else target.center_of_mass)
+	return fire_at_point(world_sync, ship, cannon, aim_point, target.linear_velocity, ammo)
+
+
+## Fires ship's cannon with ammo at aim_point, moving at velocity, leading it, when the
+## cannon is loaded and can bear. Whether it fired.
+static func fire_at_point(world_sync: WorldSync, ship: Ship, cannon: Cannon, aim_point: Vector3, velocity: Vector3, ammo: String) -> bool:
 	if cannon.reload_left > 0.0:
 		return false
 	var speed: float = Damage.AMMO[ammo]["speed"]
-	var aim_point := target.global_transform * (Vector3(aim_cell as Vector3i) if aim_cell is Vector3i else target.center_of_mass)
 	var muzzle := ship.global_transform * (Vector3(cannon.cell) + cannon.facing() * WorldSync.MUZZLE)
-	var drift := target.linear_velocity - ship.point_velocity(muzzle)
+	var drift := velocity - ship.point_velocity(muzzle)
 	var w := Vector3.ZERO
 	var t := muzzle.distance_to(aim_point) / speed
 	for i in 2:  # where the target will be when the shot gets there, twice refined

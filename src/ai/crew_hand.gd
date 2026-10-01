@@ -59,6 +59,17 @@ func _gun(ship: Ship) -> void:
 		if other.pirate and not other.is_wreck() and d < nearest:
 			target = other
 			nearest = d
+	var beast: Leviathan = null
+	if _sync.leviathans != null:
+		for each: Leviathan in _sync.leviathans.beasts.values():  # never a calm one
+			var d := each.global_position.distance_to(ship.global_position)
+			if each.mood == "angry" and d < nearest:
+				beast = each
+				nearest = d
+	if beast != null:
+		if PirateCaptain.fire_at_point(_sync, ship, cannon, beast.global_position, beast.velocity, "round"):
+			shots += 1
+		return
 	if target == null:
 		return
 	var ammo: String = PirateCaptain.VOLLEY[shots % PirateCaptain.VOLLEY.size()]

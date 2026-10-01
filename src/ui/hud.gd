@@ -1,37 +1,62 @@
 class_name Hud
 extends CanvasLayer
 ## Everything drawn over the world: the session and crew, a dot to aim with, what
-## E does, the helm's instruments while you steer, and short messages.
+## E, R or B does, the helm's instruments while you steer or the cannon's while you man
+## one, a banner on a test flight, and short messages.
 
 const MESSAGE_TIME := 4.0  ## Seconds a message stays up.
+const SessionScript := preload("res://src/net/session.gd")
+const HELM_KEYS := "W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · G anchor · V view · E leave"
+const CANNON_KEYS := "Mouse aim · Click fire · Q ammo · E leave"
 
 var player: PlayerController
+var session: Node
+var test_flight := false  ## You're on a test flight. Set by the World each frame.
+var at_dock := false      ## You're at the dock. Set by the World each frame.
+var salvage := false      ## There's a wreck in reach to salvage. Likewise.
+var wind: Wind            ## The world's wind, shown at the helm. Set by the World.
+var gen: WorldGen         ## The world's shape, for the compass. Set by the World, with exploration.
+var exploration: Exploration
+var ledger: Ledger        ## The world's books, for your purse. Set by the World.
+var compass: Compass      ## Made in _ready when the World gave gen and exploration.
+var map_open := false:    ## The map is showing, which hides the compass. Set by the World.
+	set(value):
+		map_open = value
+		if compass != null:
+			compass.visible = not value
 
 var _status: Label
 var _crew: Label
+var _purse: Label
 var _prompt: Label
-var _helm: PanelContainer
+var _helm: PanelContainer  ## The station panel: the helm's or a cannon's.
 var _readout: Label
+var _keys: Label
 var _message: Label
+var _banner: PanelContainer
 var _message_left := 0.0
+var _crew_names: Dictionary = {}  ## The roster as last shown: peer id -> name.
 
 
-func _init(for_player: PlayerController) -> void:
+func _init(for_player: PlayerController, world_session: Node) -> void:
 	player = for_player
+	session = world_session
 
 
 func _ready() -> void:
 	var theme := UiTheme.build()
-	var session := PanelContainer.new()
-	session.theme = theme
-	session.position = Vector2(32, 32)
-	add_child(session)
+	var crew_panel := PanelContainer.new()
+	crew_panel.theme = theme
+	crew_panel.position = Vector2(32, 32)
+	add_child(crew_panel)
 	var column := VBoxContainer.new()
-	session.add_child(column)
+	crew_panel.add_child(column)
 	_status = Label.new()
 	column.add_child(_status)
 	_crew = UiTheme.caption("")
 	column.add_child(_crew)
+	_purse = UiTheme.caption("")
+	column.add_child(_purse)
 
 	var dot := ColorRect.new()
 	dot.color = Color(UiTheme.TEXT, 0.8)
@@ -57,6 +82,25 @@ func _ready() -> void:
 	_message.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	add_child(_message)
 
+	_banner = PanelContainer.new()
+	_banner.theme = theme
+	_banner.visible = false
+	_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_banner.offset_top = 32
+	_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	var banner_text := Label.new()
+	banner_text.text = "Test flight: B returns to the shipyard"
+	_banner.add_child(banner_text)
+	add_child(_banner)
+
+	if gen != null and exploration != null:
+		compass = Compass.new(gen, exploration)
+		compass.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_KEEP_SIZE)
+		compass.offset_top = 16
+		compass.offset_bottom = 60
+		compass.visible = not map_open
+		add_child(compass)
+
 	_helm = PanelContainer.new()
 	_helm.theme = theme
 	_helm.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -67,12 +111,12 @@ func _ready() -> void:
 	var helm_column := VBoxContainer.new()
 	_helm.add_child(helm_column)
 	_readout = Label.new()
-	_readout.add_theme_font_override("font", _monospace())
+	_readout.add_theme_font_override("font", monospace())
 	helm_column.add_child(_readout)
-	helm_column.add_child(UiTheme.caption("W/S throttle · A/D rudder · Space/Ctrl climb · H autopilot · V view · E leave"))
+	_keys = UiTheme.caption(HELM_KEYS)
+	helm_column.add_child(_keys)
 
-	Session.players_changed.connect(_refresh_session)
-	player.crew.fell_overboard.connect(func() -> void: show_message("You fell overboard. Back aboard!"))
+	session.players_changed.connect(_refresh_session)
 	_refresh_session()
 
 
@@ -83,16 +127,53 @@ func show_message(text: String) -> void:
 
 func _process(delta: float) -> void:
 	var action := player.prompt()
-	_prompt.text = "" if action.is_empty() else "E   " + action
+	var holder: int = player.ship.helm.pilot if player.helm_in_reach() else 0
+	var repair := player.repair_prompt()
+	if not action.is_empty():
+		_prompt.text = "E   " + action
+	elif holder != 0 and holder != player.peer:
+		_prompt.text = "%s is at the helm" % name_of(holder)
+	elif salvage:
+		_prompt.text = "E   Salvage"
+	elif not repair.is_empty():
+		_prompt.text = repair
+	elif player.ship == null and not player.crew.is_on_floor() and player.crew.velocity.y < 0.0 and not player.crew.gliding:
+		_prompt.text = "Hold Space   Glide"
+	elif at_dock and player.crew.station == null and not test_flight:
+		_prompt.text = "B   Shipyard   T   Town"
+	else:
+		_prompt.text = ""
+	if compass != null and is_instance_valid(player.camera):
+		compass.bearing = bearing(-player.camera.global_basis.z)
+		compass.origin = player.world_position()
+		compass.region = WorldGen.REGION_NAMES[WorldGen.region_at(compass.origin)]
+	_banner.visible = test_flight
+	if ledger != null:
+		_purse.text = "%d crowns" % ledger.mine["money"]
 	_message_left -= delta
 	_message.visible = _message_left > 0.0
 	_helm.visible = player.crew.station != null
-	if _helm.visible:
-		_readout.text = readout(player.ship)
+	if player.crew.station is Cannon:
+		_readout.text = cannon_readout(player.crew.station as Cannon)
+		_keys.text = CANNON_KEYS
+	elif _helm.visible:
+		var ship := player.ship
+		_readout.text = readout(ship, wind.at(ship.global_position, wind.now()) if wind != null else Vector3.ZERO)
+		_keys.text = HELM_KEYS
 
 
-## The helm's instruments as text.
-static func readout(ship: Ship) -> String:
+## A player's name, from the session's roster.
+func name_of(peer: int) -> String:
+	return session.players.get(peer, {}).get("name", "Someone")
+
+
+## The compass bearing v points toward, 0 to 359: north is -Z, east is +X.
+static func bearing(v: Vector3) -> int:
+	return posmod(roundi(rad_to_deg(atan2(v.x, -v.z))), 360)
+
+
+## The helm's instruments as text, with the wind at the ship.
+static func readout(ship: Ship, wind := Vector3.ZERO) -> String:
 	var lines: PackedStringArray = []
 	lines.append("Throttle  %s" % ("%3d%% ahead" % roundi(ship.throttle * 100.0) if ship.throttle >= 0.0 else "%3d%% astern" % roundi(-ship.throttle * 100.0)))
 	lines.append("Rudder    %s" % ("centred" if absf(ship.rudder) < 0.05 else "%3d%% %s" % [roundi(absf(ship.rudder) * 100.0), "starboard" if ship.rudder > 0.0 else "port"]))
@@ -100,40 +181,70 @@ static func readout(ship: Ship) -> String:
 	lines.append("Speed     %3d m/s" % roundi(ship.linear_velocity.length()))
 	lines.append("Altitude  %4d m   %+.1f m/s" % [roundi(ship.global_position.y), ship.linear_velocity.y])
 	lines.append("Heading   %03d°" % posmod(roundi(-rad_to_deg(ship.heading())), 360))
+	lines.append("Wind      %2d m/s from %03d°" % [roundi(Vector2(wind.x, wind.z).length()), bearing(-wind)])
 	if ship.helm.autopilot:
 		lines.append("Autopilot %03d° at %d m" % [posmod(roundi(-rad_to_deg(ship.helm.target_heading)), 360), roundi(ship.helm.target_altitude)])
 	else:
 		lines.append("Autopilot off")
+	lines.append("Hull      %3d%%" % roundi(ship.condition() * 100.0))
+	lines.append("Spares    %2d/%d" % [ship.spares, Damage.SPARES_MAX])
+	lines.append("Fuel      %d/%d" % [roundi(ship.fuel), roundi(ship.fuel_capacity())])
+	lines.append("Hold      %d/%d crates" % [ship.grid.cargo.size(), ship.grid.cells_of("cargo_bay").size()])
+	if ship.anchored:
+		lines.append("Anchored")
 	return "\n".join(lines)
+
+
+## A cannon's readout: its ammunition, and whether it's loaded.
+static func cannon_readout(cannon: Cannon) -> String:
+	var state := "Ready" if cannon.reload_left <= 0.0 else "Reloading %.1f s" % cannon.reload_left
+	return "Cannon    %s\n%s" % [Damage.AMMO[cannon.ammo]["name"], state]
 
 
 func _refresh_session() -> void:
 	_status.text = _status_text()
 	var names: PackedStringArray = []
-	for id: int in Session.players:
-		names.append(Session.players[id]["name"])
+	var news: PackedStringArray = []
+	for id: int in session.players:
+		var crew_name: String = session.players[id]["name"]
+		names.append(crew_name)
+		if not _crew_names.is_empty() and not _crew_names.has(id):
+			news.append("%s came aboard." % crew_name)
+	for id: int in _crew_names:
+		if not session.players.has(id) and not session.players.is_empty():
+			news.append("%s left." % _crew_names[id])
 	_crew.text = "Crew (%d): %s" % [names.size(), ", ".join(names)]
+	_crew_names.clear()
+	for id: int in session.players:
+		_crew_names[id] = session.players[id]["name"]
+	if not news.is_empty():
+		show_message(" ".join(news))
 
 
 func _status_text() -> String:
-	if Session.mode == Session.Mode.SOLO:
+	if session.mode == SessionScript.Mode.SOLO:
 		return "Solo game"
-	if Session.mode == Session.Mode.HOST:
-		var targets: PackedStringArray = []
-		for address in Session.lan_addresses_by_interface(IP.get_local_interfaces()):
-			targets.append("%s:%d" % [address, Session.port])
-		if targets.is_empty():
-			return "Hosting on port %d" % Session.port
-		var text := "Hosting. Friends on your network join at " + targets[0]
-		if targets.size() > 1:
-			text += " (or " + ", ".join(targets.slice(1)) + ")"
-		return text
-	if Session.mode == Session.Mode.CLIENT:
+	if session.mode == SessionScript.Mode.HOST:
+		return "Hosting. " + invite_text(session.port)
+	if session.mode == SessionScript.Mode.CLIENT:
 		return "Connected to the host"
 	return ""
 
 
-static func _monospace() -> SystemFont:
+## What to tell friends so they can join a game hosted here on port.
+static func invite_text(port: int) -> String:
+	var targets: PackedStringArray = []
+	for address in SessionScript.lan_addresses_by_interface(IP.get_local_interfaces()):
+		targets.append("%s:%d" % [address, port])
+	if targets.is_empty():
+		return "Friends join at this computer's address, port %d." % port
+	var text := "Friends on your network join at " + targets[0]
+	if targets.size() > 1:
+		text += " (or " + ", ".join(targets.slice(1)) + ")"
+	return text + "."
+
+
+static func monospace() -> SystemFont:
 	var font := SystemFont.new()
 	font.font_names = PackedStringArray(["DejaVu Sans Mono", "Consolas", "Menlo", "monospace"])
 	return font

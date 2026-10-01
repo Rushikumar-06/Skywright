@@ -4,6 +4,7 @@ extends Node3D
 ## day, sky colours that follow the sun, and haze toward the horizon.
 
 const DAY_LENGTH := 1200.0  ## Real seconds in a whole day.
+const START_HOUR := 10.0    ## The hour when a world begins.
 
 const DAY_TOP := Color("2f63a8")
 const DAY_HORIZON := Color("b7d0ea")
@@ -11,12 +12,20 @@ const DUSK_HORIZON := Color("e7a974")
 const NIGHT_TOP := Color("04070f")
 const NIGHT_HORIZON := Color("16203a")
 
-var hour := 10.0  ## Time of day, 0 to 24.
+var hour := START_HOUR  ## Time of day, 0 to 24. The world sets it from its clock.
+var storm := 0.0        ## 0 to 1: how rough the air is at the camera. The world sets it.
+
+const STORM_FOG := Color("4a4656")
 
 var _sun: DirectionalLight3D
 var _moon: DirectionalLight3D
 var _sky: ProceduralSkyMaterial
 var _environment: Environment
+
+
+## The hour of the day seconds after a world began.
+static func hour_at(seconds: float) -> float:
+	return fposmod(START_HOUR + seconds * 24.0 / DAY_LENGTH, 24.0)
 
 
 ## The sun's height above the horizon in degrees at a time of day: it rises at 6,
@@ -36,8 +45,8 @@ func _ready() -> void:
 	_environment.glow_enabled = true
 	_environment.fog_enabled = true
 	_environment.fog_mode = Environment.FOG_MODE_DEPTH
-	_environment.fog_depth_begin = 1500.0
-	_environment.fog_depth_end = 14000.0
+	_environment.fog_depth_begin = 900.0
+	_environment.fog_depth_end = 2600.0
 	_environment.fog_sky_affect = 0.0
 	var world_environment := WorldEnvironment.new()
 	world_environment.environment = _environment
@@ -57,8 +66,7 @@ func _ready() -> void:
 	_apply()
 
 
-func _process(delta: float) -> void:
-	hour = fmod(hour + delta * 24.0 / DAY_LENGTH, 24.0)
+func _process(_delta: float) -> void:
 	_apply()
 
 
@@ -75,4 +83,7 @@ func _apply() -> void:
 	_sky.sky_horizon_color = NIGHT_HORIZON.lerp(DAY_HORIZON, day).lerp(DUSK_HORIZON, glow * 0.6)
 	_sky.ground_horizon_color = _sky.sky_horizon_color
 	_sky.ground_bottom_color = _sky.sky_horizon_color
-	_environment.fog_light_color = _sky.sky_horizon_color
+	# Inside a storm or the Stormwall the fog closes in.
+	_environment.fog_depth_begin = lerpf(900.0, 30.0, storm)
+	_environment.fog_depth_end = lerpf(2600.0, 400.0, storm)
+	_environment.fog_light_color = _sky.sky_horizon_color.lerp(STORM_FOG, storm)

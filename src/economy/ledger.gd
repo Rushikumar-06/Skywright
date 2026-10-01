@@ -1,0 +1,673 @@
+class_name Ledger
+extends Node
+## The server keeps the books (spec §3.6): every player's account by name (money,
+## unlocks, contracts and insurance), and sends each player their own. Clients only
+## ask, and the server takes at most one ask from each peer every ASK_EVERY, checked
+## against where the asker last said they were. It sits beside the World's Sync, which
+## keeps the ships. It sells spares and crates at docks, and keeps each town's contract
+## board, drawn when first asked for: deliveries pay when a ship carrying their mail
+## docks at their town, bounties for pirates beaten near you, salvage for stripping her
+## wreck, and scouting for getting near the landmark.
+
+signal account_changed          ## This machine's player's account changed.
+signal told(text: String)       ## A message for this machine's player.
+signal board_changed(town: int) ## town's board, as this machine knows it, changed.
+
+const ASK_EVERY := 0.1  ## s. The least time between one peer's asks.
+const MAX_TEXT := 200   ## Characters in a message.
+
+var sync: WorldSync
+var accounts: Dictionary = {}                ## Server: player name -> account (see Economy.new_account).
+var mine: Dictionary = Economy.new_account() ## This machine's player's account, as the server last sent it.
+## Town -> its offers (see Economy.draw_contract, with "id"): on the server the boards,
+## on a client the ones it was sent.
+var boards: Dictionary = {}
+
+var _next_contract := 1
+
+var _asked_at: Dictionary = {}  ## Server: peer id -> sync.now() of their last ask.
+
+
+func _init(world_sync: WorldSync) -> void:
+	sync = world_sync
+	name = "Ledger"
+
+
+func _ready() -> void:
+	sync.peer_entered.connect(send_account)
+	sync.docked.connect(on_docked)
+	if sync.session.is_server() and not sync.session.dedicated:
+		send_account(multiplayer.get_unique_id())
+
+
+## Server: peer's account, by their name, made fresh the first time.
+func account_of(peer: int) -> Dictionary:
+	var player_name := sync.name_of(peer)
+	if not accounts.has(player_name):
+		accounts[player_name] = Economy.new_account()
+	return accounts[player_name]
+
+
+## Server: takes the accounts a saved game kept, and numbers new contracts after
+## every one they hold.
+func set_accounts(saved: Dictionary) -> void:
+	accounts = saved
+	for account: Dictionary in accounts.values():
+		for contract: Dictionary in account["contracts"]:
+			_next_contract = maxi(_next_contract, contract["id"] + 1)
+
+
+## Server: adds amount to peer's money (charges it when negative, never below 0), and
+## sends them their account.
+func pay(peer: int, amount: int) -> void:
+	var account := account_of(peer)
+	account["money"] = maxi(0, account["money"] + amount)
+	send_account(peer)
+
+
+## Server: sends peer their account.
+func send_account(peer: int) -> void:
+	if peer == multiplayer.get_unique_id():
+		mine = account_of(peer).duplicate(true)
+		account_changed.emit()
+	elif sync.in_world(peer):
+		_account.rpc_id(peer, account_of(peer))
+
+
+## Server: a message for peer.
+func tell(peer: int, text: String) -> void:
+	if peer == multiplayer.get_unique_id():
+		told.emit(text)
+	elif sync.in_world(peer):
+		_say.rpc_id(peer, text)
+
+
+## This machine's player fills the ship they're aboard with spares, at a dock.
+func buy_spares() -> void:
+	if sync.session.is_server():
+		_buy_spares_for(multiplayer.get_unique_id())
+	else:
+		_buy_spares.rpc_id(1)
+
+
+## This machine's player fills the tanks of the ship they're aboard, at a dock.
+func buy_fuel() -> void:
+	if sync.session.is_server():
+		_buy_fuel_for(multiplayer.get_unique_id())
+	else:
+		_buy_fuel.rpc_id(1)
+
+
+## This machine's player buys (count 1) or sells (count -1) a crate of good at the
+## dock they're at, aboard a ship.
+func trade(good: String, count: int) -> void:
+	if sync.session.is_server():
+		_trade_for(multiplayer.get_unique_id(), good, count)
+	else:
+		_trade.rpc_id(1, good, count)
+
+
+## This machine's player unlocks part, at a town's shipyard that sells it.
+func unlock(part: String) -> void:
+	if sync.session.is_server():
+		_unlock_for(multiplayer.get_unique_id(), part)
+	else:
+		_unlock.rpc_id(1, part)
+
+
+## Server: checks peer may launch design in place of own (their ship, or null) and
+## charges them for it. "" when charged, else why not. A launch with no ship of
+## their own uses up their insurance.
+func charge_launch(peer: int, design: ShipGrid, own: Ship) -> String:
+	var account := account_of(peer)
+	var locked := Economy.locked(design, account["unlocks"])
+	if not locked.is_empty():
+		return "Unlock %s first." % " and ".join(locked.map(func(part: String) -> String: return Blocks.INFO[part]["name"]))
+	var crates := own.grid.cargo.size() if own != null else 0
+	var bays := design.cells_of("cargo_bay").size()
+	if crates > bays:
+		return "She has room for %d of the %d crates aboard. Sell some first." % [bays, crates]
+	var price := Economy.launch_cost(design, trade_in(peer, own))
+	if account["money"] < price:
+		return "She costs %d crowns and you have %d." % [price, account["money"]]
+	if own == null:
+		account["insured"] = 0
+	pay(peer, -price)
+	return ""
+
+
+## Server: what peer's old ship counts for at a launch: own as she is, or with no
+## ship of their own, her insurance.
+func trade_in(peer: int, own: Ship) -> int:
+	return Economy.value(own.grid, own.spares, own.fuel) if own != null else account_of(peer)["insured"]
+
+
+## Server: captain's ship, built to blueprint, is lost: she's insured for part of her cost.
+func insure(captain: int, blueprint: ShipGrid) -> void:
+	account_of(captain)["insured"] = roundi(Economy.INSURANCE * Economy.cost(blueprint))
+	send_account(captain)
+
+
+## This machine's player hires a hand of role onto the ship they're aboard, at a dock.
+func hire(role: String) -> void:
+	if sync.session.is_server():
+		_hire_for(multiplayer.get_unique_id(), role)
+	else:
+		_hire.rpc_id(1, role)
+
+
+## This machine's player lets hand id go from the ship they're aboard, at a dock.
+func dismiss(id: int) -> void:
+	if sync.session.is_server():
+		_dismiss_for(multiplayer.get_unique_id(), id)
+	else:
+		_dismiss.rpc_id(1, id)
+
+
+## This machine's player asks for the board of the town whose dock they're at.
+func ask_board() -> void:
+	if sync.session.is_server():
+		_ask_board_for(multiplayer.get_unique_id())
+	else:
+		_ask_board.rpc_id(1)
+
+
+## This machine's player takes offer id from the board where they stand.
+func take_contract(id: int) -> void:
+	if sync.session.is_server():
+		_take_for(multiplayer.get_unique_id(), id)
+	else:
+		_take.rpc_id(1, id)
+
+
+## This machine's player drops their contract id, anywhere.
+func drop_contract(id: int) -> void:
+	if sync.session.is_server():
+		_drop_for(multiplayer.get_unique_id(), id)
+	else:
+		_drop.rpc_id(1, id)
+
+
+## Server: ship docked at town. Every delivery to town whose mail she carries is done.
+func on_docked(ship: Ship, town: int) -> void:
+	var cargo := ship.grid.cargo.duplicate(true)
+	for player_name: String in accounts:
+		for contract: Dictionary in (accounts[player_name]["contracts"] as Array).duplicate():
+			if contract["kind"] != "delivery" or contract["target"] != town:
+				continue
+			var carried := _mail_of(cargo, player_name)
+			if carried.size() < contract["count"]:
+				continue
+			for i in contract["count"]:
+				cargo.erase(carried[i])
+			_complete(player_name, contract)
+	if cargo != ship.grid.cargo:
+		sync.set_cargo(ship, cargo)
+
+
+## Server: peer stripped world wreck site, completing their salvage contract for her.
+func on_salvaged(peer: int, site: int) -> void:
+	var player_name := sync.name_of(peer)
+	for contract: Dictionary in (account_of(peer)["contracts"] as Array).duplicate():
+		if contract["kind"] == "salvage" and contract["target"] == site:
+			_complete(player_name, contract)
+
+
+## Server: a pirate was beaten at at. It counts toward the bounties of everyone within
+## Economy.BOUNTY_REACH.
+func pirate_beaten(at: Vector3) -> void:
+	for peer: int in _players_near(at, Economy.BOUNTY_REACH):
+		var counted := false
+		for contract: Dictionary in (account_of(peer)["contracts"] as Array).duplicate():
+			if contract["kind"] != "bounty":
+				continue
+			contract["done"] += 1
+			counted = true
+			if contract["done"] >= contract["count"]:
+				_complete(sync.name_of(peer), contract)
+		if counted:
+			send_account(peer)
+
+
+## Server: pays amount to each player within Economy.BOUNTY_REACH of at (not on a test
+## flight), and tells them text.
+func reward_near(at: Vector3, amount: int, text: String) -> void:
+	for peer: int in _players_near(at, Economy.BOUNTY_REACH):
+		pay(peer, amount)
+		tell(peer, text)
+
+
+## Server: each player within Economy.SCOUT_REACH of a landmark they're scouting has
+## scouted it.
+func check_scouts() -> void:
+	for peer: int in _players_near(Vector3.ZERO, INF):
+		var at: Vector3 = sync.world_position_of(peer)
+		for contract: Dictionary in (account_of(peer)["contracts"] as Array).duplicate():
+			if contract["kind"] == "scout" and contract["target"] < sync.gen.landmarks.size() \
+					and at.distance_to(sync.gen.landmarks[contract["target"]]["at"]) <= Economy.SCOUT_REACH:
+				_complete(sync.name_of(peer), contract)
+
+
+## Server: whether to hear peer's ask now. This machine's player is always heard.
+func _may_ask(peer: int) -> bool:
+	if peer == multiplayer.get_unique_id():
+		return true
+	if not sync.in_world(peer) or sync.now() - _asked_at.get(peer, -INF) < ASK_EVERY:
+		return false
+	_asked_at[peer] = sync.now()
+	return true
+
+
+## Server: the ship peer is aboard, when she's at a town's dock and not a test flight
+## or a pirate; else null.
+func _docked_ship(peer: int) -> Ship:
+	var ship := sync.aboard(peer)
+	if ship == null or ship.test or ship.pirate or sync.town_at(ship.global_position) < 0:
+		return null
+	return ship
+
+
+func _buy_spares_for(peer: int) -> void:
+	var ship := _docked_ship(peer)
+	if ship == null:
+		tell(peer, "Buy spares at a town's dock, aboard a ship.")
+		return
+	var room := Damage.SPARES_MAX - ship.spares
+	if room <= 0:
+		tell(peer, "Her spares are full.")
+		return
+	var count := mini(room, account_of(peer)["money"] / Economy.SPARE_PRICE)
+	if count <= 0:
+		tell(peer, "You can't afford a spare (%d crowns)." % Economy.SPARE_PRICE)
+		return
+	ship.spares += count
+	sync.tell_world(&"_spares", [sync.id_of(ship), ship.spares])
+	pay(peer, -count * Economy.SPARE_PRICE)
+	tell(peer, "Bought %d spares for %d crowns." % [count, count * Economy.SPARE_PRICE])
+
+
+## Server: as much fuel as her tanks take and the buyer can pay for.
+func _buy_fuel_for(peer: int) -> void:
+	var ship := _docked_ship(peer)
+	if ship == null:
+		tell(peer, "Buy fuel at a town's dock, aboard a ship.")
+		return
+	var room := ship.fuel_capacity() - ship.fuel
+	if room < 1.0:
+		tell(peer, "Her tanks are full.")
+		return
+	var units := minf(room, account_of(peer)["money"] * Economy.FUEL_PER_CROWN)
+	if units < 1.0:
+		tell(peer, "You can't afford fuel.")
+		return
+	var price := ceili(units / Economy.FUEL_PER_CROWN)
+	ship.fuel += units
+	sync.tell_fuel(ship)
+	pay(peer, -price)
+	tell(peer, "Bought %d fuel for %d crowns." % [roundi(units), price])
+
+
+## Server: a buy goes in the first free bay, owned by the buyer; a sale takes the
+## seller's own crate of good, first in cell order. The town whose dock she's at is the
+## market. Junk is ignored.
+func _trade_for(peer: int, good: String, count: int) -> void:
+	if (count != 1 and count != -1) or not Economy.GOODS.has(good):
+		return
+	var good_name: String = Economy.GOODS[good]["name"]
+	if Economy.GOODS[good]["price"] == 0:
+		tell(peer, "%s isn't for sale." % good_name)
+		return
+	var ship := _docked_ship(peer)
+	if ship == null:
+		tell(peer, "Trade at a town's dock, aboard a ship.")
+		return
+	var town := sync.town_at(ship.global_position)
+	var cargo := ship.grid.cargo.duplicate(true)
+	var owner := sync.name_of(peer)
+	if count == 1:
+		var free := ship.grid.free_bays()
+		var price := Economy.price(sync.gen, town, good)
+		if free.is_empty():
+			tell(peer, "Her hold is full.")
+		elif account_of(peer)["money"] < price:
+			tell(peer, "You can't afford %s (%d crowns)." % [good_name, price])
+		else:
+			cargo[free[0]] = {"good": good, "owner": owner}
+			sync.set_cargo(ship, cargo)
+			pay(peer, -price)
+		return
+	var cells := cargo.keys()
+	cells.sort()
+	var price := Economy.sell_price(sync.gen, town, good)
+	for cell: Vector3i in cells:
+		if cargo[cell]["good"] == good and cargo[cell]["owner"] == owner:
+			cargo.erase(cell)
+			sync.set_cargo(ship, cargo)
+			pay(peer, price)
+			return
+	# Her captain sells what someone who left stowed in her, so it can't fill her bays
+	# for good. The crowns are theirs, for when they're back.
+	if ship.captain == peer:
+		for cell: Vector3i in cells:
+			var absent: String = cargo[cell]["owner"]
+			if cargo[cell]["good"] == good and _peer_named(absent) == 0:
+				cargo.erase(cell)
+				sync.set_cargo(ship, cargo)
+				if not accounts.has(absent):
+					accounts[absent] = Economy.new_account()
+				accounts[absent]["money"] += price
+				tell(peer, "Sold %s's %s for them: %d crowns." % [absent, good_name, price])
+				return
+	tell(peer, "You have no %s aboard." % good_name)
+
+
+func _unlock_for(peer: int, part: String) -> void:
+	if not Economy.UNLOCKS.has(part):
+		return
+	var account := account_of(peer)
+	var part_name: String = Blocks.INFO[part]["name"]
+	var price: int = Economy.UNLOCKS[part]["price"]
+	var town := _town_of(peer)
+	if account["unlocks"].has(part):
+		tell(peer, "You've unlocked %s already." % part_name)
+	elif town < 0:
+		tell(peer, "Unlock parts at a town's shipyard.")
+	elif not Economy.unlockable_at(part, sync.gen.towns[town]["region"]):
+		tell(peer, "%s isn't sold here: try a town in %s or further in." % [part_name, WorldGen.REGION_NAMES[Economy.UNLOCKS[part]["region"]]])
+	elif account["money"] < price:
+		tell(peer, "You can't afford %s (%d crowns)." % [part_name, price])
+	else:
+		account["unlocks"].append(part)
+		pay(peer, -price)
+		tell(peer, "Unlocked %s." % part_name)
+
+
+## Server: a hand needs a free bunk, and a gunner a cannon nobody mans, an engineer an
+## engine nobody tends. He's named from Economy.HAND_NAMES, skipping names aboard while
+## any are left.
+func _hire_for(peer: int, role: String) -> void:
+	if not Economy.HANDS.has(role):
+		return
+	var ship := _docked_ship(peer)
+	if ship == null:
+		tell(peer, "Hire crew at a town's dock.")
+		return
+	if ship.hands.size() >= ship.grid.cells_of("bunk").size():
+		tell(peer, "She has no free bunk.")
+		return
+	var post: Variant = Vector3i.ZERO
+	if role != "repairer":
+		post = sync.free_post(ship, role, [])
+		if post == null:
+			tell(peer, "She has no free cannon for a gunner." if role == "gunner" else "She has no free engine for an engineer.")
+			return
+	var fee: int = Economy.HANDS[role]["fee"]
+	if account_of(peer)["money"] < fee:
+		tell(peer, "You can't afford %s (%d crowns)." % [Economy.a_hand(role), fee])
+		return
+	pay(peer, -fee)
+	var names: Array = Economy.HAND_NAMES.filter(func(each: String) -> bool:
+		return not ship.hands.any(func(hand: Dictionary) -> bool: return hand["name"] == each))
+	if names.is_empty():
+		names = Economy.HAND_NAMES
+	var hand_name: String = names[sync.rng.randi_range(0, names.size() - 1)]
+	var at := ship.crew_spawn(0) if role == "repairer" else ship.spot_near(post)
+	sync.set_hands(ship, ship.hands + [{"id": sync.next_hand_id(), "name": hand_name, "role": role, "post": post, "at": at}])
+	tell(peer, "%s the %s joins the crew." % [hand_name, role])
+
+
+func _dismiss_for(peer: int, id: int) -> void:
+	var ship := _docked_ship(peer)
+	if ship == null:
+		return
+	var index := ship.hands.find_custom(func(hand: Dictionary) -> bool: return hand["id"] == id)
+	if index < 0:
+		return
+	if ship.captain != 0 and ship.captain != peer:  # whoever paid for them keeps them
+		tell(peer, "Only her captain can let her crew go.")
+		return
+	var hands := ship.hands.duplicate()
+	var gone: Dictionary = hands.pop_at(index)
+	sync.set_hands(ship, hands)
+	tell(peer, "%s leaves the crew." % gone["name"])
+
+
+## Server: the board of town, drawn the first time.
+func _board_of(town: int) -> Array:
+	if not boards.has(town):
+		var offers := []
+		for i in Economy.BOARD_SIZE:
+			offers.append(_draw(town))
+		boards[town] = offers
+	return boards[town]
+
+
+func _draw(town: int) -> Dictionary:
+	var contract := Economy.draw_contract(sync.gen, town, sync.salvaged, sync.rng)
+	contract["id"] = _next_contract
+	_next_contract += 1
+	return contract
+
+
+## Server: the town whose dock peer last said they were at, or -1.
+func _town_of(peer: int) -> int:
+	var at: Variant = sync.world_position_of(peer)
+	return sync.town_at(at) if at != null else -1
+
+
+func _ask_board_for(peer: int) -> void:
+	var town := _town_of(peer)
+	if town < 0:
+		return
+	_send_board(peer, town)
+
+
+func _send_board(peer: int, town: int) -> void:
+	var board := _board_of(town)
+	if peer == multiplayer.get_unique_id():
+		board_changed.emit(town)
+	elif sync.in_world(peer):
+		_board.rpc_id(peer, town, board)
+
+
+func _take_for(peer: int, id: int) -> void:
+	var town := _town_of(peer)
+	if town < 0:
+		tell(peer, "Take contracts at a town's board.")
+		return
+	var board := _board_of(town)
+	var index := board.find_custom(func(each: Dictionary) -> bool: return each["id"] == id)
+	if index < 0:
+		tell(peer, "That contract is gone.")
+		return
+	var account := account_of(peer)
+	if account["contracts"].size() >= Economy.MAX_CONTRACTS:
+		tell(peer, "You have three contracts already.")
+		return
+	var contract: Dictionary = board[index].duplicate()
+	if contract["kind"] == "delivery":
+		var ship := _docked_ship(peer)
+		var free: Array[Vector3i] = []
+		if ship != null:
+			free = ship.grid.free_bays()
+		if free.size() < contract["count"]:
+			tell(peer, "Your hold has room for %d crates." % free.size())
+			return
+		var cargo := ship.grid.cargo.duplicate(true)
+		for i in contract["count"]:
+			cargo[free[i]] = {"good": "mail", "owner": sync.name_of(peer)}
+		sync.set_cargo(ship, cargo)
+	contract["done"] = 0
+	account["contracts"].append(contract)
+	board[index] = _draw(town)
+	send_account(peer)
+	_send_board(peer, town)
+	tell(peer, "Contract taken: %s." % contract["title"])
+
+
+func _drop_for(peer: int, id: int) -> void:
+	var account := account_of(peer)
+	var index: int = account["contracts"].find_custom(func(each: Dictionary) -> bool: return each["id"] == id)
+	if index < 0:
+		return
+	var contract: Dictionary = account["contracts"].pop_at(index)
+	if contract["kind"] == "delivery":
+		var left: int = contract["count"]
+		for ship: Ship in sync.ships.values():
+			var cargo := ship.grid.cargo.duplicate(true)
+			for cell: Vector3i in _mail_of(cargo, sync.name_of(peer)):
+				if left > 0:
+					cargo.erase(cell)
+					left -= 1
+			if cargo != ship.grid.cargo:
+				sync.set_cargo(ship, cargo)
+	send_account(peer)
+	tell(peer, "Contract dropped: %s." % contract["title"])
+
+
+## Server: pays player_name contract's reward, takes it off their books, and tells them.
+func _complete(player_name: String, contract: Dictionary) -> void:
+	var account: Dictionary = accounts[player_name]
+	account["contracts"].erase(contract)
+	account["money"] += contract["reward"]
+	var peer := _peer_named(player_name)
+	if peer != 0:
+		send_account(peer)
+		tell(peer, "Contract done: %s. +%d crowns." % [contract["title"], contract["reward"]])
+
+
+## The cells of player_name's mail crates in cargo, in cell order.
+static func _mail_of(cargo: Dictionary, player_name: String) -> Array:
+	var cells := cargo.keys().filter(func(cell: Vector3i) -> bool:
+		return cargo[cell]["good"] == "mail" and cargo[cell]["owner"] == player_name)
+	cells.sort()
+	return cells
+
+
+## Server: the peer here named player_name, or 0.
+func _peer_named(player_name: String) -> int:
+	for peer: int in _players_near(Vector3.ZERO, INF, false):
+		if sync.name_of(peer) == player_name:
+			return peer
+	return 0
+
+
+## Server: the players in the world within reach of at (where they last said they were).
+## Placed, it leaves out players on a test flight: a free flight in parts not yet
+## unlocked earns nothing toward contracts.
+func _players_near(at: Vector3, reach: float, placed := true) -> Array[int]:
+	var found: Array[int] = []
+	var peers: Array = sync.session.players.keys()
+	for peer: int in peers:
+		if not sync.in_world(peer) or (placed and sync.ship_of(peer, true) != null):
+			continue
+		var where: Variant = sync.world_position_of(peer)
+		if not placed or (where != null and (where as Vector3).distance_to(at) <= reach):
+			found.append(peer)
+	return found
+
+
+## Server -> its owner: their account.
+@rpc("authority", "call_remote", "reliable", 0)
+func _account(account: Variant) -> void:
+	if sync.session.is_server():
+		return
+	var clean: Variant = Economy.read_account(account)
+	if clean != null:
+		mine = clean
+		account_changed.emit()
+
+
+## Server -> one player: a message.
+@rpc("authority", "call_remote", "reliable", 0)
+func _say(text: Variant) -> void:
+	if not sync.session.is_server() and text is String and text.length() <= MAX_TEXT:
+		told.emit(text)
+
+
+## Client -> server: buy (1) or sell (-1) a crate of good where I am.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _trade(good: Variant, count: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and good is String and count is int and _may_ask(peer):
+		_trade_for(peer, good, count)
+
+
+## Server -> a player at town's dock: its offers.
+@rpc("authority", "call_remote", "reliable", 0)
+func _board(town: Variant, offers: Variant) -> void:
+	if sync.session.is_server() or not town is int or town < 0 or town >= sync.gen.towns.size() \
+			or not offers is Array or offers.size() > Economy.BOARD_SIZE:
+		return
+	var clean := []
+	for entry: Variant in offers:
+		var contract: Variant = Economy.read_contract(entry)
+		if contract == null:
+			return
+		clean.append(contract)
+	boards[town] = clean
+	board_changed.emit(town)
+
+
+## Client -> server: hire a hand of role onto the ship I'm aboard.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _hire(role: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and role is String and _may_ask(peer):
+		_hire_for(peer, role)
+
+
+## Client -> server: let hand id go from the ship I'm aboard.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _dismiss(id: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and id is int and _may_ask(peer):
+		_dismiss_for(peer, id)
+
+
+## Client -> server: unlock part where I am.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _unlock(part: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and part is String and _may_ask(peer):
+		_unlock_for(peer, part)
+
+
+## Client -> server: the board of the town I'm at.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _ask_board() -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and _may_ask(peer):
+		_ask_board_for(peer)
+
+
+## Client -> server: take offer id from the board where I stand.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _take(id: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and id is int and _may_ask(peer):
+		_take_for(peer, id)
+
+
+## Client -> server: drop my contract id.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _drop(id: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and id is int and _may_ask(peer):
+		_drop_for(peer, id)
+
+
+## Client -> server: fill the tanks of the ship I'm aboard.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _buy_fuel() -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and _may_ask(peer):
+		_buy_fuel_for(peer)
+
+
+## Client -> server: fill the ship I'm aboard with spares.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _buy_spares() -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and _may_ask(peer):
+		_buy_spares_for(peer)

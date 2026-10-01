@@ -23,6 +23,8 @@ const BLOCKS := {
 	"ladder": {"mass": 15.0, "hp": 40},
 }
 
+const CRATE_MASS := 100.0         ## kg a cargo crate adds to the bay it's stowed in.
+
 const ROIL_ALTITUDE := 200.0      ## m. The air is densest here and below.
 const AIR_SCALE_HEIGHT := 2500.0  ## m. Air thins by a factor of e over this height.
 const AIR_DENSITY := 1.2          ## kg/m³ at the Roil.
@@ -30,8 +32,15 @@ const BALLOON_LIFT := 900.0       ## N per balloon cell in the densest air, at t
 const LIFT_STONE_LIFT := 6000.0   ## N per lift stone, at any altitude.
 const PROPELLER_THRUST := 2500.0  ## N per propeller at full throttle and full power.
 const PROPELLERS_PER_ENGINE := 2  ## Propellers one engine drives at full power.
+const ENGINE_BOOST := 0.25        ## How much harder an engineer drives the engine he tends.
+const FUEL_PER_TANK := 200.0      ## Units of fuel a tank holds. Fuel weighs nothing.
+const ENGINE_BURN := 0.8          ## Units a second an engine burns at full throttle.
+const TURBULENCE := 0.1          ## rad/s² of shake at full roughness.
+const TRIM_BURN := 0.05           ## Units a second each balloon burns for each 1.0 of trim over 1.
 const DRAG_COEFFICIENT := 0.45    ## Cd of every exposed face.
 const HULL_LIFT := 8.0            ## How hard the hull resists slipping sideways at speed, as a keel does. Without it ships skid instead of turning.
+const SAIL_AREA := 6.0             ## m² of cloth in a sail cell.
+const SAIL_COEFFICIENT := 1.2     ## A sail's push per m² and (m/s)² of wind across it, against density.
 const RUDDER_FORCE := 8.0         ## Side force per rudder, in N per (m/s)² of airspeed, at full deflection and density.
 const ANGULAR_DAMPING := 0.5      ## 1/s. Air damping of the ship's spin, on top of face drag.
 const TRIM_MIN := 0.8             ## Balloon trim limits: lift is 900 N × density × trim per balloon.

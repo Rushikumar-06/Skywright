@@ -1,25 +1,40 @@
-extends TestCase
+extends NetCase
 ## The world scene: the starter ship with you aboard, islands to fly between, the
 ## sky's day, and the helm's instruments.
 
 
-func test_you_start_aboard_the_starter_ship_by_the_helm() -> void:
-	var world: Node3D = (load("res://src/world/world.tscn") as PackedScene).instantiate()
-	add_child(world)
+func test_the_world_has_a_ship_and_you_aboard_in_solo() -> void:
+	var world := solo_world()
 	await get_tree().process_frame
 	var ship: Ship = world.ship
 	var player: PlayerController = world.player
+	assert_eq(world.sync.ships.values(), [ship], "one ship")
+	assert_true(ship.simulated, "flown here")
 	assert_eq(ship.global_position, world.START)
+	assert_eq(ship.captain, 1, "yours")
 	assert_eq(player.crew.get_parent(), ship.interior)
 	assert_eq(player.prompt(), "Take the helm")
 	assert_true(player.camera.is_current())
-	world.queue_free()
+	assert_eq(world.hud.session, world.session)
+
+
+func test_boarding_another_ship_moves_you_and_your_controls() -> void:
+	var world := solo_world()
 	await get_tree().process_frame
+	var old_crew: CrewMember = world.player.crew
+	var other: Ship = world.sync.add_ship(StarterShip.build(), Dock.slipway(world.START, 1))
+	world.board(other)
+	var player: PlayerController = world.player
+	assert_eq(player.crew.get_parent(), other.interior, "aboard the other ship")
+	assert_eq(world.ship, other)
+	assert_eq(player.ship, other, "steering it")
+	assert_eq(player.prompt(), "Take the helm", "standing by its helm")
+	await get_tree().process_frame
+	assert_false(is_instance_valid(old_crew), "the old crew member is gone")
 
 
 func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:
-	var world: Node3D = (load("res://src/world/world.tscn") as PackedScene).instantiate()
-	add_child(world)
+	var world := solo_world()
 	await get_tree().process_frame
 	var pause := InputEventAction.new()
 	pause.action = "pause"
@@ -28,11 +43,9 @@ func test_the_pause_menu_takes_the_controls_and_gives_them_back() -> void:
 	assert_false(world.player.enabled, "keys and mouse stop while the menu is open")
 	world._unhandled_input(pause)
 	assert_true(world.player.enabled, "and work again after resuming")
-	world.queue_free()
-	await get_tree().process_frame
 
 
-func test_islands_are_solid() -> void:
+func test_placeholder_islands_are_solid() -> void:
 	var island := Island.create(Vector3(0, 800, 0), 50.0)
 	add_child(island)
 	var shapes := island.find_children("*", "CollisionShape3D", false, false)
@@ -65,12 +78,14 @@ func test_the_helm_readout() -> void:
 	var ship := Ship.new(StarterShip.build())
 	ship.calm = true
 	ship.position = Vector3(0, 877, 7000)
+	ship.spares = Damage.SPARES_MAX
 	add_child(ship)
 	ship.throttle = 0.5
 	ship.rudder = -0.4
-	var text := Hud.readout(ship)
+	var text := Hud.readout(ship, Vector3(0, 0, -10))
 	assert_true(text.contains("50% ahead"), text)
 	assert_true(text.contains("40% port"), text)
 	assert_true(text.contains("Heading   000°"), text)
+	assert_true(text.contains("Wind      10 m/s from 180°"), text)
 	assert_true(text.contains("Altitude   877 m"), text)
-	assert_true(text.contains("Autopilot off"), text)
+	assert_true(text.contains("Autopilot off\nHull      100%\nSpares    40/40\nFuel      400/400\nHold      0/4 crates"), text)

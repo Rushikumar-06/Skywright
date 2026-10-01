@@ -3,26 +3,87 @@ extends RigidBody3D
 ## A ship: one rigid body built from a ShipGrid, flying on the forces of spec §4.4.
 ## Each physics tick it applies lift, thrust, drag and the rudders' push; the
 ## engine adds gravity. Its crew walk in its interior, a separate physics world in
-## ship space (spec §4.5).
+## ship space (spec §4.5). Damage takes blocks away (or a repair brings them back),
+## and the ship rebuilds itself from what's left, at most once a frame. Blocks on
+## fire are drawn as flickering flames.
+
+signal blocks_changed  ## After each rebuild.
 
 const MAX_SPEED := 400.0  ## m/s. Anything faster is a physics blow-up.
 const MAX_SPIN := 20.0    ## rad/s. Likewise.
+const FLAME_SIZE := 0.8   ## m across a flame.
+const FLAME_COLOR := Color("ff7a1a")
 
 var grid: ShipGrid
+## The ship whole, as she was built: what repairs restore. Set before adding the
+## ship; without one she's her grid made whole.
+var blueprint: ShipGrid
+var spares := 0      ## Spare materials for repairs, 0 to Damage.SPARES_MAX.
+## Units of fuel in her tanks, 0 to fuel_capacity(); below 0 when she's added means
+## fill them. ponytail: fuel weighs nothing, so burning never changes her trim; give
+## it mass in mass_properties if heavy tanks should matter.
+var fuel := -1.0
+var pirate := false
+var born := 0.0      ## The server's clock when she was added.
+var lost := false    ## The Roil took her.
+## Her hired crew, on every machine: {"id": int (below 0), "name", "role" (a key of
+## Economy.HANDS), "post": Vector3i (a gunner's cannon, an engineer's engine), "at":
+## Vector3 (where he stands, in her space)}. Set through set_hands.
+var hands: Array[Dictionary] = []
+var at_town := -1    ## Server: the town whose dock she's at, or -1.
+var beaten := false  ## Server: a pirate already counted toward bounties.
+var fires: Dictionary = {}           ## Server: burning cell -> seconds it has burned.
+var burning: Array[Vector3i] = []    ## The cells drawn on fire, on every machine.
 var interior: ShipInterior  ## Where the crew walk.
 var helm: Helm              ## The ship's first helm, or null.
+var cannons: Array[Cannon] = []  ## One for each cannon block.
+var bounds: AABB            ## The box around its blocks, in ship space.
 var throttle := 0.0  ## Tuning.THROTTLE_MIN (full astern) to 1 (full ahead).
 var rudder := 0.0    ## -1 (hard to port) to 1 (hard to starboard).
 var trim := 1.0      ## Balloon trim, Tuning.TRIM_MIN to Tuning.TRIM_MAX.
 var calm := false    ## No wind. Flight tests fly in still air.
+## The world's wind. The WorldSync sets it before adding the ship; a ship without
+## one makes its own, which counts physics ticks.
+var weather: Wind
+var captain := 0     ## The peer id of the player whose ship it is, or 0 for nobody's.
+var test := false    ## A test flight from the dock.
+## False on clients: the ship is then a frozen, kinematic copy that follows the
+## server's snapshots (spec §4.6), and no forces act on it. Set before adding it.
+var simulated := true
+## Held still, whatever the wind: a simulated ship stops dead and freezes. On clients
+## it's only a flag, since their copies are frozen anyway. WorldSync's dedicated
+## anchoring also freezes a ship while nobody is aboard.
+var anchored := false:
+	set(value):
+		anchored = value
+		if simulated:
+			if value:
+				linear_velocity = Vector3.ZERO
+				angular_velocity = Vector3.ZERO
+			freeze = value
 
 var _balloons: Array[Vector3] = []
 var _lift_stones: Array[Vector3] = []
 var _propellers: Array[Vector3] = []
+var _thrust_axes: Array[Vector3] = []   ## Each propeller's push direction, in ship space.
 var _rudders: Array[Vector3] = []
+var _rudder_sides: Array[Vector3] = []  ## Each rudder's flat-side normal, in ship space.
+var _rudder_chords: Array[Vector3] = [] ## The way air flows along each rudder, in ship space.
+var _sails: Array[Vector3] = []
+var _sail_normals: Array[Vector3] = []  ## Each sail's facing, in ship space.
 var _zones: Array[Dictionary] = []
 var _power := 0.0  ## The share of full thrust the engines give each propeller.
+var _engines := 0  ## Counted at each rebuild, so nothing per tick walks the grid.
+var _tanks := 0
+var _tended := 0
 var _last_good := Transform3D.IDENTITY
+var _shapes: Array[CollisionShape3D] = []
+var _mesh: MeshInstance3D
+var _rebuild_pending := false
+var _flames: MultiMeshInstance3D
+var _hand_avatars: Dictionary = {}  ## A hand's id -> his CrewAvatar.
+
+static var _flame_mesh: BoxMesh
 
 
 func _init(ship_grid: ShipGrid) -> void:
@@ -30,15 +91,89 @@ func _init(ship_grid: ShipGrid) -> void:
 
 
 func _ready() -> void:
+	if not simulated:
+		freeze_mode = FREEZE_MODE_KINEMATIC
+		freeze = true
+	if weather == null:
+		weather = Wind.new()
+	can_sleep = false
+	linear_damp_mode = DAMP_MODE_REPLACE
+	angular_damp_mode = DAMP_MODE_REPLACE
+	angular_damp = Tuning.ANGULAR_DAMPING
+	if blueprint == null:
+		blueprint = grid.whole()
+	_last_good = global_transform
+	interior = ShipInterior.new()
+	rebuild()
+	if fuel < 0.0:
+		fuel = fuel_capacity()
+	add_child(interior)
+	var helms := grid.cells_of("helm")
+	if not helms.is_empty():
+		helm = Helm.new(self, helms[0])
+		add_child(helm)
+	for cell in grid.cells_of("cannon"):
+		var cannon := Cannon.new(self, cell)
+		cannons.append(cannon)
+		add_child(cannon)
+
+
+## Puts hit-point changes (cell -> hit points, 0 for destroyed) into the grid. When
+## blocks went or came back she rebuilds, once, at the end of the frame, and this
+## returns true.
+func damage(changes: Dictionary) -> bool:
+	var moved := Damage.apply(grid, changes, blueprint)
+	if moved:
+		_rebuild_soon()
+	return moved
+
+
+## Moves the blocks at cells, with their hit points and crates, into a new grid with
+## her paint, for a piece that breaks away. She rebuilds, once, at the end of the frame.
+func take_cells(cells: Array) -> ShipGrid:
+	var piece := ShipGrid.new()
+	piece.paint = grid.paint.duplicate()
+	for cell: Vector3i in cells:
+		piece.blocks[cell] = grid.blocks[cell]
+		grid.blocks.erase(cell)
+		if grid.cargo.has(cell):
+			piece.cargo[cell] = grid.cargo[cell]
+			grid.cargo.erase(cell)
+	_rebuild_soon()
+	return piece
+
+
+## Stows cargo (see ShipGrid.cargo) and weighs her again now, without a rebuild.
+func set_cargo(cargo: Dictionary) -> void:
+	grid.cargo = cargo
+	_weigh()
+
+
+func _weigh() -> void:
 	var props := grid.mass_properties()
 	mass = props["mass"]
 	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = props["center"]
 	inertia = props["inertia"]
-	can_sleep = false
-	linear_damp_mode = DAMP_MODE_REPLACE
-	angular_damp_mode = DAMP_MODE_REPLACE
-	angular_damp = Tuning.ANGULAR_DAMPING
+
+
+func _rebuild_soon() -> void:
+	if not _rebuild_pending:
+		_rebuild_pending = true
+		rebuild.call_deferred()
+
+
+## Rebuilds everything that comes from the blocks, now: mass, shapes, the parts
+## that fly her, the mesh and the interior's hull. A lost helm or cannon lets its
+## crew go first; without a helm she drifts, a wreck.
+func rebuild() -> void:
+	_rebuild_pending = false
+	if grid.blocks.is_empty() or not is_inside_tree():
+		return  # she's on her way out
+	_weigh()
+	for shape in _shapes:
+		shape.free()
+	_shapes.clear()
 	var boxes := grid.merged_boxes()
 	for box in boxes:
 		var cube := BoxShape3D.new()
@@ -47,35 +182,286 @@ func _ready() -> void:
 		shape.shape = cube
 		shape.position = box.get_center()
 		add_child(shape)
+		_shapes.append(shape)
+	for list: Array in [_balloons, _lift_stones, _propellers, _thrust_axes, _rudders, _rudder_sides, _rudder_chords, _sails, _sail_normals]:
+		list.clear()
 	for cell in grid.cells_of("balloon"):
 		_balloons.append(Vector3(cell))
 	for cell in grid.cells_of("lift_stone"):
 		_lift_stones.append(Vector3(cell))
 	for cell in grid.cells_of("propeller"):
 		_propellers.append(Vector3(cell))
+		_thrust_axes.append(Blocks.facing(grid.blocks[cell]["rotation"]))
 	for cell in grid.cells_of("rudder"):
 		_rudders.append(Vector3(cell))
-	if not _propellers.is_empty():
-		_power = minf(1.0, float(grid.cells_of("engine").size() * Tuning.PROPELLERS_PER_ENGINE) / _propellers.size())
+		var turn := Blocks.basis(grid.blocks[cell]["rotation"])
+		_rudder_sides.append(turn * Vector3.RIGHT)
+		_rudder_chords.append(turn * Vector3.FORWARD)
+	for cell in grid.cells_of("sail"):
+		_sails.append(Vector3(cell))
+		_sail_normals.append(Blocks.facing(grid.blocks[cell]["rotation"]))
+	_engines = grid.cells_of("engine").size()
+	_tanks = grid.cells_of("fuel_tank").size()
+	_power = _boosted_power()
+	fuel = minf(fuel, fuel_capacity())  # a tank shot away spills its share
 	_zones = grid.drag_zones()
-	_last_good = global_transform
-	add_child(ShipMesh.build(grid))
-	interior = ShipInterior.new(boxes)
-	add_child(interior)
-	var helms := grid.cells_of("helm")
-	if not helms.is_empty():
-		helm = Helm.new(self, helms[0])
-		add_child(helm)
+	bounds = grid.bounds()
+	if _mesh != null:
+		_mesh.free()
+	_mesh = ShipMesh.build(grid)
+	add_child(_mesh)
+	interior.reshape(boxes)
+	if helm != null and grid.type_at(helm.cell) != "helm":
+		helm.autopilot = false
+		helm.leave(helm.pilot)
+		helm.queue_free()
+		helm = null
+		anchored = false
+		throttle = 0.0  # nobody can stop her engines now, so they stop
+		rudder = 0.0
+	for cannon in cannons.duplicate():
+		if grid.type_at(cannon.cell) != "cannon":
+			cannon.leave(cannon.gunner)
+			cannons.erase(cannon)
+			cannon.queue_free()
+	blocks_changed.emit()
 
 
-## Where crew come aboard, in ship space: standing just aft of the helm.
-func crew_spawn() -> Vector3:
-	return Vector3(helm.cell) + Vector3(0.0, 0.45, 1.0)
+## Sets her hands (see hands), works out her engines' power again, and draws them.
+func set_hands(list: Array) -> void:
+	hands.assign(list)
+	_power = _boosted_power()
+	var ids := {}
+	for hand in hands:
+		ids[hand["id"]] = true
+		var avatar: CrewAvatar = _hand_avatars.get(hand["id"])
+		if avatar == null:
+			avatar = CrewAvatar.new(hand["name"])
+			avatar.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
+			_hand_avatars[hand["id"]] = avatar
+			add_child(avatar)
+		avatar.position = hand["at"]
+	for id: int in _hand_avatars.keys():
+		if not ids.has(id):
+			(_hand_avatars[id] as Node).queue_free()
+			_hand_avatars.erase(id)
+
+
+## The engines an engineer tends, each counted once, that she still has.
+func tended_engines() -> int:
+	var tended := {}
+	for hand in hands:
+		if hand["role"] == "engineer" and grid.type_at(hand["post"]) == "engine":
+			tended[hand["post"]] = true
+	return tended.size()
+
+
+## Where a hand stands to work at cell: the nearest empty cell within 3 of it with
+## a block other than a ladder below and nothing above (ties to the smallest cell),
+## 0.45 m up, as crew_spawn stands crew. With none, crew_spawn(0).
+func spot_near(cell: Vector3i) -> Vector3:
+	var best := Vector3i.ZERO
+	var best_distance := INF
+	for x in range(-3, 4):
+		for y in range(-3, 4):
+			for z in range(-3, 4):
+				var spot := cell + Vector3i(x, y, z)
+				var below := grid.type_at(spot + Vector3i.DOWN)
+				if grid.type_at(spot) != "" or grid.type_at(spot + Vector3i.UP) != "" or below == "" or below == "ladder":
+					continue
+				var d := Vector3(spot).distance_to(Vector3(cell))
+				if d < best_distance or (d == best_distance and spot < best):
+					best = spot
+					best_distance = d
+	if best_distance == INF:
+		return crew_spawn(0)
+	return Vector3(best) + Vector3(0.0, 0.45, 0.0)
+
+
+## The share of full thrust each propeller gets: her engines', driven harder by
+## Tuning.ENGINE_BOOST for each engine an engineer tends.
+func _boosted_power() -> float:
+	_tended = tended_engines()
+	var boost := 1.0 + Tuning.ENGINE_BOOST * _tended / _engines if _engines > 0 else 1.0
+	return ShipForces.propeller_power(grid) * boost
+
+
+## Units of fuel her tanks hold.
+func fuel_capacity() -> float:
+	return _tanks * Tuning.FUEL_PER_TANK
+
+
+## Units a second she burns now: her engines by the throttle (an engineer's harder),
+## and her balloons by their trim over 1. Nothing while she's frozen.
+func burn_rate() -> float:
+	if freeze:
+		return 0.0
+	return absf(throttle) * Tuning.ENGINE_BURN * (_engines + Tuning.ENGINE_BOOST * _tended) \
+			+ _balloons.size() * maxf(0.0, trim - 1.0) * Tuning.TRIM_BURN
+
+
+## The most trim she can hold: heating the envelope past 1 takes fuel.
+func trim_limit() -> float:
+	return Tuning.TRIM_MAX if fuel > 0.0 else 1.0
+
+
+func _physics_process(delta: float) -> void:
+	if not simulated:
+		return
+	fuel = maxf(0.0, fuel - burn_rate() * delta)
+	trim = minf(trim, trim_limit())
+
+
+## Draws flames on cells, and remembers them as what's burning.
+func show_fires(cells: Array) -> void:
+	burning.assign(cells)
+	if _flames == null:
+		_flames = MultiMeshInstance3D.new()
+		_flames.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_flames.multimesh = MultiMesh.new()
+		_flames.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		_flames.multimesh.mesh = _flame()
+		add_child(_flames)
+	_flames.multimesh.instance_count = burning.size()
+	_flicker()
+
+
+func _process(_delta: float) -> void:
+	if not burning.is_empty():
+		_flicker()
+
+
+## Sizes each flame by a flicker of its own.
+func _flicker() -> void:
+	var t := Time.get_ticks_msec() / 1000.0
+	for i in burning.size():
+		var size := FLAME_SIZE * (0.85 + 0.15 * sin(t * 9.0 + i * 1.7))
+		_flames.multimesh.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * size), Vector3(burning[i])))
+
+
+## The flame cube, glowing orange; made once.
+static func _flame() -> BoxMesh:
+	if _flame_mesh == null:
+		var glow := StandardMaterial3D.new()
+		glow.albedo_color = FLAME_COLOR
+		glow.emission_enabled = true
+		glow.emission = FLAME_COLOR
+		glow.emission_energy_multiplier = 4.0
+		_flame_mesh = BoxMesh.new()
+		_flame_mesh.material = glow
+	return _flame_mesh
+
+
+## Whether she has lost her helm, so nobody can steer her.
+func is_wreck() -> bool:
+	return helm == null
+
+
+## Lets peer go from any station they hold on her: the helm and her cannons.
+func release(peer: int) -> void:
+	if helm != null:
+		helm.leave(peer)
+	for cannon in cannons:
+		cannon.leave(peer)
+
+
+## The station (her helm or a cannon) in reach of where, in ship space, the
+## nearest; or null.
+func station_near(where: Vector3) -> Node:
+	var nearest: Node = null
+	var best := INF
+	if helm != null and helm.in_reach(where):
+		nearest = helm
+		best = where.distance_to(Vector3(helm.cell))
+	for cannon in cannons:
+		var d := where.distance_to(Vector3(cannon.cell))
+		if cannon.in_reach(where) and d < best:
+			nearest = cannon
+			best = d
+	return nearest
+
+
+## Where crew come to after being knocked down, in ship space: standing on her
+## first bunk (sorted) with room above it, else where slot 0 comes aboard.
+func respawn_spot() -> Vector3:
+	var bunks := grid.cells_of("bunk")
+	bunks.sort()
+	for bunk in bunks:
+		if grid.type_at(bunk + Vector3i.UP) == "" and grid.type_at(bunk + Vector3i.UP * 2) == "":
+			return Vector3(bunk + Vector3i.UP) + Vector3(0.0, 0.45, 0.0)
+	return crew_spawn(0)
+
+
+## Her hit points over her blueprint's, 0 to 1.
+func condition() -> float:
+	var full := 0
+	for block: Dictionary in blueprint.blocks.values():
+		full += Tuning.BLOCKS[block["type"]]["hp"]
+	var left := 0
+	for block: Dictionary in grid.blocks.values():
+		left += block["hp"]
+	return clampf(float(left) / full, 0.0, 1.0) if full > 0 else 0.0
+
+
+## Spots next to the helm, nearest first, as offsets from the cell just aft of it.
+## The last three are in front of it, for a helm with deck only ahead.
+const SPAWN_SPOTS: Array[Vector3i] = [
+	Vector3i(0, 0, 0), Vector3i(-1, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, -1), Vector3i(0, 0, 1),
+	Vector3i(-1, 0, -1), Vector3i(1, 0, -1), Vector3i(-1, 0, 1), Vector3i(1, 0, 1),
+	Vector3i(0, 0, -2), Vector3i(-1, 0, -2), Vector3i(1, 0, -2),
+]
+
+
+## Where crew come aboard, in ship space. Slot 0 stands just aft of the helm; later
+## slots stand on the free spots around it, and share them when there are more
+## crew than spots (crew don't collide with each other). A wreck has no helm, so
+## everyone stands on top of her, near her middle.
+func crew_spawn(slot := 0) -> Vector3:
+	if helm == null:
+		return Vector3(_spot_on_top()) + Vector3(0.0, 0.45, 0.0)
+	var aft := helm.cell + Vector3i(0, 0, 1)
+	var free: Array[Vector3i] = []
+	for offset in SPAWN_SPOTS:
+		var cell := aft + offset
+		var below := grid.type_at(cell + Vector3i.DOWN)
+		if grid.type_at(cell) == "" and grid.type_at(cell + Vector3i.UP) == "" and below != "" and below != "ladder":
+			free.append(cell)
+	var spot := free[slot % free.size()] if not free.is_empty() else aft
+	return Vector3(spot) + Vector3(0.0, 0.45, 0.0)
+
+
+## The empty cell over the highest block, with room to stand, in the column nearest
+## the middle of her box. Ties go to the smallest cell.
+func _spot_on_top() -> Vector3i:
+	var middle := bounds.get_center()
+	var best := Vector3i.ZERO
+	var best_rank := INF
+	for cell: Vector3i in grid.blocks:
+		var above := cell + Vector3i.UP
+		if grid.type_at(cell) == "ladder" or grid.blocks.has(above) or grid.blocks.has(above + Vector3i.UP):
+			continue
+		var rank := Vector2(cell.x - middle.x, cell.z - middle.z).length_squared()
+		if rank < best_rank or (rank == best_rank and (above.y > best.y or (above.y == best.y and above < best))):
+			best = above
+			best_rank = rank
+	return best
+
+
+## Whether this ship is the first thing straight below world_point, within its own
+## size and 2 m. Only valid during physics processing.
+func is_over(world_point: Vector3) -> bool:
+	var ray := PhysicsRayQueryParameters3D.create(world_point, world_point + Vector3.DOWN * (bounds.size.length() + 2.0))
+	return get_world_3d().direct_space_state.intersect_ray(ray).get("collider") == self
+
+
+## The velocity of the ship's body at world_point.
+func point_velocity(world_point: Vector3) -> Vector3:
+	return linear_velocity + angular_velocity.cross(world_point - global_transform * center_of_mass)
 
 
 ## Full-throttle thrust in N.
 func max_thrust() -> float:
-	return _propellers.size() * _power * Tuning.PROPELLER_THRUST
+	return ShipForces.forward_thrust(grid)
 
 
 ## The trim at which lift equals weight at altitude (it may fall outside the trim limits).
@@ -94,6 +480,8 @@ func heading() -> float:
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	if not simulated:
+		return
 	if not _sane(state):
 		push_warning("Ship %s blew up (speed %.0f m/s, spin %.1f rad/s); restoring its last good position." % [name, state.linear_velocity.length(), state.angular_velocity.length()])
 		state.linear_velocity = Vector3.ZERO
@@ -107,8 +495,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	_last_good = state.transform
 	var basis := state.transform.basis
 	var altitude := state.transform.origin.y
-	# The wind's clock is physics ticks since the game started; stage 3 uses the host's.
-	var wind := Vector3.ZERO if calm else Wind.at(state.transform.origin, Engine.get_physics_frames() / float(Engine.physics_ticks_per_second))
+	var wind := Vector3.ZERO if calm else weather.at(state.transform.origin, weather.now())
 
 	# Lift: every balloon and lift stone pulls straight up, so together they act as
 	# one force at their lift-weighted centre.
@@ -126,10 +513,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if lift > 0.0:
 		state.apply_force(Vector3(0.0, lift, 0.0), lift_moment / lift)
 
-	# Thrust. Propellers push toward the bow until the shipyard can turn blocks.
-	var thrust := -basis.z * throttle * _power * Tuning.PROPELLER_THRUST
-	for cell in _propellers:
-		state.apply_force(thrust, basis * cell)
+	# Thrust: each propeller pushes the way it faces, while there's fuel.
+	if fuel > 0.0:
+		for i in _propellers.size():
+			state.apply_force(basis * _thrust_axes[i] * (throttle * _power * Tuning.PROPELLER_THRUST), basis * _propellers[i])
 
 	# Drag and the keel's push on each zone, from its own velocity through the air.
 	var to_ship := basis.transposed()
@@ -142,11 +529,28 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.apply_force(basis * force, offset)
 
 	# Rudders push the stern sideways, harder the faster air flows past them.
-	for cell in _rudders:
-		var offset := basis * cell
-		var flow := -basis.z.dot(state.get_velocity_at_local_position(offset) - wind)
+	# Each pushes along its flat side, and feels the air flowing along its chord.
+	for i in _rudders.size():
+		var offset := basis * _rudders[i]
+		var flow := (basis * _rudder_chords[i]).dot(state.get_velocity_at_local_position(offset) - wind)
 		var push := Tuning.RUDDER_FORCE * ShipForces.air_density(altitude + offset.y) * flow * absf(flow) * rudder
-		state.apply_force(-basis.x * push, offset)
+		state.apply_force(-(basis * _rudder_sides[i]) * push, offset)
+
+	# Sails push along their normal, whichever face the wind hits, by the wind across them.
+	for i in _sails.size():
+		var offset := basis * _sails[i]
+		var normal := basis * _sail_normals[i]
+		var flow := (wind - state.get_velocity_at_local_position(offset)).dot(normal)
+		var density := ShipForces.air_density(altitude + offset.y)
+		var push := 0.5 * Tuning.AIR_DENSITY * density * Tuning.SAIL_COEFFICIENT * Tuning.SAIL_AREA * flow * absf(flow)
+		state.apply_force(normal * push, offset)
+
+
+	# Turbulence: rough air rocks her. Flight tests fly in calm air.
+	if not calm:
+		var rough := weather.roughness(state.transform.origin, weather.now())
+		if rough > 0.0:
+			state.apply_torque(basis * (inertia * Wind.shake(weather.now()) * Tuning.TURBULENCE * rough))
 
 
 func _sane(state: PhysicsDirectBodyState3D) -> bool:

@@ -25,7 +25,19 @@ func test_input_actions_have_their_default_keys() -> void:
 		"interact": [KEY_E],
 		"toggle_camera": [KEY_V],
 		"autopilot": [KEY_H],
+		"anchor": [KEY_G],
 		"pause": [KEY_ESCAPE],
+		"shipyard": [KEY_B],
+		"turn_block": [KEY_R],
+		"tip_block": [KEY_T],
+		"mirror": [KEY_M],
+		"map": [KEY_M],
+		"undo": [KEY_Z],
+		"redo": [KEY_Y, KEY_Z],
+		"test_flight": [KEY_F],
+		"ammo": [KEY_Q],
+		"repair": [KEY_R],
+		"town": [KEY_T],
 	}
 	for action: String in expected:
 		assert_true(InputMap.has_action(action), "%s exists" % action)
@@ -37,6 +49,26 @@ func test_input_actions_have_their_default_keys() -> void:
 				keys.append((event as InputEventKey).physical_keycode)
 		for key: int in expected[action]:
 			assert_true(keys.has(key), "%s is bound to %s" % [action, OS.get_keycode_string(key)])
+
+
+func test_fire_is_the_left_mouse_button() -> void:
+	var buttons := []
+	for event in InputMap.action_get_events("fire") if InputMap.has_action("fire") else []:
+		if event is InputEventMouseButton:
+			buttons.append((event as InputEventMouseButton).button_index)
+	assert_eq(buttons, [MOUSE_BUTTON_LEFT])
+
+
+func test_undo_and_redo_take_ctrl() -> void:
+	var expected := {"undo": [[KEY_Z, false]], "redo": [[KEY_Y, false], [KEY_Z, true]]}  # [key, shift]
+	for action: String in expected:
+		var found := []
+		for event in InputMap.action_get_events(action) if InputMap.has_action(action) else []:
+			var k := event as InputEventKey
+			if k != null and k.ctrl_pressed:
+				found.append([k.physical_keycode, k.shift_pressed])
+		for combo: Array in expected[action]:
+			assert_true(found.has(combo), "%s is bound to Ctrl+%s%s" % [action, "Shift+" if combo[1] else "", OS.get_keycode_string(combo[0])])
 
 
 func test_every_script_compiles() -> void:

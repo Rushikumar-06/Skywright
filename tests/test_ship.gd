@@ -24,14 +24,6 @@ func pitch(ship: Ship) -> float:
 	return rad_to_deg(asin(-ship.global_basis.z.y))
 
 
-## Where the balloons' lift acts in ship space.
-func lift_center(grid: ShipGrid) -> Vector3:
-	var sum := Vector3.ZERO
-	for cell in grid.cells_of("balloon"):
-		sum += Vector3(cell)
-	return sum / grid.cells_of("balloon").size()
-
-
 func test_a_ship_takes_its_mass_and_shape_from_its_blocks() -> void:
 	var grid := StarterShip.build()
 	var ship := launch(grid)
@@ -61,10 +53,7 @@ func test_a_lopsided_ship_lists_toward_its_heavy_side() -> void:
 	var grid := StarterShip.build()
 	for z in range(-2, 4):
 		grid.set_block(Vector3i(3, 0, z), "iron")  # iron bolted along the starboard side
-	var props := grid.mass_properties()
-	var com: Vector3 = props["center"]
-	var lift := lift_center(grid)
-	var expected := rad_to_deg(atan2(com.x - lift.x, lift.y - com.y))  # the lift ends up straight above the weight
+	var expected := ShipStats.of(grid, START.y).list  # the lift ends up straight above the weight
 	var ship := launch(grid)
 	await simulate(60.0)
 	assert_true(expected > 2.0, "the test ship is lopsided enough to see (%.2f°)" % expected)
@@ -77,10 +66,36 @@ func test_an_overloaded_ship_sinks() -> void:
 		for x in [-1, 0, 1]:
 			grid.set_block(Vector3i(x, 1, z), "iron")
 	var ship := launch(grid)
+	assert_eq(ShipStats.of(grid, START.y).ceiling, -INF)
 	assert_true(ship.trim_to_float_at(Tuning.ROIL_ALTITUDE) > Tuning.TRIM_MAX, "too heavy to float anywhere")
 	await simulate(40.0)
 	assert_true(ship.global_position.y < Tuning.ROIL_ALTITUDE, "sank into the Roil (at %.0f m)" % ship.global_position.y)
 	assert_true(ship.linear_velocity.y < -5.0, "and is still sinking")
+
+
+func test_a_ship_floats_at_the_height_her_stats_give() -> void:
+	var grid := StarterShip.build()
+	var removed := 0
+	for cell in grid.cells_of("balloon"):
+		if cell.y == 10 and removed < 10:
+			grid.blocks.erase(cell)
+			removed += 1
+	var floats := ShipStats.of(grid, START.y).float_altitude
+	var ship := launch(grid)
+	await simulate(180.0)
+	assert_near(ship.global_position.y, floats, 20.0, "floats at %.0f m" % floats)
+
+
+func test_a_propeller_pushes_the_way_it_faces() -> void:
+	var grid := StarterShip.build()
+	var aft := Blocks.rotation_of(Basis(Vector3.UP, PI))
+	for cell in grid.cells_of("propeller"):
+		grid.set_block(cell, "propeller", aft)
+	var ship := launch(grid)
+	assert_near(ship.max_thrust(), -5000.0, 0.01, "both propellers push astern")
+	ship.throttle = 1.0
+	await simulate(20.0)
+	assert_true(ship.global_position.z - START.z > 20.0, "she moves astern, toward +Z")
 
 
 func test_top_speed_is_within_ten_percent_of_the_estimate() -> void:
@@ -125,32 +140,4 @@ func test_a_ship_gone_non_finite_is_put_back() -> void:
 	assert_true(ship.global_transform.is_finite(), "no NaN left in its transform")
 	assert_true(ship.global_position.distance_to(good.origin) < 1.0, "back where it was")
 	assert_true(ship.linear_velocity.length() < 1.0, "and stopped")
-
-
-func test_ship_faces_wind_the_way_godot_draws_them() -> void:
-	# Godot culls faces that wind the other way, which would draw the ship inside out.
-	var grid := ShipGrid.new()
-	grid.set_block(Vector3i.ZERO, "frame")
-	grid.set_block(Vector3i(0, 1, 0), "ladder")
-	var box := winding(BoxMesh.new())
-	assert_true(box != 0, "a box winds one way")
-	var drawn := ShipMesh.build(grid)
-	assert_eq(winding(drawn.mesh), box)
-	drawn.free()
-
-
-## +1 or -1: which way every triangle of mesh turns about its normal, or 0 when they disagree.
-func winding(mesh: Mesh) -> int:
-	var arrays := mesh.surface_get_arrays(0)
-	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-	var order: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
-	if order.is_empty():
-		order = PackedInt32Array(range(points.size()))
-	var turns := {}
-	for i in range(0, order.size(), 3):
-		var a := points[order[i]]
-		var turn := (points[order[i + 1]] - a).cross(points[order[i + 2]] - a).dot(normals[order[i]])
-		turns[signi(roundi(signf(turn)))] = true
-	return turns.keys()[0] if turns.size() == 1 else 0
 

@@ -67,9 +67,61 @@ autopilot={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":72)]
 }
+anchor={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":71)]
+}
 pause={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"device":-1,"physical_keycode":4194305)]
+}
+shipyard={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":66)]
+}
+turn_block={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":82)]
+}
+tip_block={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":84)]
+}
+map={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":77)]
+}
+mirror={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":77)]
+}
+undo={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"ctrl_pressed":true,"physical_keycode":90)]
+}
+redo={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"ctrl_pressed":true,"physical_keycode":89), Object(InputEventKey,"device":-1,"ctrl_pressed":true,"shift_pressed":true,"physical_keycode":90)]
+}
+test_flight={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":70)]
+}
+fire={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"device":-1,"button_index":1)]
+}
+ammo={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":81)]
+}
+repair={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":82)]
+}
+town={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":84)]
 }
 
 [physics]

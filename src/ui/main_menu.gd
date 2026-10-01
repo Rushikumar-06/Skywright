@@ -1,12 +1,28 @@
 extends Node3D
 ## The main menu: play solo, host, join, settings and quit, over a drifting sky.
+## Playing solo or hosting first chooses a saved game's slot to continue or start over.
+## Hosting or joining opens the lobby, where the crew wait until the host sets sail.
+## The join panel lists the games on the local network as they answer.
+
+var lan_port := LanBeacon.DISCOVERY_PORT  ## Where to look for games. Tests change it.
 
 var _message: Label
 var _menu: VBoxContainer
 var _join_panel: VBoxContainer
 var _address: LineEdit
 var _join_button: Button
+var _games: VBoxContainer
+var _browser: LanBrowser = null
+var _lobby: VBoxContainer
+var _crew_list: VBoxContainer
+var _invite: Label
+var _waiting: Label
+var _sail_button: Button
+var _leave_button: Button
 var _settings: SettingsPanel
+var _saves: VBoxContainer
+var _hosting := false  ## The saved games panel is choosing a game to host, not to play solo.
+var _new_game_buttons: Dictionary = {}  ## Slot -> its New game button.
 
 
 func _ready() -> void:
@@ -43,10 +59,17 @@ func _ready() -> void:
 
 	_join_panel = _build_join_panel()
 	column.add_child(_join_panel)
+	_saves = VBoxContainer.new()
+	_saves.add_theme_constant_override("separation", 12)
+	column.add_child(_saves)
+	_lobby = _build_lobby()
+	column.add_child(_lobby)
 	_settings = SettingsPanel.new()
 	_settings.closed.connect(_show_menu)
 	column.add_child(_settings)
 
+	Session.started.connect(_open_lobby)
+	Session.players_changed.connect(_refresh_lobby)
 	_show_menu()
 	if not Game.menu_message.is_empty():
 		_show_problem(Game.menu_message)
@@ -62,7 +85,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_join_panel() -> VBoxContainer:
 	var panel := VBoxContainer.new()
 	panel.add_theme_constant_override("separation", 12)
-	panel.add_child(UiTheme.caption("Host's address"))
+	panel.add_child(UiTheme.caption("Games on your network"))
+	_games = VBoxContainer.new()
+	panel.add_child(_games)
+	panel.add_child(UiTheme.gap(12))
+	panel.add_child(UiTheme.caption("Or type the host's address"))
 	_address = LineEdit.new()
 	_address.placeholder_text = "192.168.0.10 or 192.168.0.10:24650"
 	_address.text_submitted.connect(func(_text: String) -> void: _join())
@@ -75,9 +102,33 @@ func _build_join_panel() -> VBoxContainer:
 	return panel
 
 
+## The crew so far, how friends join (host), and Set sail (host) or a note to wait (guest).
+func _build_lobby() -> VBoxContainer:
+	var panel := VBoxContainer.new()
+	panel.add_theme_constant_override("separation", 12)
+	panel.add_child(UiTheme.caption("Crew"))
+	_crew_list = VBoxContainer.new()
+	panel.add_child(_crew_list)
+	_invite = UiTheme.caption("")
+	_invite.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(_invite)
+	_waiting = UiTheme.caption("Waiting for the host to set sail…")
+	panel.add_child(_waiting)
+	var row := HBoxContainer.new()
+	_sail_button = UiTheme.button("Set sail", Session.set_sail)
+	row.add_child(_sail_button)
+	_leave_button = UiTheme.button("Leave", _back)
+	row.add_child(_leave_button)
+	panel.add_child(row)
+	return panel
+
+
 func _show_menu() -> void:
+	_stop_browsing()
 	_menu.visible = true
+	_saves.visible = false
 	_join_panel.visible = false
+	_lobby.visible = false
 	_settings.visible = false
 	(_menu.get_child(0) as Button).grab_focus()
 
@@ -88,6 +139,67 @@ func _open_join() -> void:
 	_address.text = Settings.last_address
 	_address.grab_focus()
 	_address.caret_column = _address.text.length()
+	_browser = LanBrowser.new(lan_port)
+	_browser.changed.connect(_show_games)
+	add_child(_browser)
+	_show_games()
+
+
+func _stop_browsing() -> void:
+	if _browser != null:
+		_browser.queue_free()
+		_browser = null
+
+
+## One button per game that answered; games on another version can't be joined.
+func _show_games() -> void:
+	for child in _games.get_children():
+		_games.remove_child(child)
+		child.queue_free()
+	if _browser == null or _browser.games.is_empty():
+		_games.add_child(UiTheme.caption("Looking for games…"))
+		return
+	for game: Dictionary in _browser.games.values():
+		var entry := UiTheme.button("%s   %d/%d" % [game["name"], game["players"], game["max"]], _join_game.bind(game))
+		if game["version"] != Session.protocol_version:
+			entry.text += "   needs version %d" % game["version"]
+			entry.disabled = true
+		_games.add_child(entry)
+
+
+func _join_game(game: Dictionary) -> void:
+	var address: String = game["address"]
+	_address.text = ("[%s]:%d" if address.contains(":") else "%s:%d") % [address, game["port"]]
+	_join()
+
+
+## Hosting began or the host accepted us. Solo and late joiners sail straight on.
+func _open_lobby() -> void:
+	if Session.sailing:
+		return
+	var hosting := Session.mode == Session.Mode.HOST
+	_stop_browsing()
+	_menu.visible = false
+	_join_panel.visible = false
+	_settings.visible = false
+	_message.visible = false
+	_lobby.visible = true
+	_invite.text = Hud.invite_text(Session.port) if hosting else ""
+	_invite.visible = hosting
+	_sail_button.visible = hosting
+	_waiting.visible = not hosting
+	_refresh_lobby()
+	(_sail_button if hosting else _leave_button).grab_focus()
+
+
+func _refresh_lobby() -> void:
+	for label in _crew_list.get_children():
+		_crew_list.remove_child(label)
+		label.queue_free()
+	for id: int in Session.players:
+		var label := Label.new()
+		label.text = Session.players[id]["name"] + (" (host)" if id == 1 else "")
+		_crew_list.add_child(label)
 
 
 func _open_settings() -> void:
@@ -107,10 +219,63 @@ func _back() -> void:
 
 
 func _play_solo() -> void:
-	Session.start_solo(Settings.player_name)
+	_open_saves(false)
 
 
 func _host() -> void:
+	_open_saves(true)
+
+
+## Lists the slots, each with Continue and New game, to play solo or to host.
+func _open_saves(hosting: bool) -> void:
+	_hosting = hosting
+	_menu.visible = false
+	for child in _saves.get_children():
+		child.free()
+	_saves.add_child(UiTheme.caption("Saved games"))
+	for slot: String in SaveGame.SLOTS:
+		var row := HBoxContainer.new()
+		var summary := SaveGame.summary(slot)
+		var label := Label.new()
+		label.text = summary
+		row.add_child(label)
+		var resume := UiTheme.button("Continue", _continue.bind(slot))
+		resume.disabled = summary.ends_with("empty") or summary.ends_with("can't be read")
+		row.add_child(resume)
+		var fresh := UiTheme.button("New game", _new_game.bind(slot))
+		fresh.set_meta("empty", summary.ends_with("empty"))
+		_new_game_buttons[slot] = fresh
+		row.add_child(fresh)
+		_saves.add_child(row)
+	_saves.add_child(UiTheme.button("Back", _back))
+	_saves.visible = true
+
+
+## Plays slot's newest save that reads.
+func _continue(slot: String) -> void:
+	var loaded := SaveGame.prepare(Session, slot)
+	if loaded.has("problem"):
+		_show_problem(loaded["problem"])
+		return
+	_start()
+
+
+## Starts a new game in slot. Over a used slot, the first press asks again.
+func _new_game(slot: String) -> void:
+	var button: Button = _new_game_buttons[slot]
+	if not button.get_meta("empty") and button.text != "Start over: press again":
+		button.text = "Start over: press again"
+		return
+	Session.save_slot = slot
+	Session.loaded = {}
+	Session.requested_seed = -1
+	_start()
+
+
+func _start() -> void:
+	if not _hosting:
+		Session.start_solo(Settings.player_name)
+		return
 	var err := Session.host(Settings.player_name)
 	if err == ERR_CANT_CREATE:
 		_show_problem("Port %d is already in use. Is another game running?" % Session.DEFAULT_PORT)
@@ -127,6 +292,9 @@ func _join() -> void:
 	Settings.last_address = typed
 	Settings.save()
 	var err := Session.join(Settings.player_name, target["host"], target["port"])
+	if err == ERR_CANT_RESOLVE:
+		_show_problem("Couldn't find \"%s\". Check the address." % target["host"])
+		return
 	if err != OK:
 		_show_problem("Couldn't start connecting (%s)." % error_string(err))
 		return

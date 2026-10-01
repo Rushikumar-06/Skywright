@@ -3,10 +3,20 @@ extends RefCounted
 ## A ship's blocks on a 1 m grid (spec §4.4). Cell (x, y, z) is the 1 m cube centred
 ## on (x, y, z) in ship space, where -Z is the bow, +X starboard and +Y up.
 
-const ZONE_SIZE := 4  ## Drag zones are ZONE_SIZE cells on a side.
+const ZONE_SIZE := 4       ## Drag zones are ZONE_SIZE cells on a side.
+const MAX_BLOCKS := 4000   ## Spec §3.3.
+const MIN_CELL := -64      ## Every coordinate is in MIN_CELL…MAX_CELL (spec §4.10).
+const MAX_CELL := 63
+const BYTES_PER_BLOCK := 7  ## In to_bytes' body.
+const MAX_NAME := 24        ## A crate owner's name, as long as a player's.
 
 ## Vector3i -> {"type": String, "rotation": int (0–23), "hp": int}
 var blocks: Dictionary = {}
+## Block type -> Color: every block of that type is drawn in it.
+var paint: Dictionary = {}
+## A cargo bay's cell -> the crate stowed in it: {"good": String, "owner": String}.
+## A crate weighs Tuning.CRATE_MASS where it's stowed. Designs never carry any.
+var cargo: Dictionary = {}
 
 
 ## Places a block, replacing any already there, at full hit points.
@@ -101,8 +111,264 @@ func drag_zones() -> Array[Dictionary]:
 	return zones
 
 
+## The box around every block, in ship space.
+func bounds() -> AABB:
+	var box := AABB()
+	for cell: Vector3i in blocks:
+		var cube := AABB(Vector3(cell) - Vector3(0.5, 0.5, 0.5), Vector3.ONE)
+		box = cube if box.size == Vector3.ZERO else box.merge(cube)
+	return box
+
+
+## The blocks as plain data for sending: [[x, y, z, type, rotation, hp], …].
+func to_blocks() -> Array:
+	var data := []
+	for cell: Vector3i in blocks:
+		var block: Dictionary = blocks[cell]
+		data.append([cell.x, cell.y, cell.z, block["type"], block["rotation"], block["hp"]])
+	return data
+
+
+## A grid from to_blocks() data, or null if it isn't a valid ship; see read_blocks.
+static func from_blocks(data: Variant, needs_helm := true) -> ShipGrid:
+	return read_blocks(data, needs_helm).get("grid")
+
+
+## Checks block data that may come from another machine or a shared file, and
+## returns {"grid": ShipGrid} or {"problem": String} naming the first thing wrong.
+## Entries are [x, y, z, type, rotation] at full hit points, or with hit points as a
+## sixth item. Numbers may be ints or whole floats (JSON has only floats). Without
+## needs_helm, a wreck will do.
+static func read_blocks(data: Variant, needs_helm := true) -> Dictionary:
+	if not data is Array or data.is_empty():
+		return {"problem": "The ship has no blocks."}
+	if data.size() > MAX_BLOCKS:
+		return {"problem": "The ship has %d blocks; the most a ship can have is %d." % [data.size(), MAX_BLOCKS]}
+	var grid := ShipGrid.new()
+	var n := 0
+	for block: Variant in data:
+		n += 1
+		if not block is Array or block.size() < 5 or block.size() > 6 or not block[3] is String:
+			return {"problem": "Block %d isn't written as [x, y, z, type, rotation]." % n}
+		var numbers: Array[int] = []
+		for i in [0, 1, 2, 4, 5]:
+			if i >= block.size():
+				continue
+			var value: Variant = block[i]
+			if value is float and is_finite(value) and value == floorf(value) and absf(value) < 1e9:
+				value = int(value)
+			if not value is int:
+				return {"problem": "Block %d has a number that isn't a whole number." % n}
+			numbers.append(value)
+		var cell := Vector3i(numbers[0], numbers[1], numbers[2])
+		if cell.clamp(Vector3i.ONE * MIN_CELL, Vector3i.ONE * MAX_CELL) != cell:
+			return {"problem": "Block %d is outside the build area (%d to %d)." % [n, MIN_CELL, MAX_CELL]}
+		var type: String = block[3]
+		if not Tuning.BLOCKS.has(type):
+			return {"problem": "Block %d is an unknown type, \"%s\"." % [n, type.left(24)]}
+		if numbers[3] < 0 or numbers[3] > 23:
+			return {"problem": "Block %d has rotation %d; rotations go from 0 to 23." % [n, numbers[3]]}
+		var full: int = Tuning.BLOCKS[type]["hp"]
+		var hp: int = numbers[4] if numbers.size() > 4 else full
+		if hp < 1 or hp > full:
+			return {"problem": "Block %d has %d hit points; a %s has 1 to %d." % [n, hp, type, full]}
+		if grid.blocks.has(cell):
+			return {"problem": "Block %d is in the same place as another block." % n}
+		grid.blocks[cell] = {"type": type, "rotation": numbers[3], "hp": hp}
+	if needs_helm and not helm_problem(grid).is_empty():
+		return {"problem": helm_problem(grid)}
+	return {"grid": grid}
+
+
+## What's wrong with grid's helms for a ship to fly: "" when she has exactly one.
+static func helm_problem(grid: ShipGrid) -> String:
+	var helms := grid.cells_of("helm").size()
+	if helms == 0:
+		return "Every ship needs a helm."
+	if helms > 1:
+		return "A ship has one helm; this one has %d." % helms
+	return ""
+
+
+## Whether cell is inside the build area.
+static func in_area(cell: Vector3i) -> bool:
+	return cell.clamp(Vector3i.ONE * MIN_CELL, Vector3i.ONE * MAX_CELL) == cell
+
+
+## The first block a ray enters (ladders included) as {"cell": Vector3i, "normal":
+## Vector3i}, the normal being the face it came through, or {} when nothing is hit
+## within max_distance. A voxel walk, so no physics is needed.
+func raycast(from: Vector3, direction: Vector3, max_distance := 200.0) -> Dictionary:
+	var hits := cells_along(from, direction, max_distance, 1)
+	return hits[0] if not hits.is_empty() else {}
+
+
+## The first count blocks a ray enters (ladders included), in order, each as
+## {"cell": Vector3i, "normal": Vector3i}, the normal being the face it came through.
+func cells_along(from: Vector3, direction: Vector3, max_distance := 200.0, count := 1) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	var dir := direction.normalized()
+	var p := from + Vector3(0.5, 0.5, 0.5)  # cell c now spans [c, c + 1)
+	var cell := Vector3i(floori(p.x), floori(p.y), floori(p.z))
+	var step := Vector3i.ZERO
+	var t_max := Vector3(INF, INF, INF)
+	var t_delta := Vector3(INF, INF, INF)
+	for axis in 3:
+		if dir[axis] > 0.0:
+			step[axis] = 1
+			t_max[axis] = (cell[axis] + 1 - p[axis]) / dir[axis]
+			t_delta[axis] = 1.0 / dir[axis]
+		elif dir[axis] < 0.0:
+			step[axis] = -1
+			t_max[axis] = (cell[axis] - p[axis]) / dir[axis]
+			t_delta[axis] = -1.0 / dir[axis]
+	var normal := Vector3i.ZERO
+	var t := 0.0
+	while t <= max_distance and found.size() < count:
+		if blocks.has(cell):
+			found.append({"cell": cell, "normal": normal})
+		var axis := t_max.min_axis_index()
+		t = t_max[axis]
+		cell[axis] += step[axis]
+		t_max[axis] += t_delta[axis]
+		normal = Vector3i.ZERO
+		normal[axis] = -step[axis]
+	return found
+
+
+## The blocks packed for the network: bytes 0-1 are the block count (u16), the rest
+## is the zstd-compressed body of BYTES_PER_BLOCK bytes a block: x + 64, y + 64,
+## z + 64, the type's index in Tuning.BLOCKS' key order, the rotation, and the hit
+## points (u16). Reordering Tuning.BLOCKS changes this format.
+func to_bytes() -> PackedByteArray:
+	var types := Tuning.BLOCKS.keys()
+	var body := PackedByteArray()
+	body.resize(blocks.size() * BYTES_PER_BLOCK)
+	var at := 0
+	for cell: Vector3i in blocks:
+		var block: Dictionary = blocks[cell]
+		body[at] = cell.x - MIN_CELL
+		body[at + 1] = cell.y - MIN_CELL
+		body[at + 2] = cell.z - MIN_CELL
+		body[at + 3] = types.find(block["type"])
+		body[at + 4] = block["rotation"]
+		body.encode_u16(at + 5, block["hp"])
+		at += BYTES_PER_BLOCK
+	var data := PackedByteArray([0, 0])
+	data.encode_u16(0, blocks.size())
+	data.append_array(body.compress(FileAccess.COMPRESSION_ZSTD))
+	return data
+
+
+## A grid from to_bytes() data, or null if it isn't valid. Nothing is assumed: the
+## bytes may come from another machine. Without needs_helm, a wreck will do.
+static func from_bytes(data: Variant, needs_helm := true) -> ShipGrid:
+	if not data is PackedByteArray or data.size() < 3:
+		return null
+	var count: int = data.decode_u16(0)
+	if count < 1 or count > MAX_BLOCKS:
+		return null
+	var size := count * BYTES_PER_BLOCK
+	# Junk or a wrong size decompresses to nothing, so check the length.
+	var body: PackedByteArray = data.slice(2).decompress(size, FileAccess.COMPRESSION_ZSTD)
+	if body.size() != size:
+		return null
+	var types := Tuning.BLOCKS.keys()
+	var list := []
+	for at in range(0, size, BYTES_PER_BLOCK):
+		if body[at + 3] >= types.size():
+			return null
+		list.append([body[at] + MIN_CELL, body[at + 1] + MIN_CELL, body[at + 2] + MIN_CELL, types[body[at + 3]], body[at + 4], body.decode_u16(at + 5)])
+	return from_blocks(list, needs_helm)
+
+
+## Paint as plain text for sending or saving: type -> "rrggbb".
+func paint_names() -> Dictionary:
+	var names := {}
+	for type: String in paint:
+		names[type] = (paint[type] as Color).to_html(false)
+	return names
+
+
+## Paint from paint_names() data (or a blueprint's "paint"): a Dictionary of type ->
+## Color, or null when it isn't valid.
+static func read_paint(data: Variant) -> Variant:
+	if not data is Dictionary or data.size() > Tuning.BLOCKS.size():
+		return null
+	var colours := {}
+	for type: Variant in data:
+		var value: Variant = data[type]
+		if not type is String or not Tuning.BLOCKS.has(type) or not value is String or not Color.html_is_valid(value):
+			return null
+		colours[type] = Color(value)
+	return colours
+
+
+## An independent copy, with hit points and paint.
+func copy() -> ShipGrid:
+	var other := ShipGrid.new()
+	for cell: Vector3i in blocks:
+		other.blocks[cell] = (blocks[cell] as Dictionary).duplicate()
+	other.paint = paint.duplicate()
+	other.cargo = cargo.duplicate(true)
+	return other
+
+
+## An independent copy with every block at full hit points, and paint.
+func whole() -> ShipGrid:
+	var other := copy()
+	other.cargo = {}
+	for cell: Vector3i in other.blocks:
+		other.blocks[cell]["hp"] = Tuning.BLOCKS[other.blocks[cell]["type"]]["hp"]
+	return other
+
+
 func _mass(cell: Vector3i) -> float:
-	return Tuning.BLOCKS[blocks[cell]["type"]]["mass"]
+	return Tuning.BLOCKS[blocks[cell]["type"]]["mass"] + (Tuning.CRATE_MASS if cargo.has(cell) else 0.0)
+
+
+## The cargo bays with no crate in them, sorted.
+func free_bays() -> Array[Vector3i]:
+	var free: Array[Vector3i] = []
+	for cell in cells_of("cargo_bay"):
+		if not cargo.has(cell):
+			free.append(cell)
+	free.sort()
+	return free
+
+
+## Every crate aboard as the network and saves carry them: [[x, y, z, good, owner], …] by cell.
+func cargo_list() -> Array:
+	var cells := cargo.keys()
+	cells.sort()
+	return cells.map(func(cell: Vector3i) -> Array: return [cell.x, cell.y, cell.z, cargo[cell]["good"], cargo[cell]["owner"]])
+
+
+## Crates from the network or a save (see cargo_list), stowed in grid's cargo bays,
+## as a cargo Dictionary, or null when they make no sense.
+static func read_cargo(data: Variant, grid: ShipGrid) -> Variant:
+	if not data is Array or data.size() > MAX_BLOCKS:
+		return null
+	var found := {}
+	for entry: Variant in data:
+		if not entry is Array or entry.size() != 5:
+			return null
+		var xyz := []
+		for i in 3:
+			var n: Variant = entry[i]
+			if n is float and is_finite(n) and n == floorf(n) and absf(n) <= 1024.0:
+				n = int(n)
+			if not n is int:
+				return null
+			xyz.append(n)
+		var cell := Vector3i(xyz[0], xyz[1], xyz[2])
+		var good: Variant = entry[3]
+		var owner: Variant = entry[4]
+		if grid.type_at(cell) != "cargo_bay" or found.has(cell) or not good is String or not Economy.GOODS.has(good) \
+				or not owner is String or owner.is_empty() or owner.length() > MAX_NAME:
+			return null
+		found[cell] = {"good": good, "owner": owner}
+	return found
 
 
 static func _all_in(cells: Dictionary, from: Vector3i, size: Vector3i) -> bool:

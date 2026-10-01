@@ -11,7 +11,9 @@ extends Node3D
 ## a wreck), and with none of those you step off into the air. Stepping off a deck
 ## puts you ashore, on foot in this world; landing on a deck (a wreck's too), or E
 ## next to a hull (not a wreck's), puts you aboard; and falling into the Roil puts
-## you back aboard (not on a wreck). Its Projectiles fly and draw every shot. A shot
+## you back aboard (not on a wreck), or with no ship left onto the nearest town's
+## quay. A ship lost to the Roil leaves her blueprint in her captain's shipyard. Its
+## Projectiles fly and draw every shot. A shot
 ## that hits you knocks you down for a few seconds, and you come to at a bunk.
 ## Holding R repairs the ship you're aboard, and E by a wreck salvages her, both
 ## through the WorldSync. A
@@ -206,14 +208,14 @@ func go_ashore() -> void:
 	_swap_crew(crew)
 
 
-## Out of the Roil: aboard the ship you left, else your own, else the host's, but
-## never a wreck.
+## Out of the Roil: aboard the ship you left, else your own, else the host's (never
+## a wreck), else on the nearest town's quay.
 func rescue() -> void:
-	for next: Ship in [left, sync.ship_of(multiplayer.get_unique_id(), false), sync.home_ship()]:
-		if next != null and sync.id_of(next) != 0 and not next.is_wreck():
-			board(next)
-			hud.show_message("The Roil nearly took you. Back aboard!")
-			return
+	if recover(left) != null:
+		hud.show_message("The Roil nearly took you. Back aboard!")
+	else:
+		var town: String = gen.towns[_nearest_town(player.world_position())]["name"]
+		hud.show_message("The Roil nearly took you. You wake on the quay at %s." % town)
 
 
 ## What E would salvage where you are: ["site", index] for a world wreck not yet
@@ -278,11 +280,7 @@ func recover(prefer: Ship, at_bunk := false) -> Ship:
 			var on: Ship = next
 			come_aboard(on, on.respawn_spot() if at_bunk else on.crew_spawn(my_slot()))
 			return on
-	var here := player.world_position()
-	var dock: Vector3 = gen.towns[0]["dock"]
-	for town: Dictionary in gen.towns:
-		if (town["dock"] as Vector3).distance_to(here) < dock.distance_to(here):
-			dock = town["dock"]
+	var dock: Vector3 = gen.towns[_nearest_town(player.world_position())]["dock"]
 	if ship != null and sync.id_of(ship) != 0:
 		player.leave_station()
 	var crew := CrewMember.new(null, Dock.quay_spot(dock))
@@ -290,6 +288,15 @@ func recover(prefer: Ship, at_bunk := false) -> Ship:
 	ship = null
 	_swap_crew(crew)
 	return null
+
+
+## The index of the town whose dock is nearest p.
+func _nearest_town(p: Vector3) -> int:
+	var best := 0
+	for i in gen.towns.size():
+		if (gen.towns[i]["dock"] as Vector3).distance_to(p) < (gen.towns[best]["dock"] as Vector3).distance_to(p):
+			best = i
+	return best
 
 
 ## Opens the shipyard on your design, when you're at a dock or dock_only is off. Off, it
@@ -356,6 +363,8 @@ func _on_ship_added(added: Ship) -> void:
 
 
 func _on_ship_removed(removed: Ship, successor: Ship) -> void:
+	if removed.lost and player != null:
+		_on_ship_lost(removed)
 	if _came_from == removed:
 		_came_from = null
 	if left == removed:
@@ -370,6 +379,19 @@ func _on_ship_removed(removed: Ship, successor: Ship) -> void:
 			return
 	go_ashore()  # nowhere to go: into the air where she was
 	left = null
+
+
+## The Roil took removed. Her captain's shipyard gets her blueprint, to launch her
+## again whole (a test flight is only ended); anyone else aboard is told. Wrecks
+## nobody owned, and pirates, go without a word.
+func _on_ship_lost(removed: Ship) -> void:
+	if removed.pirate or (removed.is_wreck() and removed.captain == 0):
+		return
+	if removed.captain == multiplayer.get_unique_id() and not removed.test:
+		design = ShipDesign.new(removed.blueprint)
+		hud.show_message("Your ship is lost to the Roil. The shipyard has her blueprint: launch to rebuild her.")
+	elif ship == removed:
+		hud.show_message("She's lost to the Roil.")
 
 
 func _exit_tree() -> void:

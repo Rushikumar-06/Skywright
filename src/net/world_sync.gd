@@ -17,7 +17,9 @@ extends Node
 ## sends the same changes to everyone, who apply them to their copies; a ship with
 ## no blocks left is taken away. Pieces cut off from the helm's break away: each big
 ## enough is added as a wreck, nobody's, and smaller ones vanish. Once a second the
-## server wears ships: wrecks go when they're old, too many or far from every player.
+## server wears ships: the Roil grinds the blocks below its surface, a ship below
+## LOST_ALTITUDE is lost (everyone hears she was), and wrecks go when they're old,
+## too many or far from every player.
 ##
 ## Repairs belong to the server too. A player's repair action comes here aimed at a
 ## block of the ship they're aboard; within reach, it puts out the fires there, or
@@ -96,6 +98,7 @@ const WEAR_EVERY := 1.0       ## s between the server's wearing of ships.
 const WRECK_LIFETIME := 180.0 ## s a wreck lasts.
 const MAX_WRECKS := 8         ## The most wrecks at once: the oldest go first.
 const FAR := 3000.0           ## m. Wrecks further than this from every player go.
+const LOST_ALTITUDE := 0.0    ## m. A ship whose origin sinks below this is lost to the Roil.
 const KNOCKOUT_TIME := 5.0    ## s a player hit by a shot is down.
 const MUZZLE := 0.8           ## m from a gun's cell to where its shot starts.
 const RAID_EVERY := 30.0      ## s between the server's raids.
@@ -197,13 +200,14 @@ func add_ship(grid: ShipGrid, at: Transform3D, captain := 0, test := false, pilo
 
 
 ## Server: takes ship out of the world, and tells everyone. Its crew board successor.
-func remove_ship(ship: Ship, successor: Ship = null) -> void:
+## lost: the Roil took her.
+func remove_ship(ship: Ship, successor: Ship = null, lost := false) -> void:
 	var id := id_of(ship)
 	if id == 0:
 		return
 	for peer: int in _in_world:
-		_ship_removed.rpc_id(peer, id, id_of(successor))
-	_remove(id, successor)
+		_ship_removed.rpc_id(peer, id, id_of(successor), lost)
+	_remove(id, successor, lost)
 
 
 ## Server: puts hit-point changes (cell -> hit points, 0 for destroyed) into ship,
@@ -642,12 +646,19 @@ func _knock_out(peer: int) -> void:
 		_knocked_out.rpc_id(peer)
 
 
-## Server, every WEAR_EVERY: burns each ship's fires for a second, fills the spares
-## of ships at a town's dock (not pirates' or wrecks'), and clears away wrecks
-## (nobody's, without a helm) older than WRECK_LIFETIME or further than FAR from
-## every player (all of them when there are no players), then the oldest while
-## there are more than MAX_WRECKS. Pirates far from every player go too.
+## Server, every WEAR_EVERY: the Roil wears every ship's blocks below its surface,
+## and a ship whose origin is below LOST_ALTITUDE is lost. Then each ship's fires burn
+## for a second, ships at a town's dock (not pirates or wrecks) get their spares
+## filled, and wrecks (nobody's, without a helm) go when older than WRECK_LIFETIME or
+## further than FAR from every player (all of them when there are no players), then
+## the oldest while there are more than MAX_WRECKS. Pirates far from every player go too.
 func _wear() -> void:
+	for ship: Ship in ships.values():
+		if id_of(ship) == 0:
+			continue
+		damage_ship(ship, Damage.roil(ship.grid, ship.global_transform))
+		if id_of(ship) != 0 and ship.global_position.y < LOST_ALTITUDE:
+			remove_ship(ship, null, true)
 	for ship: Ship in ships.values():
 		if ship.fires.is_empty() or id_of(ship) == 0:
 			continue
@@ -710,9 +721,10 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: in
 
 
 ## Takes ship id out of the world, with everyone's crew on it, after the World has
-## moved its player off.
-func _remove(id: int, successor: Ship) -> void:
+## moved its player off. lost: the Roil took her.
+func _remove(id: int, successor: Ship, lost := false) -> void:
 	var ship: Ship = ships[id]
+	ship.lost = lost
 	ships.erase(id)
 	_buffers.erase(id)
 	_keys_heard.erase(id)
@@ -1035,12 +1047,13 @@ func _ship_added(time: Variant, entry: Variant) -> void:
 		ship_added.emit(ship)
 
 
-## Server -> clients: ship id is gone. Its crew board ship successor (0 for none).
+## Server -> clients: ship id is gone, lost to the Roil or not. Its crew board ship
+## successor (0 for none).
 @rpc("authority", "call_remote", "reliable", 0)
-func _ship_removed(id: Variant, successor: Variant) -> void:
-	if session.is_server() or not id is int or not successor is int or not ships.has(id):
+func _ship_removed(id: Variant, successor: Variant, lost: Variant) -> void:
+	if session.is_server() or not id is int or not successor is int or not lost is bool or not ships.has(id):
 		return
-	_remove(id, ships.get(successor))
+	_remove(id, ships.get(successor), lost)
 
 
 ## Client: adds the ship an entry describes, drawn from time on, or returns null

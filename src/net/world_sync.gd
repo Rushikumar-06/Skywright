@@ -83,6 +83,8 @@ signal knocked_out
 signal salvage_result(spares: int, money: int)
 ## Server: peer's world has loaded, and they've been sent it.
 signal peer_entered(peer: int)
+## Server: ship came to town's dock.
+signal docked(ship: Ship, town: int)
 ## Client: the server's world has arrived, every ship in it added.
 signal world_arrived
 
@@ -212,6 +214,8 @@ func remove_ship(ship: Ship, successor: Ship = null, lost := false) -> void:
 	var id := id_of(ship)
 	if id == 0:
 		return
+	if lost and ship.pirate and not ship.beaten:
+		_beat(ship)
 	for peer: int in _in_world:
 		_ship_removed.rpc_id(peer, id, id_of(successor), lost)
 	_remove(id, successor, lost)
@@ -503,6 +507,8 @@ func _salvage_for(peer: int, kind: String, index: int) -> void:
 			tell_world(&"_salvaged", [index])
 		if ledger != null:
 			ledger.pay(peer, money)
+			if wreck == null:
+				ledger.on_salvaged(peer, index)
 	if peer == multiplayer.get_unique_id():
 		salvage_result.emit(gained, money)
 	else:
@@ -712,6 +718,16 @@ func _wear() -> void:
 		cells.sort()
 		if id_of(ship) != 0 and cells != ship.burning:
 			_send_fires(ship)
+	for ship: Ship in ships.values():
+		if ship.pirate and ship.is_wreck() and not ship.beaten:
+			_beat(ship)
+		var town := -1 if ship.pirate or ship.is_wreck() or ship.test else town_at(ship.global_position)
+		if town != ship.at_town:
+			ship.at_town = town
+			if town >= 0:
+				docked.emit(ship, town)
+	if ledger != null:
+		ledger.check_scouts()
 	var players := player_positions()
 	var wrecks: Array[Ship] = []
 	for ship: Ship in ships.values():
@@ -730,6 +746,13 @@ func _wear() -> void:
 		remove_ship(wrecks[i])
 
 
+## Server: pirate is beaten, once, for the bounties of everyone near her.
+func _beat(pirate: Ship) -> void:
+	pirate.beaten = true
+	if ledger != null:
+		ledger.pirate_beaten(pirate.global_position)
+
+
 ## Adds a ship. The pilot is set before the helm's signals are connected, so it
 ## doesn't go out as a change.
 func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: int, test: bool, pilot: int,
@@ -745,6 +768,8 @@ func _add(id: int, grid: ShipGrid, at: Transform3D, simulated: bool, captain: in
 	ship.pirate = pirate
 	ship.spares = spares
 	ship.born = now()
+	if simulated:
+		ship.at_town = town_at(at.origin)  # launched at a dock isn't docking there
 	ships[id] = ship
 	get_parent().add_child(ship)
 	if ship.helm != null:

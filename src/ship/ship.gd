@@ -22,6 +22,8 @@ var spares := 0      ## Spare materials for repairs, 0 to Damage.SPARES_MAX.
 var pirate := false
 var born := 0.0      ## The server's clock when she was added.
 var lost := false    ## The Roil took her.
+var at_town := -1    ## Server: the town whose dock she's at, or -1.
+var beaten := false  ## Server: a pirate already counted toward bounties.
 var fires: Dictionary = {}           ## Server: burning cell -> seconds it has burned.
 var burning: Array[Vector3i] = []    ## The cells drawn on fire, on every machine.
 var interior: ShipInterior  ## Where the crew walk.

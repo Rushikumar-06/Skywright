@@ -1,7 +1,8 @@
 class_name TownPanel
 extends CanvasLayer
 ## A town's business, opened with T at its dock: its market, buying and selling
-## crates aboard the ship you're on and filling her spares. Everything goes through
+## crates aboard the ship you're on and filling her spares, and its contract board.
+## Everything goes through
 ## the Ledger; the panel only shows what the server last said, and rebuilds its rows
 ## when that changes.
 
@@ -46,6 +47,7 @@ func _ready() -> void:
 	_money = UiTheme.caption("")
 	top.add_child(_money)
 	top.add_child(UiTheme.button("Market", show_section.bind("market")))
+	top.add_child(UiTheme.button("Contracts", show_section.bind("contracts")))
 	top.add_child(UiTheme.button("Close (T)", close_requested.emit))
 	_note = UiTheme.caption("")
 	column.add_child(_note)
@@ -54,9 +56,11 @@ func _ready() -> void:
 	refresh()
 
 
-## Shows section: "market".
+## Shows section: "market" or "contracts".
 func show_section(section: String) -> void:
 	_section = section
+	if section == "contracts":
+		_ledger.ask_board()
 	refresh()
 
 
@@ -72,7 +76,11 @@ func refresh() -> void:
 	for child in _rows.get_children():
 		child.free()
 	market_rows.clear()
-	_build_market()
+	match _section:
+		"market":
+			_build_market()
+		"contracts":
+			_build_contracts()
 
 
 func _process(delta: float) -> void:
@@ -86,7 +94,8 @@ func _process(delta: float) -> void:
 ## What the rows show, to see when it changes: your account and the ship you trade from.
 func _summary() -> String:
 	var ship := _trading_ship()
-	return var_to_str([_ledger.mine, _section, ship.grid.cargo_list() if ship != null else null, ship.spares if ship != null else 0])
+	return var_to_str([_ledger.mine, _section, ship.grid.cargo_list() if ship != null else null, ship.spares if ship != null else 0,
+			_ledger.boards.get(_town)])
 
 
 ## The ship you're aboard, when she's at this town's dock; else null.
@@ -126,6 +135,26 @@ func _build_market() -> void:
 	spares.add_child(UiTheme.button("Fill", _ledger.buy_spares))
 	_rows.add_child(spares)
 	_rows.add_child(_mono("Hold      %d/%d crates" % [ship.grid.cargo.size(), ship.grid.cells_of("cargo_bay").size()]))
+
+
+func _build_contracts() -> void:
+	for offer: Dictionary in _ledger.boards.get(_town, []):
+		var line := HBoxContainer.new()
+		var label := Label.new()
+		label.text = "%s   %d crowns" % [offer["title"], offer["reward"]]
+		line.add_child(label)
+		line.add_child(UiTheme.button("Take", _ledger.take_contract.bind(offer["id"])))
+		_rows.add_child(line)
+	_rows.add_child(UiTheme.caption("Your contracts"))
+	for contract: Dictionary in _ledger.mine["contracts"]:
+		var line := HBoxContainer.new()
+		var label := Label.new()
+		label.text = "%s   %d crowns" % [contract["title"], contract["reward"]]
+		if contract["kind"] == "bounty":
+			label.text += "   %d/%d" % [contract["done"], contract["count"]]
+		line.add_child(label)
+		line.add_child(UiTheme.button("Drop", _ledger.drop_contract.bind(contract["id"])))
+		_rows.add_child(line)
 
 
 static func _mono(text: String) -> Label:

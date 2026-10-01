@@ -107,7 +107,7 @@ func test_stats_and_warnings_follow_the_design() -> void:
 	shipyard.design.remove(helm)
 	assert_true(shipyard.warnings_text().contains("Every ship needs a helm."), shipyard.warnings_text())
 	assert_true(button(shipyard, "Test flight (F)").disabled, "no test flight")
-	assert_true(button(shipyard, "Launch").disabled, "no launch")
+	assert_true(shipyard._launch_button.disabled, "no launch")
 	assert_eq(shipyard.note_text(), "Every ship needs a helm.")
 	assert_true(shipyard.stats_text().begins_with("Blocks     300 of 4000"))
 	press_button(shipyard, "Undo")
@@ -115,7 +115,7 @@ func test_stats_and_warnings_follow_the_design() -> void:
 	assert_false(button(shipyard, "Test flight (F)").disabled, "test flight again")
 	shipyard.design.place(helm + Vector3i.UP, "helm", 0)  # a free cell above the first
 	assert_true(shipyard.warnings_text().contains("A ship has one helm; this one has 2."), shipyard.warnings_text())
-	assert_true(button(shipyard, "Launch").disabled, "no launch with two helms")
+	assert_true(shipyard._launch_button.disabled, "no launch with two helms")
 	assert_eq(shipyard.note_text(), "A ship has one helm; this one has 2.")
 
 
@@ -257,7 +257,7 @@ func test_launch_sails_the_design() -> void:
 	var world := await open_world()
 	var shipyard: Shipyard = world.shipyard
 	var starter: Ship = world.ship
-	press_button(shipyard, "Launch")
+	press_button(shipyard, "Launch · free")
 	var ship: Ship = world.ship
 	assert_true(ship != starter and not ship.test, "a new ship of your own")
 	assert_eq(world.player.crew.station, ship.helm, "you're at its helm")

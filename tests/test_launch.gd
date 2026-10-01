@@ -261,6 +261,7 @@ func test_guests_on_a_dedicated_server_launch_beside_its_ship() -> void:
 	assert_true(await wait_until(func() -> bool: return client.sailing, 5.0), "a guest joins")
 	client_world = add_world(client)
 	assert_true(await wait_until(func() -> bool: return client_world.ship != null, 5.0), "and boards the server's ship")
+	assert_true(await heard(host_world, client), "the server hears where they are")
 	var guest := client.multiplayer.get_unique_id()
 	var sync: WorldSync = host_world.sync
 	client_world.launch(skiff())

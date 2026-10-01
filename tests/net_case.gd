@@ -67,7 +67,7 @@ func host_and_join(host: SessionScript, client: SessionScript, guest_name := "Gu
 
 
 ## Host and Guest meet in the lobby, set sail, and each loads a world. True once
-## the guest's ship has arrived.
+## the guest's ship has arrived and the host has heard where the guest is.
 func sail_together() -> bool:
 	host = make_session("Host")
 	client = make_session("Client")
@@ -78,7 +78,16 @@ func sail_together() -> bool:
 		return false
 	host_world = add_world(host)
 	client_world = add_world(client)
-	return await wait_until(func() -> bool: return client_world.ship != null, 5.0)
+	if not await wait_until(func() -> bool: return client_world.ship != null, 5.0):
+		return false
+	return await heard(host_world, client)
+
+
+## True once host_world's server has heard where guest's player is: a launch or a
+## trade needs it.
+func heard(server_world: Node3D, guest: SessionScript) -> bool:
+	var peer := guest.multiplayer.get_unique_id()
+	return await wait_until(func() -> bool: return server_world.sync.world_position_of(peer) != null, 2.0)
 
 
 ## A world for session, next to it in its branch, as Game loads one next to the

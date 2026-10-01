@@ -139,7 +139,7 @@ func test_launching_at_another_town_uses_its_slipways() -> void:
 	assert_eq(world.town_at(world.ship.global_position), 3)
 
 
-func test_after_a_test_flight_launches_still_go_from_the_shipyards_town() -> void:
+func test_after_a_test_flight_the_shipyard_stays_with_its_town_but_launches_need_its_dock() -> void:
 	var world := solo_world()
 	await get_tree().process_frame
 	var dock := move_to_town(world, 3)
@@ -166,10 +166,8 @@ func test_after_a_test_flight_launches_still_go_from_the_shipyards_town() -> voi
 	assert_eq((world.shipyard as Shipyard).stats.altitude, dock.y, "at town 3's altitude")
 	await play(1.1)
 	world.launch(StarterShip.build())
-	assert_true(world.ship != home, "a new ship")
-	var slipway := Dock.slipway(dock, 0)
-	assert_near((world.ship.global_position - slipway.origin).length(), 0.0, 40.0, "at town 3's slipway, not %s" % world.ship.global_position)
-	assert_eq(world.town_at(world.ship.global_position), 3)
+	assert_eq(world.ship, home, "no new ship 2 km from the dock")
+	assert_eq((world.shipyard as Shipyard).note_text(), "Launch from a town's dock.")
 
 
 func test_a_wide_ship_is_raised_clear_of_the_piers() -> void:
@@ -196,10 +194,10 @@ func test_the_server_ignores_launches_at_junk_towns() -> void:
 		sync._launch.rpc_id(1, blocks, {}, false, town)
 	await play(0.5)
 	assert_eq(host_world.sync.ships.size(), before, "no ship was added")
-	sync._launch.rpc_id(1, blocks, {}, false, 2)
+	sync._launch.rpc_id(1, blocks, {}, false, 0)
 	assert_true(await play_until(func() -> bool: return host_world.sync.ships.size() > before, 2.0), "a sensible town is served, so junk didn't use up the cooldown")
 	var guest: Ship = host_world.sync.ship_of(client.multiplayer.get_unique_id(), false)
-	assert_eq(host_world.town_at(guest.global_position), 2, "at town 2")
+	assert_eq(host_world.town_at(guest.global_position), 0, "at town 0, where the guest is")
 
 
 func test_wrecks_and_landmarks_are_built_where_the_world_says() -> void:

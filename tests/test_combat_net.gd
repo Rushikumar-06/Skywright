@@ -84,6 +84,7 @@ func test_a_dedicated_server_fights_too() -> void:
 	assert_true(await play_until(func() -> bool: return client.sailing, 5.0), "a guest joins")
 	client_world = add_world(client)
 	assert_true(await play_until(func() -> bool: return client_world.ship != null, 5.0), "and comes aboard")
+	assert_true(await heard(host_world, client), "the server hears where they are")
 	var guest: PlayerController = client_world.player
 	client_world.launch(StarterShip.build())
 	var host_sync: WorldSync = host_world.sync

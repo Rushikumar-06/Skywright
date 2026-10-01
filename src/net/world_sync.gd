@@ -216,6 +216,8 @@ func remove_ship(ship: Ship, successor: Ship = null, lost := false) -> void:
 		return
 	if lost and ship.pirate and not ship.beaten:
 		_beat(ship)
+	if lost and ship.captain != 0 and not ship.test and ledger != null:
+		ledger.insure(ship.captain, ship.blueprint)
 	for peer: int in _in_world:
 		_ship_removed.rpc_id(peer, id, id_of(successor), lost)
 	_remove(id, successor, lost)
@@ -799,22 +801,50 @@ func _remove(id: int, successor: Ship, lost := false) -> void:
 	ship.queue_free()
 
 
-## Server: builds grid for peer, whole, at their berth in town with them at its helm.
-## It replaces their test flight, and their own ship too unless it's a test flight.
+## Server: builds grid for peer, whole, at their berth in town with them at its helm,
+## when they last said they were at that town's dock. It replaces their test flight,
+## and their own ship too unless it's a test flight; then the Ledger charges for her
+## (or refuses her), and her predecessor's crates move into her bays.
 func _launch_for(peer: int, grid: ShipGrid, test: bool, town: int) -> void:
 	if _time - _launched_at.get(peer, -INF) < LAUNCH_COOLDOWN:
 		return
 	_launched_at[peer] = _time
+	var from: Variant = world_position_of(peer)
+	if from == null or not Dock.near(docks[town], from):
+		_tell(peer, "Launch from a town's dock.")
+		return
 	var built := ShipDesign.new(grid).grid  # new ships are built whole
 	var trial := ship_of(peer, true)
 	var own := ship_of(peer, false)
+	var price := 0
+	if not test and ledger != null:
+		price = Economy.launch_cost(built, ledger.trade_in(peer, own))
+		var refusal := ledger.charge_launch(peer, built, own)
+		if not refusal.is_empty():
+			_tell(peer, refusal)
+			return
 	# A test flight leaves your own ship where it is, so keep clear of it.
 	var at := _clear_spot(built, berth_of(peer, test, town), [trial] if test else [trial, own], town)
 	var ship := add_ship(built, at, peer, test, peer)
 	if trial != null:
 		remove_ship(trial, ship)
 	if own != null and not test:
+		var cells := own.grid.cargo.keys()
+		cells.sort()
+		var free := ship.grid.free_bays()
+		var cargo := {}
+		for i in mini(cells.size(), free.size()):
+			cargo[free[i]] = own.grid.cargo[cells[i]]
+		if not cargo.is_empty():
+			set_cargo(ship, cargo)
 		remove_ship(own, ship)
+	if not test:
+		_tell(peer, "Launched for %d crowns." % price)
+
+
+func _tell(peer: int, text: String) -> void:
+	if ledger != null:
+		ledger.tell(peer, text)
 
 
 ## at, raised until grid's box there is OBSTACLE_CLEARANCE clear of town's dock and

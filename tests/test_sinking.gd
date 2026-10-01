@@ -1,10 +1,11 @@
 extends NetCase
 ## Sinking into the Roil (spec §3.5): below 200 m the storm wears a ship's blocks,
 ## and below 0 m she's lost. Her captain's shipyard gets her blueprint, and launching
-## rebuilds her whole, for free until stage 7. Nobody falls forever: the Roil's
-## rescue puts you aboard a ship, or with none left on the nearest town's quay.
+## rebuilds her whole, for half her cost (her insurance pays the rest). Nobody falls
+## forever: the Roil's rescue puts you aboard a ship, or with none left on the nearest
+## town's quay.
 
-const LOST := "Your ship is lost to the Roil. The shipyard has her blueprint: launch to rebuild her."
+const LOST := "Your ship is lost to the Roil. The shipyard has her blueprint, and her insurance pays half of her."
 
 var world: Node3D
 var sync: WorldSync
@@ -97,6 +98,7 @@ func test_rebuilding_a_lost_ship_launches_her_blueprint_whole() -> void:
 	await simulate(0.2)
 	world.launch(world.design.grid)
 	assert_true(await wait_until(func() -> bool: return world.ship != null, 5.0), "she's rebuilt, with you aboard")
+	assert_eq(world.ledger.mine["money"], 1500 - 675, "for half her cost, the rest insured")
 	var rebuilt: Ship = world.ship
 	assert_eq(rebuilt.grid.blocks, StarterShip.build().blocks, "whole")
 	assert_eq(rebuilt.spares, Damage.SPARES_MAX, "with a full load of spares")

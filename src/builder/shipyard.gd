@@ -3,10 +3,12 @@ extends CanvasLayer
 ## The shipyard screen at the dock (spec §3.8): the design in a 3D view you build
 ## on block by block, the block palette and paint, the design's stats, warnings and
 ## balance markers, blueprints, and buttons to take her on a test flight or launch
-## her. The World opens and closes it (B or Esc) and carries out the requests.
+## her, with her price and the parts you haven't unlocked. The World opens and closes
+## it (B or Esc) and carries out the requests.
 
 signal test_flight_requested(grid: ShipGrid)
 signal launch_requested(grid: ShipGrid)
+signal unlock_requested(part: String)
 signal close_requested
 
 const SWATCHES := ["e9dfc9", "c0392b", "2f5d8a", "2e7d4f", "e8a948", "3d3a3f", "7d5a6b", "f2ead8"]
@@ -19,9 +21,14 @@ var view: BuildView
 var stats: ShipStats
 var selected := "frame"
 var block_rotation := 0  ## The way the selected block faces. (CanvasLayer has its own rotation.)
-var _last_helm_problem := ""  ## What the note last said about the helm, to clear when it's fixed.
+var _last_helm_problem := ""  ## The problem the note last showed (helm, locks or price), to clear when it's fixed.
 var blueprint_dir := Blueprint.DIR
 var blueprint_name := Blueprint.DEFAULT_NAME
+## Your account, what your old ship counts for at a launch, and the yard town's region.
+## Set by the World before adding the shipyard; the account kept current with set_account.
+var account: Dictionary = Economy.new_account()
+var trade_in := 0
+var region := WorldGen.Region.CALM
 
 var _altitude := 0.0
 var _confirm_path := ""  ## A save asked to replace this file; saving it again does.
@@ -33,6 +40,7 @@ var _block_about: Label
 var _stats: Label
 var _warnings: Label
 var _note: Label
+var _unlocks: VBoxContainer
 var _test_button: Button
 var _launch_button: Button
 var _undo_button: Button
@@ -68,6 +76,12 @@ func _ready() -> void:
 	_refresh()
 
 
+## Shows new_account's money and unlocks.
+func set_account(new_account: Dictionary) -> void:
+	account = new_account
+	_refresh()
+
+
 ## Picks the block to place.
 func select(type: String) -> void:
 	selected = type
@@ -75,7 +89,8 @@ func select(type: String) -> void:
 		(_palette[each] as Button).set_pressed_no_signal(each == type)
 	var info: Dictionary = Blocks.INFO[type]
 	_block_name.text = info["name"]
-	_block_stats.text = "%d kg · %d hit points" % [roundi(Tuning.BLOCKS[type]["mass"]), Tuning.BLOCKS[type]["hp"]]
+	_block_stats.text = "%d kg · %d hit points · %d crowns" % [roundi(Tuning.BLOCKS[type]["mass"]), Tuning.BLOCKS[type]["hp"],
+			Economy.PART_COST[type]]
 	_block_about.text = info["about"]
 
 
@@ -203,13 +218,34 @@ func _refresh() -> void:
 	_warnings.text = warnings_text()
 	_warnings.add_theme_color_override("font_color", UiTheme.WARNING if not stats.warnings.is_empty() else UiTheme.TEXT_DIM)
 	var helm_problem := ShipGrid.helm_problem(design.grid)
+	var locked := Economy.locked(design.grid, account["unlocks"])
+	var price := Economy.launch_cost(design.grid, trade_in)
+	var problem := helm_problem
+	if problem.is_empty() and not locked.is_empty():
+		problem = "Unlock %s to launch her." % " and ".join(locked.map(func(part: String) -> String: return Blocks.INFO[part]["name"]))
+	elif problem.is_empty() and price > account["money"]:
+		problem = "She costs %d crowns; you have %d." % [price, account["money"]]
 	_test_button.disabled = not helm_problem.is_empty()
-	_launch_button.disabled = not helm_problem.is_empty()
-	if not helm_problem.is_empty():
-		_note.text = helm_problem
+	_launch_button.disabled = not problem.is_empty()
+	_launch_button.text = "Launch · free" if price == 0 else "Launch · %d crowns" % price
+	if not problem.is_empty():
+		_note.text = problem
 	elif _note.text == _last_helm_problem:
 		_note.text = ""
-	_last_helm_problem = helm_problem
+	_last_helm_problem = problem
+	for type: String in _palette:
+		var label := "%s   %d kg" % [Blocks.INFO[type]["name"], roundi(Tuning.BLOCKS[type]["mass"])]
+		(_palette[type] as Button).text = label + ("   locked" if Economy.UNLOCKS.has(type) and not account["unlocks"].has(type) else "")
+	for child in _unlocks.get_children():
+		child.free()
+	for part in locked:
+		var part_name: String = Blocks.INFO[part]["name"]
+		if Economy.unlockable_at(part, region):
+			_unlocks.add_child(_small(UiTheme.button("Unlock %s · %d crowns" % [part_name, Economy.UNLOCKS[part]["price"]],
+					unlock_requested.emit.bind(part))))
+		else:
+			_unlocks.add_child(UiTheme.caption("%s is sold at towns in %s or further in." % [part_name,
+					WorldGen.REGION_NAMES[Economy.UNLOCKS[part]["region"]]]))
 	_undo_button.disabled = not design.can_undo()
 	_redo_button.disabled = not design.can_redo()
 	_mirror_button.text = "Mirror: %s (M)" % ("on" if design.mirror else "off")
@@ -361,6 +397,8 @@ func _build_bar(theme: Theme) -> Control:
 			_small(UiTheme.button("Blueprints", toggle_files)), _small(UiTheme.button("Close (B)", close_requested.emit))]:
 		buttons.add_child(b)
 	column.add_child(buttons)
+	_unlocks = VBoxContainer.new()
+	column.add_child(_unlocks)
 	column.add_child(UiTheme.caption(HELP))
 	_note = Label.new()
 	_note.add_theme_color_override("font_color", UiTheme.ACCENT)

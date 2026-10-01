@@ -79,6 +79,7 @@ func _ready() -> void:
 	ledger = Ledger.new(sync)
 	sync.ledger = ledger
 	ledger.told.connect(_on_told)
+	ledger.account_changed.connect(_on_account_changed)
 	add_child(ledger)
 	projectiles = Projectiles.new(sync, not session.dedicated)
 	sync.projectiles = projectiles
@@ -345,14 +346,31 @@ func open_shipyard(dock_only := true) -> void:
 		design = ShipDesign.new(ship.grid if ship != null else StarterShip.build())
 	shipyard = Shipyard.new(design, (gen.towns[_yard_town]["dock"] as Vector3).y)
 	shipyard.layer = 3
+	shipyard.account = ledger.mine
+	shipyard.trade_in = _trade_in()
+	shipyard.region = gen.towns[_yard_town]["region"]
 	shipyard.test_flight_requested.connect(test_flight)
 	shipyard.launch_requested.connect(launch)
+	shipyard.unlock_requested.connect(ledger.unlock)
 	shipyard.close_requested.connect(close_shipyard)
 	add_child(shipyard)
 	player.enabled = false
 	hud.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_viewport().disable_3d = true
+
+
+## What your old ship counts for at a launch: your own ship as this machine has her
+## (hit points and spares), else her insurance.
+func _trade_in() -> int:
+	var own := sync.ship_of(multiplayer.get_unique_id(), false)
+	return Economy.value(own.grid, own.spares) if own != null else ledger.mine["insured"]
+
+
+func _on_account_changed() -> void:
+	if shipyard != null:
+		shipyard.trade_in = _trade_in()
+		shipyard.set_account(ledger.mine)
 
 
 ## Closes the shipyard, keeping the design, and gives you back the controls.
@@ -449,7 +467,7 @@ func _on_ship_lost(removed: Ship) -> void:
 		return
 	if removed.captain == multiplayer.get_unique_id() and not removed.test:
 		design = ShipDesign.new(removed.blueprint)
-		hud.show_message("Your ship is lost to the Roil. The shipyard has her blueprint: launch to rebuild her.")
+		hud.show_message("Your ship is lost to the Roil. The shipyard has her blueprint, and her insurance pays half of her.")
 	elif ship == removed:
 		hud.show_message("She's lost to the Roil.")
 

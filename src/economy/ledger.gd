@@ -90,6 +90,47 @@ func trade(good: String, count: int) -> void:
 		_trade.rpc_id(1, good, count)
 
 
+## This machine's player unlocks part, at a town's shipyard that sells it.
+func unlock(part: String) -> void:
+	if sync.session.is_server():
+		_unlock_for(multiplayer.get_unique_id(), part)
+	else:
+		_unlock.rpc_id(1, part)
+
+
+## Server: checks peer may launch design in place of own (their ship, or null) and
+## charges them for it. "" when charged, else why not. A launch with no ship of
+## their own uses up their insurance.
+func charge_launch(peer: int, design: ShipGrid, own: Ship) -> String:
+	var account := account_of(peer)
+	var locked := Economy.locked(design, account["unlocks"])
+	if not locked.is_empty():
+		return "Unlock %s first." % " and ".join(locked.map(func(part: String) -> String: return Blocks.INFO[part]["name"]))
+	var crates := own.grid.cargo.size() if own != null else 0
+	var bays := design.cells_of("cargo_bay").size()
+	if crates > bays:
+		return "She has room for %d of the %d crates aboard. Sell some first." % [bays, crates]
+	var price := Economy.launch_cost(design, trade_in(peer, own))
+	if account["money"] < price:
+		return "She costs %d crowns and you have %d." % [price, account["money"]]
+	if own == null:
+		account["insured"] = 0
+	pay(peer, -price)
+	return ""
+
+
+## Server: what peer's old ship counts for at a launch: own as she is, or with no
+## ship of their own, her insurance.
+func trade_in(peer: int, own: Ship) -> int:
+	return Economy.value(own.grid, own.spares) if own != null else account_of(peer)["insured"]
+
+
+## Server: captain's ship, built to blueprint, is lost: she's insured for part of her cost.
+func insure(captain: int, blueprint: ShipGrid) -> void:
+	account_of(captain)["insured"] = roundi(Economy.INSURANCE * Economy.cost(blueprint))
+	send_account(captain)
+
+
 ## This machine's player asks for the board of the town whose dock they're at.
 func ask_board() -> void:
 	if sync.session.is_server():
@@ -242,6 +283,27 @@ func _trade_for(peer: int, good: String, count: int) -> void:
 			pay(peer, Economy.sell_price(sync.gen, town, good))
 			return
 	tell(peer, "You have no %s aboard." % good_name)
+
+
+func _unlock_for(peer: int, part: String) -> void:
+	if not Economy.UNLOCKS.has(part):
+		return
+	var account := account_of(peer)
+	var part_name: String = Blocks.INFO[part]["name"]
+	var price: int = Economy.UNLOCKS[part]["price"]
+	var town := _town_of(peer)
+	if account["unlocks"].has(part):
+		tell(peer, "You've unlocked %s already." % part_name)
+	elif town < 0:
+		tell(peer, "Unlock parts at a town's shipyard.")
+	elif not Economy.unlockable_at(part, sync.gen.towns[town]["region"]):
+		tell(peer, "%s isn't sold here: try a town in %s or further in." % [part_name, WorldGen.REGION_NAMES[Economy.UNLOCKS[part]["region"]]])
+	elif account["money"] < price:
+		tell(peer, "You can't afford %s (%d crowns)." % [part_name, price])
+	else:
+		account["unlocks"].append(part)
+		pay(peer, -price)
+		tell(peer, "Unlocked %s." % part_name)
 
 
 ## Server: the board of town, drawn the first time.
@@ -417,6 +479,14 @@ func _board(town: Variant, offers: Variant) -> void:
 		clean.append(contract)
 	boards[town] = clean
 	board_changed.emit(town)
+
+
+## Client -> server: unlock part where I am.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _unlock(part: Variant) -> void:
+	var peer := multiplayer.get_remote_sender_id()
+	if sync.session.is_server() and part is String and _may_ask(peer):
+		_unlock_for(peer, part)
 
 
 ## Client -> server: the board of the town I'm at.
